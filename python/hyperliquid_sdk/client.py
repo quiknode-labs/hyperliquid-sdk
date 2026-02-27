@@ -18,7 +18,7 @@ from decimal import Decimal
 import requests
 from eth_account import Account
 
-from .order import Order, PlacedOrder, Side, TIF
+from .order import Order, PlacedOrder, Side, TIF, TriggerOrder, TpSl, OrderGrouping
 from .errors import (
     HyperliquidError,
     BuildError,
@@ -43,9 +43,10 @@ class HyperliquidSDK:
     Hyperliquid SDK — Stupidly simple, insanely powerful.
 
     Unified access to ALL Hyperliquid APIs through a single SDK instance.
+    All requests route through your QuickNode endpoint — never directly to Hyperliquid.
 
     Examples:
-        # QUICKNODE USERS — Full power with one line:
+        # Initialize with QuickNode endpoint (required):
         sdk = HyperliquidSDK("https://your-endpoint.quiknode.pro/TOKEN")
 
         # Access everything through the SDK:
@@ -69,21 +70,19 @@ class HyperliquidSDK:
         sdk.close_position("BTC")
         sdk.cancel_all()
 
-        # PUBLIC API ONLY (no QuickNode endpoint):
-        sdk = HyperliquidSDK()
+        # Read-only operations (no private key):
+        sdk = HyperliquidSDK("https://...")
         sdk.markets()     # Get all markets
         sdk.get_mid("BTC")  # Get mid price
     """
 
-    DEFAULT_API_URL = "https://send.hyperliquidapi.com"
-    DEFAULT_INFO_URL = "https://api.hyperliquid.xyz/info"
     DEFAULT_SLIPPAGE = 0.03  # 3% for market orders
     DEFAULT_TIMEOUT = 30  # seconds
     CACHE_TTL = 300  # 5 minutes cache TTL for market metadata
 
     def __init__(
         self,
-        endpoint: Optional[str] = None,
+        endpoint: str,
         *,
         private_key: Optional[str] = None,
         auto_approve: bool = True,
@@ -94,8 +93,10 @@ class HyperliquidSDK:
         """
         Initialize the SDK.
 
+        All requests go through your QuickNode endpoint — never directly to Hyperliquid.
+
         Args:
-            endpoint: QuickNode endpoint URL. Enables: sdk.info, sdk.core, sdk.evm, sdk.stream, sdk.grpc
+            endpoint: QuickNode endpoint URL (required). All API requests route through this.
             private_key: Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var.
                         Required for trading. Optional for read-only operations.
             auto_approve: Automatically approve builder fee for trading (default: True)
@@ -103,6 +104,12 @@ class HyperliquidSDK:
             slippage: Default slippage for market orders (default: 3%)
             timeout: Request timeout in seconds (default: 30)
         """
+        if not endpoint:
+            raise ValueError(
+                "endpoint is required. Get your QuickNode Hyperliquid endpoint at "
+                "https://www.quicknode.com/chains/hyperliquid"
+            )
+
         # Store endpoint for lazy initialization of sub-clients
         self._endpoint = endpoint
         self._timeout = timeout
@@ -121,9 +128,15 @@ class HyperliquidSDK:
             self._wallet = None
             self.address = None
 
-        # Config for builder API (trading)
-        self._api_url = self.DEFAULT_API_URL
-        self._info_url = self.DEFAULT_INFO_URL
+        # All requests go through QuickNode endpoint
+        # Build base URL: strip any trailing path, ensure clean base
+        base = endpoint.rstrip("/")
+        # If it ends with /info or similar, use parent path
+        if base.endswith("/info"):
+            base = base.rsplit("/info", 1)[0]
+
+        self._api_url = f"{base}/send"  # Trading/exchange operations
+        self._info_url = f"{base}/info"  # Info API (markets, prices, etc.)
         self._session = requests.Session()
 
         # Cache for market metadata with TTL (reduces API calls)
@@ -287,6 +300,7 @@ class HyperliquidSDK:
         price: Optional[Union[float, int, str]] = None,
         tif: Union[str, TIF] = TIF.IOC,
         reduce_only: bool = False,
+        grouping: OrderGrouping = OrderGrouping.NA,
     ) -> PlacedOrder:
         """
         Place a buy order.
@@ -298,6 +312,7 @@ class HyperliquidSDK:
             price: Limit price (omit for market order)
             tif: Time in force ("ioc", "gtc", "alo", "market")
             reduce_only: Close position only, no new exposure
+            grouping: Order grouping for TP/SL attachment
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -314,6 +329,7 @@ class HyperliquidSDK:
             price=price,
             tif=tif,
             reduce_only=reduce_only,
+            grouping=grouping,
         )
 
     def sell(
@@ -325,6 +341,7 @@ class HyperliquidSDK:
         price: Optional[Union[float, int, str]] = None,
         tif: Union[str, TIF] = TIF.IOC,
         reduce_only: bool = False,
+        grouping: OrderGrouping = OrderGrouping.NA,
     ) -> PlacedOrder:
         """
         Place a sell order.
@@ -336,6 +353,7 @@ class HyperliquidSDK:
             price: Limit price (omit for market order)
             tif: Time in force ("ioc", "gtc", "alo", "market")
             reduce_only: Close position only, no new exposure
+            grouping: Order grouping for TP/SL attachment
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -348,6 +366,7 @@ class HyperliquidSDK:
             price=price,
             tif=tif,
             reduce_only=reduce_only,
+            grouping=grouping,
         )
 
     # Aliases for perp traders
@@ -418,6 +437,947 @@ class HyperliquidSDK:
         return self._execute_order(order)
 
     # ═══════════════════════════════════════════════════════════════════════════
+    # TRIGGER ORDERS (Stop Loss / Take Profit)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def stop_loss(
+        self,
+        asset: str,
+        *,
+        size: Union[float, str],
+        trigger_price: Union[float, int, str],
+        limit_price: Optional[Union[float, int, str]] = None,
+        side: Side = Side.SELL,
+        reduce_only: bool = True,
+        grouping: OrderGrouping = OrderGrouping.NA,
+    ) -> PlacedOrder:
+        """
+        Place a stop-loss trigger order.
+
+        Stop loss activates when price moves AGAINST your position:
+        - For longs: triggers when price FALLS to trigger_price
+        - For shorts: triggers when price RISES to trigger_price
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            size: Order size in asset units
+            trigger_price: Price at which the order activates
+            limit_price: Limit price for execution (None = market order)
+            side: Order side when triggered (default: SELL for closing longs)
+            reduce_only: Only reduce position, don't open new one (default: True)
+            grouping: Order grouping for TP/SL attachment
+
+        Returns:
+            PlacedOrder with trigger order details
+
+        Examples:
+            # Stop loss market order (closes long when BTC drops to 60000)
+            sdk.stop_loss("BTC", size=0.001, trigger_price=60000)
+
+            # Stop loss limit order (sell at 59900 when price hits 60000)
+            sdk.stop_loss("BTC", size=0.001, trigger_price=60000, limit_price=59900)
+
+            # Stop loss for short position (buy back when price rises)
+            sdk.stop_loss("BTC", size=0.001, trigger_price=75000, side=Side.BUY)
+        """
+        trigger = TriggerOrder.stop_loss(asset, side=side)
+        trigger.size(size)
+        trigger.trigger_price(trigger_price)
+        if limit_price is not None:
+            trigger.limit(limit_price)
+        else:
+            trigger.market()
+        trigger.reduce_only(reduce_only)
+
+        return self._execute_trigger_order(trigger, grouping)
+
+    def take_profit(
+        self,
+        asset: str,
+        *,
+        size: Union[float, str],
+        trigger_price: Union[float, int, str],
+        limit_price: Optional[Union[float, int, str]] = None,
+        side: Side = Side.SELL,
+        reduce_only: bool = True,
+        grouping: OrderGrouping = OrderGrouping.NA,
+    ) -> PlacedOrder:
+        """
+        Place a take-profit trigger order.
+
+        Take profit activates when price moves IN FAVOR of your position:
+        - For longs: triggers when price RISES to trigger_price
+        - For shorts: triggers when price FALLS to trigger_price
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            size: Order size in asset units
+            trigger_price: Price at which the order activates
+            limit_price: Limit price for execution (None = market order)
+            side: Order side when triggered (default: SELL for closing longs)
+            reduce_only: Only reduce position, don't open new one (default: True)
+            grouping: Order grouping for TP/SL attachment
+
+        Returns:
+            PlacedOrder with trigger order details
+
+        Examples:
+            # Take profit market order (closes long when BTC rises to 80000)
+            sdk.take_profit("BTC", size=0.001, trigger_price=80000)
+
+            # Take profit limit order
+            sdk.take_profit("BTC", size=0.001, trigger_price=80000, limit_price=79900)
+
+            # Take profit for short position (buy back when price drops)
+            sdk.take_profit("BTC", size=0.001, trigger_price=50000, side=Side.BUY)
+        """
+        trigger = TriggerOrder.take_profit(asset, side=side)
+        trigger.size(size)
+        trigger.trigger_price(trigger_price)
+        if limit_price is not None:
+            trigger.limit(limit_price)
+        else:
+            trigger.market()
+        trigger.reduce_only(reduce_only)
+
+        return self._execute_trigger_order(trigger, grouping)
+
+    # Aliases for convenience
+    sl = stop_loss
+    tp = take_profit
+
+    def trigger_order(
+        self,
+        trigger: TriggerOrder,
+        grouping: OrderGrouping = OrderGrouping.NA,
+    ) -> PlacedOrder:
+        """
+        Place a trigger order using the fluent TriggerOrder builder.
+
+        Args:
+            trigger: TriggerOrder built with TriggerOrder.stop_loss() or .take_profit()
+            grouping: Order grouping for TP/SL attachment
+
+        Example:
+            order = TriggerOrder.stop_loss("BTC").size(0.001).trigger_price(60000).market()
+            sdk.trigger_order(order)
+        """
+        return self._execute_trigger_order(trigger, grouping)
+
+    def _execute_trigger_order(
+        self,
+        trigger: TriggerOrder,
+        grouping: OrderGrouping = OrderGrouping.NA,
+    ) -> PlacedOrder:
+        """Execute a trigger order through build→sign→send."""
+        trigger.validate()
+        action = trigger.to_action(grouping)
+        result = self._build_sign_send(action)
+
+        # Build a pseudo Order for PlacedOrder.from_response
+        order = Order(asset=trigger.asset, side=trigger.side)
+        order._size = trigger._size
+        order._price = trigger._limit_px or trigger._trigger_px
+
+        return PlacedOrder.from_response(
+            result.get("exchangeResponse", {}),
+            order,
+            sdk=self,
+        )
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TWAP ORDERS (Time-Weighted Average Price)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def twap_order(
+        self,
+        asset: str,
+        *,
+        size: Union[float, str],
+        is_buy: bool,
+        duration_minutes: int,
+        reduce_only: bool = False,
+        randomize: bool = True,
+    ) -> dict:
+        """
+        Place a TWAP (Time-Weighted Average Price) order.
+
+        TWAP orders execute gradually over a specified duration, spreading
+        the order into smaller slices to minimize market impact.
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            size: Total size to execute
+            is_buy: True for buy, False for sell
+            duration_minutes: Time to execute over (in minutes)
+            reduce_only: Only reduce position, don't open new one
+            randomize: Randomize slice timing (default: True)
+
+        Returns:
+            Dict with twapId and status
+
+        Examples:
+            # Buy 1 BTC over 30 minutes
+            sdk.twap_order("BTC", size=1.0, is_buy=True, duration_minutes=30)
+
+            # Sell 0.5 ETH over 1 hour to close position
+            sdk.twap_order("ETH", size=0.5, is_buy=False, duration_minutes=60, reduce_only=True)
+        """
+        action = {
+            "type": "twapOrder",
+            "twap": {
+                "a": asset,
+                "b": is_buy,
+                "s": str(size),
+                "r": reduce_only,
+                "m": duration_minutes,
+                "t": randomize,
+            },
+        }
+        return self._build_sign_send(action)
+
+    def twap_cancel(self, asset: str, twap_id: int) -> dict:
+        """
+        Cancel an active TWAP order.
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            twap_id: TWAP order ID to cancel
+
+        Returns:
+            Exchange response
+
+        Example:
+            result = sdk.twap_order("BTC", size=1.0, is_buy=True, duration_minutes=30)
+            sdk.twap_cancel("BTC", result["twapId"])
+        """
+        action = {
+            "type": "twapCancel",
+            "a": asset,
+            "t": twap_id,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LEVERAGE MANAGEMENT
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def update_leverage(
+        self,
+        asset: str,
+        leverage: int,
+        *,
+        is_cross: bool = True,
+    ) -> dict:
+        """
+        Update leverage for an asset.
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            leverage: Target leverage (e.g., 10 for 10x)
+            is_cross: True for cross margin, False for isolated margin
+
+        Returns:
+            Exchange response
+
+        Examples:
+            # Set 10x cross margin leverage
+            sdk.update_leverage("BTC", 10)
+
+            # Set 5x isolated margin leverage
+            sdk.update_leverage("ETH", 5, is_cross=False)
+        """
+        action = {
+            "type": "updateLeverage",
+            "asset": asset,
+            "isCross": is_cross,
+            "leverage": leverage,
+        }
+        return self._build_sign_send(action)
+
+    def update_isolated_margin(
+        self,
+        asset: str,
+        *,
+        is_buy: bool,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Add or remove margin from an isolated position.
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            is_buy: True for long position, False for short position
+            amount: Amount in USD (positive to add, negative to remove)
+
+        Returns:
+            Exchange response
+
+        Examples:
+            # Add $100 margin to long BTC position
+            sdk.update_isolated_margin("BTC", is_buy=True, amount=100)
+
+            # Remove $50 margin from short ETH position
+            sdk.update_isolated_margin("ETH", is_buy=False, amount=-50)
+        """
+        # API expects amount in millionths (1000000 = 1 USD)
+        ntli = int(amount * 1_000_000)
+
+        action = {
+            "type": "updateIsolatedMargin",
+            "asset": asset,
+            "isBuy": is_buy,
+            "ntli": ntli,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TRANSFER OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def transfer_usd(
+        self,
+        destination: str,
+        amount: Union[float, str],
+    ) -> dict:
+        """
+        Transfer USDC to another Hyperliquid address.
+
+        Internal transfer within Hyperliquid (no gas fees, instant).
+
+        Args:
+            destination: Recipient address (42-char hex)
+            amount: Amount in USD
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.transfer_usd("0x1234...abcd", 100)
+        """
+        action = {
+            "type": "usdSend",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",  # Arbitrum
+            "destination": destination,
+            "amount": str(amount),
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def transfer_spot(
+        self,
+        token: str,
+        destination: str,
+        amount: Union[float, str],
+    ) -> dict:
+        """
+        Transfer spot tokens to another Hyperliquid address.
+
+        Internal transfer within Hyperliquid (no gas fees, instant).
+
+        Args:
+            token: Token in "TokenName:tokenId" format (e.g., "PURR:0xc1fb593aeffbeb02f85e0308e9956a90")
+            destination: Recipient address (42-char hex)
+            amount: Amount to transfer
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.transfer_spot("PURR:0xc1fb...", "0x1234...abcd", 100)
+        """
+        action = {
+            "type": "spotSend",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "token": token,
+            "destination": destination,
+            "amount": str(amount),
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def withdraw(
+        self,
+        amount: Union[float, str],
+        destination: Optional[str] = None,
+    ) -> dict:
+        """
+        Initiate a withdrawal to Arbitrum.
+
+        Note: ~$1 fee, ~5 minutes finalization time.
+
+        Args:
+            amount: Amount in USD to withdraw
+            destination: Destination address (default: self.address)
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.withdraw(100)  # Withdraw to self
+            sdk.withdraw(100, "0x1234...abcd")  # Withdraw to another address
+        """
+        if destination is None:
+            self._require_wallet()
+            destination = self.address
+
+        action = {
+            "type": "withdraw3",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "destination": destination,
+            "amount": str(amount),
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def transfer_spot_to_perp(self, amount: Union[float, str]) -> dict:
+        """
+        Transfer USDC from spot balance to perp balance.
+
+        Args:
+            amount: Amount in USD
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.transfer_spot_to_perp(100)
+        """
+        action = {
+            "type": "usdClassTransfer",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "amount": str(amount),
+            "toPerp": True,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def transfer_perp_to_spot(self, amount: Union[float, str]) -> dict:
+        """
+        Transfer USDC from perp balance to spot balance.
+
+        Args:
+            amount: Amount in USD
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.transfer_perp_to_spot(100)
+        """
+        action = {
+            "type": "usdClassTransfer",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "amount": str(amount),
+            "toPerp": False,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # VAULT OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def vault_deposit(
+        self,
+        vault_address: str,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Deposit USDC into a vault.
+
+        Args:
+            vault_address: Vault address (42-char hex)
+            amount: Amount in USD
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.vault_deposit("0xVault...", 1000)
+        """
+        action = {
+            "type": "vaultTransfer",
+            "vaultAddress": vault_address,
+            "isDeposit": True,
+            "usd": float(amount),
+        }
+        return self._build_sign_send(action)
+
+    def vault_withdraw(
+        self,
+        vault_address: str,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Withdraw USDC from a vault.
+
+        Args:
+            vault_address: Vault address (42-char hex)
+            amount: Amount in USD
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.vault_withdraw("0xVault...", 500)
+        """
+        action = {
+            "type": "vaultTransfer",
+            "vaultAddress": vault_address,
+            "isDeposit": False,
+            "usd": float(amount),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # AGENT/API KEY MANAGEMENT
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def approve_agent(
+        self,
+        agent_address: str,
+        name: Optional[str] = None,
+    ) -> dict:
+        """
+        Approve an agent (API wallet) to trade on your behalf.
+
+        Limits: 1 unnamed + 3 named agents per account, +2 per subaccount.
+
+        Args:
+            agent_address: Agent wallet address (42-char hex)
+            name: Optional name for the agent (max 3 named agents)
+
+        Returns:
+            Exchange response
+
+        Example:
+            # Approve unnamed agent
+            sdk.approve_agent("0xAgent...")
+
+            # Approve named agent
+            sdk.approve_agent("0xAgent...", name="my-trading-bot")
+        """
+        action = {
+            "type": "approveAgent",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "agentAddress": agent_address,
+            "agentName": name,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # STAKING OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def stake(self, amount: Union[float, int]) -> dict:
+        """
+        Stake tokens.
+
+        Args:
+            amount: Amount to stake
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.stake(1000)
+        """
+        # Convert to wei (assuming 18 decimals)
+        wei = int(amount * 10**18)
+
+        action = {
+            "type": "cDeposit",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "wei": wei,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def unstake(self, amount: Union[float, int]) -> dict:
+        """
+        Unstake tokens.
+
+        Note: 7-day unstaking queue applies.
+
+        Args:
+            amount: Amount to unstake
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.unstake(500)
+        """
+        wei = int(amount * 10**18)
+
+        action = {
+            "type": "cWithdraw",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "wei": wei,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def delegate(
+        self,
+        validator: str,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Delegate staked tokens to a validator.
+
+        Note: 1-day delegation lockup per validator.
+
+        Args:
+            validator: Validator address (42-char hex)
+            amount: Amount to delegate
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.delegate("0xValidator...", 500)
+        """
+        wei = int(amount * 10**18)
+
+        action = {
+            "type": "tokenDelegate",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "validator": validator,
+            "isUndelegate": False,
+            "wei": wei,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    def undelegate(
+        self,
+        validator: str,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Undelegate staked tokens from a validator.
+
+        Args:
+            validator: Validator address (42-char hex)
+            amount: Amount to undelegate
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.undelegate("0xValidator...", 500)
+        """
+        wei = int(amount * 10**18)
+
+        action = {
+            "type": "tokenDelegate",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "validator": validator,
+            "isUndelegate": True,
+            "wei": wei,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ACCOUNT ABSTRACTION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def set_abstraction(
+        self,
+        mode: str,
+        *,
+        user: Optional[str] = None,
+    ) -> dict:
+        """
+        Set account abstraction mode.
+
+        Args:
+            mode: Abstraction mode - "disabled", "unifiedAccount", or "portfolioMargin"
+            user: User address (default: self, can be subaccount)
+
+        Returns:
+            Exchange response
+
+        Examples:
+            # Enable unified account mode
+            sdk.set_abstraction("unifiedAccount")
+
+            # Enable portfolio margin
+            sdk.set_abstraction("portfolioMargin")
+
+            # Disable abstraction
+            sdk.set_abstraction("disabled")
+        """
+        if user is None:
+            self._require_wallet()
+            user = self.address
+
+        action = {
+            "type": "userSetAbstraction",
+            "user": user,
+            "abstraction": mode,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ADVANCED TRANSFERS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def send_asset(
+        self,
+        token: str,
+        amount: Union[float, str],
+        destination: str,
+        *,
+        source_dex: str = "",
+        destination_dex: str = "",
+        from_sub_account: Optional[str] = None,
+    ) -> dict:
+        """
+        Generalized asset transfer between DEXs and accounts.
+
+        Args:
+            token: Token in "TokenName:tokenId" format (e.g., "USDC:0x...")
+            amount: Amount to transfer
+            destination: Destination address
+            source_dex: Source DEX ("" for USDC, "spot" for spot)
+            destination_dex: Destination DEX
+            from_sub_account: Optional sub-account address to send from
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.send_asset("USDC:0x...", 100, "0xDest...", source_dex="spot", destination_dex="")
+        """
+        action = {
+            "type": "sendAsset",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "destination": destination,
+            "sourceDex": source_dex,
+            "destinationDex": destination_dex,
+            "token": token,
+            "amount": str(amount),
+            "fromSubAccount": from_sub_account or "",
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # RATE LIMITING
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def reserve_request_weight(self, weight: int) -> dict:
+        """
+        Purchase additional rate limit capacity.
+
+        Cost: 0.0005 USDC per request from Perps balance.
+
+        Args:
+            weight: Number of requests to reserve
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.reserve_request_weight(1000)  # Reserve 1000 additional requests
+        """
+        action = {
+            "type": "reserveRequestWeight",
+            "weight": weight,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ADDITIONAL MARGIN OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def top_up_isolated_only_margin(
+        self,
+        asset: str,
+        amount: Union[float, int],
+    ) -> dict:
+        """
+        Top up isolated-only margin for an asset.
+
+        This is an alternative to update_isolated_margin that doesn't require
+        specifying the position side. Useful for adding margin to positions
+        when you don't need to specify long/short.
+
+        Args:
+            asset: Asset name ("BTC", "ETH")
+            amount: Amount in USD to add (positive values only)
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.top_up_isolated_only_margin("BTC", 100)  # Add $100 margin
+        """
+        # API expects amount in millionths (1000000 = 1 USD)
+        ntli = int(amount * 1_000_000)
+
+        action = {
+            "type": "topUpIsolatedOnlyMargin",
+            "asset": asset,
+            "ntli": ntli,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EVM TRANSFERS WITH DATA
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def send_to_evm_with_data(
+        self,
+        destination: str,
+        amount: Union[float, str],
+        data: str,
+    ) -> dict:
+        """
+        Transfer to HyperEVM with custom data payload.
+
+        Send USDC to a HyperEVM address with arbitrary data attached,
+        enabling interactions with smart contracts.
+
+        Args:
+            destination: Destination address on HyperEVM (42-char hex)
+            amount: Amount in USD
+            data: Hex-encoded data payload (e.g., "0x...")
+
+        Returns:
+            Exchange response
+
+        Example:
+            # Send 100 USDC to a contract with custom calldata
+            sdk.send_to_evm_with_data(
+                "0xContract...",
+                100,
+                "0x1234abcd..."  # Contract calldata
+            )
+        """
+        action = {
+            "type": "sendToEvmWithData",
+            "hyperliquidChain": "Mainnet",
+            "signatureChainId": "0xa4b1",
+            "destination": destination,
+            "amount": str(amount),
+            "data": data,
+            "time": int(time_module.time() * 1000),
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # AGENT ABSTRACTION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def agent_set_abstraction(
+        self,
+        mode: str,
+        *,
+        user: Optional[str] = None,
+    ) -> dict:
+        """
+        Set account abstraction mode as an agent.
+
+        This is the agent-level version of set_abstraction, used when
+        operating as an approved agent on behalf of a user.
+
+        Args:
+            mode: Abstraction mode - "disabled", "unifiedAccount", or "portfolioMargin"
+            user: User address the agent is operating for (default: self)
+
+        Returns:
+            Exchange response
+
+        Examples:
+            # As an agent, enable unified account for user
+            sdk.agent_set_abstraction("unifiedAccount", user="0xUser...")
+
+            # Disable abstraction for user
+            sdk.agent_set_abstraction("disabled", user="0xUser...")
+        """
+        if user is None:
+            self._require_wallet()
+            user = self.address
+
+        action = {
+            "type": "agentSetAbstraction",
+            "user": user,
+            "abstraction": mode,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # NOOP (NONCE CONSUMPTION)
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def noop(self) -> dict:
+        """
+        No-operation action to consume a nonce.
+
+        This action does nothing except increment the nonce. Useful for:
+        - Invalidating previously signed but unsent transactions
+        - Syncing nonce state
+        - Testing signing infrastructure
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.noop()  # Consume nonce without any action
+        """
+        action = {
+            "type": "noop",
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # VALIDATOR OPERATIONS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def validator_l1_stream(
+        self,
+        funding_rate: str,
+    ) -> dict:
+        """
+        Submit a validator vote for the risk-free rate.
+
+        This is a validator-only action for participating in the L1 consensus
+        on the risk-free rate used for funding calculations.
+
+        Args:
+            funding_rate: Proposed funding rate as a decimal string (e.g., "0.0001")
+
+        Returns:
+            Exchange response
+
+        Example:
+            # Validator submits their rate vote
+            sdk.validator_l1_stream("0.0001")
+        """
+        action = {
+            "type": "validatorL1Stream",
+            "fundingRate": funding_rate,
+        }
+        return self._build_sign_send(action)
+
+    # ═══════════════════════════════════════════════════════════════════════════
     # POSITION MANAGEMENT
     # ═══════════════════════════════════════════════════════════════════════════
 
@@ -471,7 +1431,13 @@ class HyperliquidSDK:
 
         Returns:
             Exchange response
+
+        Raises:
+            ValidationError: If oid is invalid
         """
+        if not isinstance(oid, int) or oid <= 0:
+            raise ValidationError(f"oid must be a positive integer, got: {oid}")
+
         cancel_action = {
             "type": "cancel",
             "cancels": [{"a": asset or 0, "o": oid}],
@@ -861,6 +1827,7 @@ class HyperliquidSDK:
         price: Optional[Union[float, int, str]],
         tif: Union[str, TIF],
         reduce_only: bool,
+        grouping: OrderGrouping = OrderGrouping.NA,
     ) -> PlacedOrder:
         """Internal order placement logic."""
         # Build order
@@ -898,11 +1865,18 @@ class HyperliquidSDK:
         if reduce_only:
             order._reduce_only = True
 
-        return self._execute_order(order)
+        return self._execute_order(order, grouping)
 
-    def _execute_order(self, order: Order) -> PlacedOrder:
+    def _execute_order(
+        self,
+        order: Order,
+        grouping: OrderGrouping = OrderGrouping.NA,
+    ) -> PlacedOrder:
         """Execute an order through build→sign→send."""
         action = order.to_action()
+        # Add grouping if specified
+        if grouping != OrderGrouping.NA:
+            action["grouping"] = grouping.value
         result = self._build_sign_send(action)
         return PlacedOrder.from_response(
             result.get("exchangeResponse", {}),
@@ -960,9 +1934,9 @@ class HyperliquidSDK:
         }
 
     def _exchange(self, body: dict) -> dict:
-        """POST to /exchange endpoint."""
+        """POST to send/exchange endpoint (via QuickNode)."""
         try:
-            resp = self._session.post(f"{self._api_url}/exchange", json=body, timeout=self._timeout)
+            resp = self._session.post(self._api_url, json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Exchange request timed out after {self._timeout}s",

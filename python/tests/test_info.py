@@ -52,9 +52,9 @@ class TestInfoMethods:
         result = info.all_mids()
 
         assert result == {"BTC": "67000.5", "ETH": "3500.25"}
-        # Should use proxy URL for allMids
+        # All requests go through QuickNode endpoint
         call_args = info._session.post.call_args
-        assert "send.hyperliquidapi.com" in call_args[0][0]
+        assert "test.quiknode.pro" in call_args[0][0]
 
     def test_meta(self, info):
         """Test meta method."""
@@ -104,9 +104,9 @@ class TestInfoMethods:
         result = info.l2_book("BTC")
 
         assert result["coin"] == "BTC"
-        # l2Book should use proxy
+        # All requests go through QuickNode endpoint
         call_args = info._session.post.call_args
-        assert "send.hyperliquidapi.com" in call_args[0][0]
+        assert "test.quiknode.pro" in call_args[0][0]
 
     def test_open_orders(self, info):
         """Test open_orders method."""

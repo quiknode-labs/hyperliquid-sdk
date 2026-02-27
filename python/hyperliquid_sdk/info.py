@@ -3,18 +3,14 @@ HyperCore Info API Client — Market data, positions, orders, and more.
 
 50+ methods for querying Hyperliquid's info endpoint.
 
-Methods are automatically routed:
-- QuickNode: meta, clearinghouseState, vaults, delegations, etc.
-- Proxied: allMids, l2Book, recentTrades, predictedFundings, metaAndAssetCtxs, candleSnapshot
-
-The SDK handles routing automatically — you don't need to think about it.
+All requests route through your QuickNode endpoint — never directly to Hyperliquid.
 
 Example:
     >>> from hyperliquid_sdk import Info
     >>> info = Info("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
     >>> print(info.meta())  # Exchange metadata
     >>> print(info.clearinghouse_state("0x..."))  # User positions
-    >>> print(info.all_mids())  # Real-time mid prices (auto-proxied)
+    >>> print(info.all_mids())  # Real-time mid prices
 """
 
 from __future__ import annotations
@@ -24,20 +20,6 @@ from urllib.parse import urlparse, urljoin
 import requests
 
 from .errors import HyperliquidError, GeoBlockedError
-
-# Proxy URL for Info methods not available on QuickNode
-_PROXY_INFO_URL = "https://send.hyperliquidapi.com/info"
-
-# Types that require proxying (not available on QuickNode endpoints)
-_PROXIED_TYPES = frozenset([
-    "allMids",
-    "l2Book",
-    "recentTrades",
-    "predictedFundings",
-    "metaAndAssetCtxs",
-    "candleSnapshot",
-    "orderStatus",
-])
 
 
 class Info:
@@ -74,14 +56,10 @@ class Info:
         self._session = requests.Session()
 
     def _build_info_url(self, url: str) -> str:
-        """Build the /info endpoint URL."""
+        """Build the /info endpoint URL from QuickNode endpoint."""
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}"
         path_parts = [p for p in parsed.path.strip("/").split("/") if p]
-
-        # Check if this is the public Hyperliquid API
-        if "hyperliquid.xyz" in parsed.netloc or "api.hyperliquid" in parsed.netloc:
-            return f"{base}/info"
 
         # Check if URL already ends with /info
         if path_parts and path_parts[-1] == "info":
@@ -90,7 +68,7 @@ class Info:
         # Find the token (not a known path like info, evm, etc.)
         token = None
         for part in path_parts:
-            if part not in ("info", "hypercore", "evm", "nanoreth", "ws"):
+            if part not in ("info", "hypercore", "evm", "nanoreth", "ws", "send"):
                 token = part
                 break
 
@@ -99,12 +77,10 @@ class Info:
         return f"{base}/info"
 
     def _post(self, body: Dict[str, Any]) -> Any:
-        """POST to /info endpoint, routing to proxy for unsupported types."""
+        """POST to /info endpoint (via QuickNode)."""
         req_type = body.get("type", "")
-        url = _PROXY_INFO_URL if req_type in _PROXIED_TYPES else self._info_url
-
         try:
-            resp = self._session.post(url, json=body, timeout=self._timeout)
+            resp = self._session.post(self._info_url, json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",
@@ -451,6 +427,149 @@ class Info:
     def approved_builders(self, user: str) -> List[Dict[str, Any]]:
         """Get list of approved builders for a user."""
         return self._post({"type": "approvedBuilders", "user": user})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # TWAP
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def user_twap_history(self, user: str) -> List[Dict[str, Any]]:
+        """
+        Get user's TWAP order history.
+
+        Returns up to 2000 most recent TWAP orders with status.
+
+        Args:
+            user: User address
+
+        Returns:
+            List of TWAP orders with status
+        """
+        return self._post({"type": "userTwapHistory", "user": user})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # BORROW/LEND
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def borrow_lend_user_state(self, user: str) -> Dict[str, Any]:
+        """
+        Get user's borrow/lend positions.
+
+        Returns token-indexed borrow/supply positions, health status, health factor.
+
+        Args:
+            user: User address
+        """
+        return self._post({"type": "borrowLendUserState", "user": user})
+
+    def borrow_lend_reserve_state(self, token: int) -> Dict[str, Any]:
+        """
+        Get borrow/lend reserve state for a token.
+
+        Returns yearly rates, balance, utilization, oracle price, LTV, total supplied/borrowed.
+
+        Args:
+            token: Token index
+        """
+        return self._post({"type": "borrowLendReserveState", "token": token})
+
+    def all_borrow_lend_reserve_states(self) -> List[Dict[str, Any]]:
+        """
+        Get borrow/lend reserve states for all tokens.
+
+        Returns all reserve states with rates and utilization.
+        """
+        return self._post({"type": "allBorrowLendReserveStates"})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ACCOUNT ABSTRACTION
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def user_abstraction(self, user: str) -> Dict[str, Any]:
+        """
+        Get user's account abstraction mode.
+
+        Returns abstraction mode: unifiedAccount, portfolioMargin, dexAbstraction, default, disabled.
+
+        Args:
+            user: User address
+        """
+        return self._post({"type": "userAbstraction", "user": user})
+
+    def user_dex_abstraction(self, user: str) -> Dict[str, Any]:
+        """
+        Get user's DEX abstraction eligibility.
+
+        Args:
+            user: User address
+        """
+        return self._post({"type": "userDexAbstraction", "user": user})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # EXTENDED PERP DEX INFO
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def all_perp_metas(self) -> Dict[str, Any]:
+        """
+        Get consolidated universe, margin tables, asset contexts across all DEXs.
+
+        More comprehensive than meta() - includes all perp DEXs.
+        """
+        return self._post({"type": "allPerpMetas"})
+
+    def perp_categories(self) -> Dict[str, Any]:
+        """Get asset classifications for perps."""
+        return self._post({"type": "perpCategories"})
+
+    def perp_annotation(self, asset: int) -> Dict[str, Any]:
+        """
+        Get metadata descriptions for a perp.
+
+        Args:
+            asset: Asset index
+        """
+        return self._post({"type": "perpAnnotation", "asset": asset})
+
+    def perp_dex_limits(self, dex: str) -> Dict[str, Any]:
+        """
+        Get OI caps and transfer limits for builder-deployed markets.
+
+        Args:
+            dex: DEX name
+        """
+        return self._post({"type": "perpDexLimits", "dex": dex})
+
+    def perp_dex_status(self, dex: str) -> Dict[str, Any]:
+        """
+        Get total net deposits for builder-deployed markets.
+
+        Args:
+            dex: DEX name
+        """
+        return self._post({"type": "perpDexStatus", "dex": dex})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SPOT DEPLOYMENT
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def spot_pair_deploy_auction_status(self) -> Dict[str, Any]:
+        """Get Dutch auction status for spot pair deployments."""
+        return self._post({"type": "spotPairDeployAuctionStatus"})
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ALIGNED QUOTE TOKEN
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def aligned_quote_token_info(self, token: int) -> Dict[str, Any]:
+        """
+        Get aligned quote token information.
+
+        Returns alignment status, first aligned timestamp, EVM minted supply,
+        daily amounts, predicted rate.
+
+        Args:
+            token: Token index
+        """
+        return self._post({"type": "alignedQuoteTokenInfo", "token": token})
 
     def __enter__(self) -> Info:
         return self

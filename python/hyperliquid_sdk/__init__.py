@@ -1,6 +1,8 @@
 """
 Hyperliquid SDK — The simplest way to work with Hyperliquid.
 
+All requests route through your QuickNode endpoint — never directly to Hyperliquid.
+
 ONE SDK, ALL APIs:
     >>> from hyperliquid_sdk import HyperliquidSDK
     >>> sdk = HyperliquidSDK("https://your-endpoint.quiknode.pro/TOKEN")
@@ -20,14 +22,14 @@ TRADING (add private key):
     >>> sdk.close_position("BTC")  # Close position
     >>> sdk.cancel_all()  # Cancel all orders
 
-READ-ONLY (no endpoint needed):
-    >>> sdk = HyperliquidSDK()
+READ-ONLY (no private key):
+    >>> sdk = HyperliquidSDK("https://...")
     >>> sdk.markets()     # Get all markets
     >>> sdk.get_mid("BTC")  # Get mid price
 """
 
 from .client import HyperliquidSDK
-from .order import Order, PlacedOrder, Side, TIF
+from .order import Order, PlacedOrder, Side, TIF, TriggerOrder, TpSl, OrderGrouping
 from .info import Info
 from .hypercore import HyperCore
 from .evm import EVM
@@ -63,6 +65,10 @@ __all__ = [
     "PlacedOrder",
     "Side",
     "TIF",
+    # Trigger orders (stop loss / take profit)
+    "TriggerOrder",
+    "TpSl",
+    "OrderGrouping",
     # Sub-clients (can also be used standalone)
     "Info",
     "HyperCore",
@@ -95,4 +101,4 @@ __all__ = [
     "InvalidNonceError",
 ]
 
-__version__ = "0.5.13"
+__version__ = "0.6.2"
