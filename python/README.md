@@ -598,6 +598,9 @@ See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-exam
 **Complete Demo:**
 - [full_demo.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/full_demo.py) — All features in one file
 
+**Learn More**
+- Learn more about [Hyperliquid API](https://hyperliquidapi.com) here 
+
 ---
 
 ## Disclaimer
