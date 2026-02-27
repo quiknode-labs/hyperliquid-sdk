@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hyperliquid-sdk"
-version = "0.2.0"
+version = "0.2.2"
 description = "Community SDK for Hyperliquid by QuickNode. One line to place orders, zero ceremony. Not affiliated with Hyperliquid Foundation."
 readme = "README.md"
 license = "MIT"
@@ -45,8 +45,9 @@ dependencies = [
 [project.urls]
 Homepage = "https://hyperliquidapi.com"
 Documentation = "https://hyperliquidapi.com/docs"
-Repository = "https://github.com/quiknode-labs/hyperliquid-sdk-python"
-Changelog = "https://github.com/quiknode-labs/hyperliquid-sdk-python/releases"
+Repository = "https://github.com/quiknode-labs/hyperliquid-sdk"
+Examples = "https://github.com/quiknode-labs/hyperliquid-examples"
+Changelog = "https://github.com/quiknode-labs/hyperliquid-sdk/releases"
 
 [project.optional-dependencies]
 dev = [

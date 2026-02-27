@@ -33,14 +33,31 @@ Examples:
 from .client import HyperliquidSDK
 from .order import Order, PlacedOrder, Side, TIF
 from .errors import (
+    # Base errors
     HyperliquidError,
     BuildError,
     SendError,
+    # Approval errors
     ApprovalError,
+    # Validation errors
     ValidationError,
-    GeoBlockedError,
+    SignatureError,
+    # Position/order errors
     NoPositionError,
     OrderNotFoundError,
+    # Access errors
+    GeoBlockedError,
+    # Trading errors
+    InsufficientMarginError,
+    LeverageError,
+    RateLimitError,
+    MaxOrdersError,
+    ReduceOnlyError,
+    DuplicateOrderError,
+    # Account errors
+    UserNotFoundError,
+    MustDepositError,
+    InvalidNonceError,
 )
 
 __all__ = [
@@ -51,15 +68,31 @@ __all__ = [
     "PlacedOrder",
     "Side",
     "TIF",
-    # Errors
+    # Base errors
     "HyperliquidError",
     "BuildError",
     "SendError",
+    # Approval errors
     "ApprovalError",
+    # Validation errors
     "ValidationError",
-    "GeoBlockedError",
+    "SignatureError",
+    # Position/order errors
     "NoPositionError",
     "OrderNotFoundError",
+    # Access errors
+    "GeoBlockedError",
+    # Trading errors
+    "InsufficientMarginError",
+    "LeverageError",
+    "RateLimitError",
+    "MaxOrdersError",
+    "ReduceOnlyError",
+    "DuplicateOrderError",
+    # Account errors
+    "UserNotFoundError",
+    "MustDepositError",
+    "InvalidNonceError",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.2"

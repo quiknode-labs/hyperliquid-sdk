@@ -147,14 +147,19 @@ orders = sdk.open_orders()
 
 ## Error Handling
 
-Clear, actionable errors with guidance:
+Clear, actionable errors with guidance. Every error has:
+- `message` - What went wrong
+- `code` - Error code (e.g., "INSUFFICIENT_MARGIN")
+- `guidance` - How to fix it
 
 ```python
 from hyperliquid_sdk import (
     HyperliquidSDK,
+    HyperliquidError,
     ApprovalError,
     ValidationError,
     GeoBlockedError,
+    InsufficientMarginError,
 )
 
 try:
@@ -162,11 +167,32 @@ try:
 except ApprovalError as e:
     print(f"Need approval: {e.guidance}")
     sdk.approve_builder_fee("1%")
+except InsufficientMarginError as e:
+    print(f"Not enough margin: {e.guidance}")
 except ValidationError as e:
     print(f"Invalid order: {e.message}")
 except GeoBlockedError as e:
     print(f"Access denied: {e.guidance}")
+except HyperliquidError as e:
+    print(f"Error [{e.code}]: {e.message}")
+    print(f"Hint: {e.guidance}")
 ```
+
+### Error Classes
+
+| Error | When |
+|-------|------|
+| `ApprovalError` | Builder fee not approved or fee exceeds approved amount |
+| `ValidationError` | Invalid order params (price tick, size decimals) |
+| `GeoBlockedError` | Access from restricted jurisdiction |
+| `InsufficientMarginError` | Not enough margin for order |
+| `LeverageError` | Leverage configuration conflict |
+| `NoPositionError` | No position to close |
+| `MaxOrdersError` | Too many open orders |
+| `ReduceOnlyError` | Reduce-only order would increase position |
+| `RateLimitError` | Rate limit exceeded |
+| `UserNotFoundError` | Wallet not recognized (need to deposit first) |
+| `MustDepositError` | Account needs initial deposit |
 
 ## Auto-Approval
 
@@ -255,22 +281,28 @@ order.modify(price=66000)  # Modify this order
 
 ## Examples
 
-See the [examples](./sdk_examples/) directory for complete working examples:
+See the [examples repository](https://github.com/quiknode-labs/hyperliquid-examples) for complete working examples:
 
-- `market_order.py` - Market order in 5 lines
+- `market_order.py` - Market order
 - `place_order.py` - Limit order
+- `cancel_order.py` - Cancel by OID
+- `cancel_by_cloid.py` - Cancel by client order ID
+- `cancel_all.py` - Cancel all orders
+- `schedule_cancel.py` - Dead-man's switch
+- `modify_order.py` - Modify order
+- `close_position.py` - Close position
 - `roundtrip.py` - Buy then sell
-- `cancel_order.py` - Place and cancel
-- `modify_order.py` - Place and modify
-- `close_position.py` - Close a position
+- `preflight.py` - Validate before signing
+- `markets.py` - List markets and DEXes
 - `fluent_builder.py` - Power user patterns
 - `full_demo.py` - All features
 
 ## Links
 
+- **Examples**: https://github.com/quiknode-labs/hyperliquid-examples
 - **Documentation**: https://hyperliquidapi.com/docs
 - **Approval Page**: https://hyperliquidapi.com/approve
-- **GitHub**: https://github.com/quiknode-labs/hyperliquid-sdk-python
+- **GitHub**: https://github.com/quiknode-labs/hyperliquid-sdk
 
 ## Disclaimer
 
