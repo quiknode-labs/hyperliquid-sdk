@@ -1,0 +1,75 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hyperliquid-sdk"
+version = "0.2.0"
+description = "Community SDK for Hyperliquid by QuickNode. One line to place orders, zero ceremony. Not affiliated with Hyperliquid Foundation."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Mauro Delazeri", email = "mauro@quicknode.com" },
+    { name = "QuickNode", email = "support@quicknode.com" }
+]
+keywords = [
+    "hyperliquid",
+    "trading",
+    "crypto",
+    "defi",
+    "perps",
+    "perpetuals",
+    "sdk",
+    "api",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "requests>=2.28.0",
+    "eth-account>=0.10.0",
+]
+
+[project.urls]
+Homepage = "https://hyperliquidapi.com"
+Documentation = "https://hyperliquidapi.com/docs"
+Repository = "https://github.com/quiknode-labs/hyperliquid-sdk-python"
+Changelog = "https://github.com/quiknode-labs/hyperliquid-sdk-python/releases"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["hyperliquid_sdk"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_ignores = true
