@@ -441,6 +441,90 @@ sdk.schedule_cancel(int(time.time() * 1000) + 60000)
 sdk.close_position("BTC")  # Close entire position
 ```
 
+### Leverage & Margin
+
+```python
+# Update leverage
+sdk.update_leverage("BTC", leverage=10, is_cross=True)   # 10x cross
+sdk.update_leverage("ETH", leverage=5, is_cross=False)   # 5x isolated
+
+# Isolated margin management
+sdk.update_isolated_margin("BTC", amount=100, is_buy=True)   # Add margin to long
+sdk.update_isolated_margin("ETH", amount=-50, is_buy=False)  # Remove from short
+sdk.top_up_isolated_only_margin("BTC", amount=100)           # Special maintenance mode
+```
+
+### Trigger Orders (Stop Loss / Take Profit)
+
+```python
+from hyperliquid_sdk import Side
+
+# Stop loss (market order when triggered)
+sdk.stop_loss("BTC", size=0.001, trigger_price=60000)
+
+# Stop loss (limit order when triggered)
+sdk.stop_loss("BTC", size=0.001, trigger_price=60000, limit_price=59500)
+
+# Take profit
+sdk.take_profit("BTC", size=0.001, trigger_price=70000)
+
+# Buy-side (closing shorts)
+sdk.stop_loss("BTC", size=0.001, trigger_price=70000, side=Side.BUY)
+```
+
+### TWAP Orders
+
+```python
+# Time-weighted average price order
+result = sdk.twap_order(
+    "BTC",
+    size=0.01,
+    is_buy=True,
+    duration_minutes=60,
+    randomize=True
+)
+twap_id = result["response"]["data"]["running"]["id"]
+
+# Cancel TWAP
+sdk.twap_cancel("BTC", twap_id)
+```
+
+### Transfers
+
+```python
+# Internal transfers
+sdk.transfer_spot_to_perp(amount=100)
+sdk.transfer_perp_to_spot(amount=100)
+
+# External transfers
+sdk.transfer_usd(destination="0x...", amount=100)
+sdk.transfer_spot(destination="0x...", token="PURR", amount=100)
+sdk.send_asset(destination="0x...", token="USDC", amount=100)
+
+# Withdraw to L1 (Arbitrum)
+sdk.withdraw(destination="0x...", amount=100)
+```
+
+### Vaults
+
+```python
+HLP_VAULT = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303"
+sdk.vault_deposit(vault_address=HLP_VAULT, amount=100)
+sdk.vault_withdraw(vault_address=HLP_VAULT, amount=50)
+```
+
+### Staking
+
+```python
+# Stake/unstake HYPE
+sdk.stake(amount=1000)
+sdk.unstake(amount=500)  # 7-day queue
+
+# Delegate to validators
+sdk.delegate(validator="0x...", amount=500)
+sdk.undelegate(validator="0x...", amount=250)
+```
+
 ### Fluent Order Builder
 
 ```python
@@ -578,8 +662,43 @@ See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-exam
 **Trading:**
 - [market_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/market_order.py) — Place market orders
 - [place_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/place_order.py) — Place limit orders
+- [modify_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/modify_order.py) — Modify existing orders
 - [cancel_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_order.py) — Cancel orders
+- [cancel_by_cloid.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_by_cloid.py) — Cancel by client order ID
+- [cancel_all.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_all.py) — Cancel all orders
 - [close_position.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/close_position.py) — Close positions
+- [fluent_builder.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/fluent_builder.py) — Fluent order builder
+- [roundtrip.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/roundtrip.py) — Buy and sell round trip
+- [hip3_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/hip3_order.py) — HIP-3 DEX orders
+
+**Trigger Orders:**
+- [trigger_orders.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/trigger_orders.py) — Stop loss and take profit orders
+
+**TWAP:**
+- [twap.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/twap.py) — Time-weighted average price orders
+
+**Leverage & Margin:**
+- [leverage.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/leverage.py) — Update leverage
+- [isolated_margin.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/isolated_margin.py) — Isolated margin management
+
+**Transfers & Withdrawals:**
+- [transfers.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/transfers.py) — USD and spot transfers
+- [withdraw.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/withdraw.py) — Withdraw to L1 (Arbitrum)
+
+**Vaults:**
+- [vaults.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/vaults.py) — Vault deposits and withdrawals
+
+**Staking:**
+- [staking.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/staking.py) — Stake, unstake, and delegate
+
+**Approval:**
+- [approve.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/approve.py) — Builder fee approval
+- [builder_fee.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/builder_fee.py) — Check approval status
+
+**Market Info:**
+- [markets.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/markets.py) — List markets and mid prices
+- [open_orders.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/open_orders.py) — Query open orders
+- [preflight.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/preflight.py) — Validate orders before sending
 
 **Data APIs:**
 - [info_market_data.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/info_market_data.py) — Market data and order book
