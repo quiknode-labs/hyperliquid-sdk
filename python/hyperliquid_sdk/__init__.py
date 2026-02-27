@@ -101,4 +101,4 @@ __all__ = [
     "InvalidNonceError",
 ]
 
-__version__ = "0.6.2"
+__version__ = "0.6.7"

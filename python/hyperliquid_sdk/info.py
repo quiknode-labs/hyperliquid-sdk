@@ -126,9 +126,18 @@ class Info:
     # MARKET DATA
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def all_mids(self) -> Dict[str, str]:
-        """Get all asset mid prices."""
-        return self._post({"type": "allMids"})
+    def all_mids(self, *, dex: Optional[str] = None) -> Dict[str, str]:
+        """
+        Get all asset mid prices.
+
+        Args:
+            dex: The perp dex name for HIP-3. Defaults to empty string for first perp dex.
+                 Spot mids are only included with the first perp dex.
+        """
+        body: Dict[str, Any] = {"type": "allMids"}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post(body)
 
     def l2_book(
         self,
@@ -231,17 +240,45 @@ class Info:
         """Get user's spot token balances."""
         return self._post({"type": "spotClearinghouseState", "user": user})
 
-    def open_orders(self, user: str) -> List[Dict[str, Any]]:
-        """Get user's open orders."""
-        return self._post({"type": "openOrders", "user": user})
+    def open_orders(self, user: str, *, dex: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get user's open orders.
 
-    def frontend_open_orders(self, user: str) -> List[Dict[str, Any]]:
-        """Get user's open orders with enhanced info."""
-        return self._post({"type": "frontendOpenOrders", "user": user})
+        Args:
+            user: User address
+            dex: The perp dex name for HIP-3. Defaults to empty string for first perp dex.
+        """
+        body: Dict[str, Any] = {"type": "openOrders", "user": user}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post(body)
 
-    def order_status(self, user: str, oid: int) -> Dict[str, Any]:
-        """Get status of a specific order."""
-        return self._post({"type": "orderStatus", "user": user, "oid": oid})
+    def frontend_open_orders(self, user: str, *, dex: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get user's open orders with enhanced info.
+
+        Args:
+            user: User address
+            dex: The perp dex name for HIP-3. Defaults to empty string for first perp dex.
+        """
+        body: Dict[str, Any] = {"type": "frontendOpenOrders", "user": user}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post(body)
+
+    def order_status(self, user: str, oid: int, *, dex: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get status of a specific order.
+
+        Args:
+            user: User address
+            oid: Order ID
+            dex: The perp dex name for HIP-3. Defaults to empty string for first perp dex.
+        """
+        body: Dict[str, Any] = {"type": "orderStatus", "user": user, "oid": oid}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post(body)
 
     def historical_orders(self, user: str) -> List[Dict[str, Any]]:
         """Get user's historical orders."""

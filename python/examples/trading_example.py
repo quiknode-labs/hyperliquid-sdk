@@ -8,6 +8,7 @@ Requirements:
     pip install hyperliquid-sdk
 
 Usage:
+    export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
     export PRIVATE_KEY="0x..."
     python trading_example.py
 """
@@ -17,8 +18,14 @@ import sys
 
 from hyperliquid_sdk import HyperliquidSDK, Order, Side
 
-# Get private key from environment (NEVER hardcode keys!)
+# Get endpoint and private key from environment
+ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT")
 PRIVATE_KEY = os.environ.get("PRIVATE_KEY")
+
+if not ENDPOINT:
+    print("Error: Set QUICKNODE_ENDPOINT environment variable")
+    print("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+    sys.exit(1)
 
 if not PRIVATE_KEY:
     print("Error: Set PRIVATE_KEY environment variable")
@@ -30,12 +37,12 @@ def main():
     print("Hyperliquid Trading Example")
     print("=" * 50)
 
-    # Initialize SDK with private key
-    # Uses testnet by default - set testnet=False for mainnet
-    sdk = HyperliquidSDK(private_key=PRIVATE_KEY, testnet=True)
+    # Initialize SDK with QuickNode endpoint and private key
+    # All requests route through QuickNode - never directly to Hyperliquid
+    sdk = HyperliquidSDK(ENDPOINT, private_key=PRIVATE_KEY)
 
     print(f"Address: {sdk.address}")
-    print(f"Network: {'Testnet' if sdk.testnet else 'Mainnet'}")
+    print(f"Endpoint: {ENDPOINT[:50]}...")
     print()
 
     # ==========================================================================

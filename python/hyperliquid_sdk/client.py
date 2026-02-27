@@ -80,11 +80,15 @@ class HyperliquidSDK:
     DEFAULT_TIMEOUT = 30  # seconds
     CACHE_TTL = 300  # 5 minutes cache TTL for market metadata
 
+    # Default URL - ALL requests go through the worker, NEVER directly to api.hyperliquid.xyz
+    DEFAULT_WORKER_URL = "https://send.hyperliquidapi.com"
+
     def __init__(
         self,
-        endpoint: str,
+        endpoint: Optional[str] = None,
         *,
         private_key: Optional[str] = None,
+        testnet: bool = False,
         auto_approve: bool = True,
         max_fee: str = "1%",
         slippage: float = DEFAULT_SLIPPAGE,
@@ -93,22 +97,28 @@ class HyperliquidSDK:
         """
         Initialize the SDK.
 
-        All requests go through your QuickNode endpoint — never directly to Hyperliquid.
-
         Args:
-            endpoint: QuickNode endpoint URL (required). All API requests route through this.
+            endpoint: QuickNode endpoint URL (optional). When provided, all API requests
+                     route through QuickNode. When omitted, ALL requests go through
+                     the public worker (send.hyperliquidapi.com).
             private_key: Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var.
                         Required for trading. Optional for read-only operations.
+            testnet: Use testnet (default: False). When True, uses testnet chain identifiers.
             auto_approve: Automatically approve builder fee for trading (default: True)
             max_fee: Max builder fee to approve (default: "1%")
             slippage: Default slippage for market orders (default: 3%)
             timeout: Request timeout in seconds (default: 30)
+
+        Examples:
+            # With QuickNode endpoint (full API access):
+            sdk = HyperliquidSDK("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+
+            # Without endpoint (uses public worker for trading):
+            sdk = HyperliquidSDK(private_key="0x...")
+
+            # Read-only (market data via public API):
+            sdk = HyperliquidSDK()
         """
-        if not endpoint:
-            raise ValueError(
-                "endpoint is required. Get your QuickNode Hyperliquid endpoint at "
-                "https://www.quicknode.com/chains/hyperliquid"
-            )
 
         # Store endpoint for lazy initialization of sub-clients
         self._endpoint = endpoint
@@ -116,6 +126,13 @@ class HyperliquidSDK:
         self._slippage = slippage
         self._max_fee = max_fee
         self._auto_approve = auto_approve
+        self._testnet = testnet
+
+        # Chain configuration (mainnet vs testnet)
+        # Mainnet: chain="Mainnet", signatureChainId="0xa4b1" (Arbitrum)
+        # Testnet: chain="Testnet", signatureChainId="0x66eee" (Arbitrum Sepolia)
+        self._chain = "Testnet" if testnet else "Mainnet"
+        self._chain_id = "0x66eee" if testnet else "0xa4b1"
 
         # Get private key (optional for read-only operations)
         pk = private_key or os.environ.get("PRIVATE_KEY")
@@ -128,15 +145,21 @@ class HyperliquidSDK:
             self._wallet = None
             self.address = None
 
-        # All requests go through QuickNode endpoint
-        # Build base URL: strip any trailing path, ensure clean base
-        base = endpoint.rstrip("/")
-        # If it ends with /info or similar, use parent path
-        if base.endswith("/info"):
-            base = base.rsplit("/info", 1)[0]
-
-        self._api_url = f"{base}/send"  # Trading/exchange operations
-        self._info_url = f"{base}/info"  # Info API (markets, prices, etc.)
+        # Build URLs - ALL requests go through worker, NEVER directly to api.hyperliquid.xyz
+        if endpoint:
+            # QuickNode endpoint: route all requests through it
+            base = endpoint.rstrip("/")
+            # If it ends with /info or similar, use parent path
+            if base.endswith("/info"):
+                base = base.rsplit("/info", 1)[0]
+            self._worker_url = base  # Base URL for worker endpoints
+            self._exchange_url = f"{base}/send"  # Trading/exchange operations
+            self._info_url = f"{base}/info"  # Info API (markets, prices, etc.)
+        else:
+            # No endpoint: ALL requests go through the worker
+            self._worker_url = self.DEFAULT_WORKER_URL  # Base URL for worker endpoints
+            self._exchange_url = f"{self.DEFAULT_WORKER_URL}/exchange"  # Trading/exchange operations
+            self._info_url = f"{self.DEFAULT_WORKER_URL}/info"  # Info API
         self._session = requests.Session()
 
         # Cache for market metadata with TTL (reduces API calls)
@@ -155,6 +178,20 @@ class HyperliquidSDK:
         # Auto-approve if requested and wallet available
         if auto_approve and self._wallet:
             self._ensure_approved(max_fee)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CONFIGURATION PROPERTIES
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @property
+    def testnet(self) -> bool:
+        """Returns True if using testnet, False for mainnet."""
+        return self._testnet
+
+    @property
+    def chain(self) -> str:
+        """Returns the chain identifier ('Mainnet' or 'Testnet')."""
+        return self._chain
 
     # ═══════════════════════════════════════════════════════════════════════════
     # UNIFIED SUB-CLIENTS — Lazy initialization
@@ -591,7 +628,7 @@ class HyperliquidSDK:
 
     def twap_order(
         self,
-        asset: str,
+        asset: Union[str, int],
         *,
         size: Union[float, str],
         is_buy: bool,
@@ -606,7 +643,7 @@ class HyperliquidSDK:
         the order into smaller slices to minimize market impact.
 
         Args:
-            asset: Asset name ("BTC", "ETH")
+            asset: Asset index (int) or name (str, will be resolved to index)
             size: Total size to execute
             is_buy: True for buy, False for sell
             duration_minutes: Time to execute over (in minutes)
@@ -623,10 +660,13 @@ class HyperliquidSDK:
             # Sell 0.5 ETH over 1 hour to close position
             sdk.twap_order("ETH", size=0.5, is_buy=False, duration_minutes=60, reduce_only=True)
         """
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
+
         action = {
             "type": "twapOrder",
             "twap": {
-                "a": asset,
+                "a": asset_idx,
                 "b": is_buy,
                 "s": str(size),
                 "r": reduce_only,
@@ -636,12 +676,12 @@ class HyperliquidSDK:
         }
         return self._build_sign_send(action)
 
-    def twap_cancel(self, asset: str, twap_id: int) -> dict:
+    def twap_cancel(self, asset: Union[str, int], twap_id: int) -> dict:
         """
         Cancel an active TWAP order.
 
         Args:
-            asset: Asset name ("BTC", "ETH")
+            asset: Asset index (int) or name (str, will be resolved to index)
             twap_id: TWAP order ID to cancel
 
         Returns:
@@ -651,9 +691,12 @@ class HyperliquidSDK:
             result = sdk.twap_order("BTC", size=1.0, is_buy=True, duration_minutes=30)
             sdk.twap_cancel("BTC", result["twapId"])
         """
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
+
         action = {
             "type": "twapCancel",
-            "a": asset,
+            "a": asset_idx,
             "t": twap_id,
         }
         return self._build_sign_send(action)
@@ -664,7 +707,7 @@ class HyperliquidSDK:
 
     def update_leverage(
         self,
-        asset: str,
+        asset: Union[str, int],
         leverage: int,
         *,
         is_cross: bool = True,
@@ -673,7 +716,7 @@ class HyperliquidSDK:
         Update leverage for an asset.
 
         Args:
-            asset: Asset name ("BTC", "ETH")
+            asset: Asset name (str) or index (int)
             leverage: Target leverage (e.g., 10 for 10x)
             is_cross: True for cross margin, False for isolated margin
 
@@ -687,9 +730,12 @@ class HyperliquidSDK:
             # Set 5x isolated margin leverage
             sdk.update_leverage("ETH", 5, is_cross=False)
         """
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
+
         action = {
             "type": "updateLeverage",
-            "asset": asset,
+            "asset": asset_idx,
             "isCross": is_cross,
             "leverage": leverage,
         }
@@ -697,7 +743,7 @@ class HyperliquidSDK:
 
     def update_isolated_margin(
         self,
-        asset: str,
+        asset: Union[str, int],
         *,
         is_buy: bool,
         amount: Union[float, int],
@@ -706,9 +752,10 @@ class HyperliquidSDK:
         Add or remove margin from an isolated position.
 
         Args:
-            asset: Asset name ("BTC", "ETH")
+            asset: Asset name (str) or index (int)
             is_buy: True for long position, False for short position
-            amount: Amount in USD (positive to add, negative to remove)
+            amount: Amount in USD (positive to add, negative to remove).
+                   Internally converted to millionths (1000000 = $1).
 
         Returns:
             Exchange response
@@ -720,12 +767,14 @@ class HyperliquidSDK:
             # Remove $50 margin from short ETH position
             sdk.update_isolated_margin("ETH", is_buy=False, amount=-50)
         """
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
         # API expects amount in millionths (1000000 = 1 USD)
         ntli = int(amount * 1_000_000)
 
         action = {
             "type": "updateIsolatedMargin",
-            "asset": asset,
+            "asset": asset_idx,
             "isBuy": is_buy,
             "ntli": ntli,
         }
@@ -757,8 +806,8 @@ class HyperliquidSDK:
         """
         action = {
             "type": "usdSend",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",  # Arbitrum
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,  # Arbitrum
             "destination": destination,
             "amount": str(amount),
             "time": int(time_module.time() * 1000),
@@ -789,8 +838,8 @@ class HyperliquidSDK:
         """
         action = {
             "type": "spotSend",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "token": token,
             "destination": destination,
             "amount": str(amount),
@@ -825,8 +874,8 @@ class HyperliquidSDK:
 
         action = {
             "type": "withdraw3",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "destination": destination,
             "amount": str(amount),
             "time": int(time_module.time() * 1000),
@@ -846,13 +895,14 @@ class HyperliquidSDK:
         Example:
             sdk.transfer_spot_to_perp(100)
         """
+        nonce = int(time_module.time() * 1000)
         action = {
             "type": "usdClassTransfer",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "amount": str(amount),
             "toPerp": True,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -869,13 +919,14 @@ class HyperliquidSDK:
         Example:
             sdk.transfer_perp_to_spot(100)
         """
+        nonce = int(time_module.time() * 1000)
         action = {
             "type": "usdClassTransfer",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "amount": str(amount),
             "toPerp": False,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -963,13 +1014,14 @@ class HyperliquidSDK:
             # Approve named agent
             sdk.approve_agent("0xAgent...", name="my-trading-bot")
         """
+        nonce = int(time_module.time() * 1000)
         action = {
             "type": "approveAgent",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "agentAddress": agent_address,
             "agentName": name,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -992,13 +1044,14 @@ class HyperliquidSDK:
         """
         # Convert to wei (assuming 18 decimals)
         wei = int(amount * 10**18)
+        nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "cDeposit",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "wei": wei,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1018,13 +1071,14 @@ class HyperliquidSDK:
             sdk.unstake(500)
         """
         wei = int(amount * 10**18)
+        nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "cWithdraw",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "wei": wei,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1049,15 +1103,16 @@ class HyperliquidSDK:
             sdk.delegate("0xValidator...", 500)
         """
         wei = int(amount * 10**18)
+        nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "tokenDelegate",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "validator": validator,
             "isUndelegate": False,
             "wei": wei,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1080,15 +1135,16 @@ class HyperliquidSDK:
             sdk.undelegate("0xValidator...", 500)
         """
         wei = int(amount * 10**18)
+        nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "tokenDelegate",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "validator": validator,
             "isUndelegate": True,
             "wei": wei,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1128,8 +1184,11 @@ class HyperliquidSDK:
 
         action = {
             "type": "userSetAbstraction",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "user": user,
             "abstraction": mode,
+            "nonce": int(time_module.time() * 1000),
         }
         return self._build_sign_send(action)
 
@@ -1164,17 +1223,18 @@ class HyperliquidSDK:
         Example:
             sdk.send_asset("USDC:0x...", 100, "0xDest...", source_dex="spot", destination_dex="")
         """
+        nonce = int(time_module.time() * 1000)
         action = {
             "type": "sendAsset",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
             "destination": destination,
             "sourceDex": source_dex,
             "destinationDex": destination_dex,
             "token": token,
             "amount": str(amount),
             "fromSubAccount": from_sub_account or "",
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1209,33 +1269,34 @@ class HyperliquidSDK:
 
     def top_up_isolated_only_margin(
         self,
-        asset: str,
-        amount: Union[float, int],
+        asset: Union[str, int],
+        leverage: Union[float, int, str],
     ) -> dict:
         """
-        Top up isolated-only margin for an asset.
+        Top up isolated-only margin to target a specific leverage.
 
-        This is an alternative to update_isolated_margin that doesn't require
-        specifying the position side. Useful for adding margin to positions
-        when you don't need to specify long/short.
+        This is an alternative to update_isolated_margin that targets a specific
+        leverage level instead of specifying a USDC margin amount. The system
+        will add the required margin to achieve the target leverage.
 
         Args:
-            asset: Asset name ("BTC", "ETH")
-            amount: Amount in USD to add (positive values only)
+            asset: Asset name (str) or index (int)
+            leverage: Target leverage as a float (e.g., 5.0 for 5x leverage)
 
         Returns:
             Exchange response
 
         Example:
-            sdk.top_up_isolated_only_margin("BTC", 100)  # Add $100 margin
+            # Adjust margin to achieve 5x leverage on BTC position
+            sdk.top_up_isolated_only_margin("BTC", 5.0)
         """
-        # API expects amount in millionths (1000000 = 1 USD)
-        ntli = int(amount * 1_000_000)
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
 
         action = {
             "type": "topUpIsolatedOnlyMargin",
-            "asset": asset,
-            "ntli": ntli,
+            "asset": asset_idx,
+            "leverage": str(leverage),  # API expects leverage as string
         }
         return self._build_sign_send(action)
 
@@ -1245,40 +1306,61 @@ class HyperliquidSDK:
 
     def send_to_evm_with_data(
         self,
-        destination: str,
+        token: str,
         amount: Union[float, str],
+        destination: str,
         data: str,
+        *,
+        source_dex: str,
+        destination_chain_id: int,
+        gas_limit: int,
+        address_encoding: str = "hex",
     ) -> dict:
         """
-        Transfer to HyperEVM with custom data payload.
+        Transfer tokens to HyperEVM with custom data payload.
 
-        Send USDC to a HyperEVM address with arbitrary data attached,
+        Send tokens from HyperCore to a HyperEVM address with arbitrary data attached,
         enabling interactions with smart contracts.
 
         Args:
+            token: Token in "tokenName:tokenId" format (e.g., "PURR:0xc4bf...")
+            amount: Amount to transfer
             destination: Destination address on HyperEVM (42-char hex)
-            amount: Amount in USD
             data: Hex-encoded data payload (e.g., "0x...")
+            source_dex: Source DEX name (perp DEX name to transfer from)
+            destination_chain_id: Target chain ID (e.g., 999 for HyperEVM mainnet)
+            gas_limit: Gas limit for the EVM transaction
+            address_encoding: Address encoding format ("hex" or "base58", default: "hex")
 
         Returns:
             Exchange response
 
         Example:
-            # Send 100 USDC to a contract with custom calldata
+            # Send 100 PURR to a contract with custom calldata
             sdk.send_to_evm_with_data(
-                "0xContract...",
-                100,
-                "0x1234abcd..."  # Contract calldata
+                token="PURR:0xc4bf...",
+                amount=100,
+                destination="0xContract...",
+                data="0x1234abcd...",
+                source_dex="",
+                destination_chain_id=999,
+                gas_limit=100000,
             )
         """
+        nonce = int(time_module.time() * 1000)
         action = {
             "type": "sendToEvmWithData",
-            "hyperliquidChain": "Mainnet",
-            "signatureChainId": "0xa4b1",
-            "destination": destination,
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
+            "token": token,
             "amount": str(amount),
+            "sourceDex": source_dex,
+            "destinationRecipient": destination,
+            "addressEncoding": address_encoding,
+            "destinationChainId": destination_chain_id,
+            "gasLimit": gas_limit,
             "data": data,
-            "time": int(time_module.time() * 1000),
+            "nonce": nonce,
         }
         return self._build_sign_send(action)
 
@@ -1289,8 +1371,6 @@ class HyperliquidSDK:
     def agent_set_abstraction(
         self,
         mode: str,
-        *,
-        user: Optional[str] = None,
     ) -> dict:
         """
         Set account abstraction mode as an agent.
@@ -1299,27 +1379,38 @@ class HyperliquidSDK:
         operating as an approved agent on behalf of a user.
 
         Args:
-            mode: Abstraction mode - "disabled", "unifiedAccount", or "portfolioMargin"
-            user: User address the agent is operating for (default: self)
+            mode: Abstraction mode - "disabled" (or "i"), "unifiedAccount" (or "u"),
+                  or "portfolioMargin" (or "p")
 
         Returns:
             Exchange response
 
         Examples:
-            # As an agent, enable unified account for user
-            sdk.agent_set_abstraction("unifiedAccount", user="0xUser...")
+            # As an agent, enable unified account
+            sdk.agent_set_abstraction("unifiedAccount")
 
-            # Disable abstraction for user
-            sdk.agent_set_abstraction("disabled", user="0xUser...")
+            # Disable abstraction
+            sdk.agent_set_abstraction("disabled")
         """
-        if user is None:
-            self._require_wallet()
-            user = self.address
+        # Map full mode names to short codes per API spec
+        mode_map = {
+            "disabled": "i",
+            "unifiedAccount": "u",
+            "portfolioMargin": "p",
+            "i": "i",
+            "u": "u",
+            "p": "p",
+        }
+        short_mode = mode_map.get(mode)
+        if short_mode is None:
+            raise ValidationError(
+                f"Invalid mode: {mode}",
+                guidance='Use "disabled", "unifiedAccount", or "portfolioMargin"',
+            )
 
         action = {
             "type": "agentSetAbstraction",
-            "user": user,
-            "abstraction": mode,
+            "abstraction": short_mode,
         }
         return self._build_sign_send(action)
 
@@ -1353,7 +1444,7 @@ class HyperliquidSDK:
 
     def validator_l1_stream(
         self,
-        funding_rate: str,
+        risk_free_rate: str,
     ) -> dict:
         """
         Submit a validator vote for the risk-free rate.
@@ -1362,18 +1453,18 @@ class HyperliquidSDK:
         on the risk-free rate used for funding calculations.
 
         Args:
-            funding_rate: Proposed funding rate as a decimal string (e.g., "0.0001")
+            risk_free_rate: Proposed rate as a decimal string (e.g., "0.04" for 4%)
 
         Returns:
             Exchange response
 
         Example:
-            # Validator submits their rate vote
-            sdk.validator_l1_stream("0.0001")
+            # Validator submits their rate vote (4%)
+            sdk.validator_l1_stream("0.04")
         """
         action = {
             "type": "validatorL1Stream",
-            "fundingRate": funding_rate,
+            "riskFreeRate": risk_free_rate,
         }
         return self._build_sign_send(action)
 
@@ -1420,14 +1511,14 @@ class HyperliquidSDK:
     def cancel(
         self,
         oid: int,
-        asset: Optional[str] = None,
+        asset: Optional[Union[str, int]] = None,
     ) -> dict:
         """
         Cancel an order by OID.
 
         Args:
             oid: Order ID to cancel
-            asset: Asset (optional, but speeds up cancellation)
+            asset: Asset name (str) or index (int). Optional but speeds up cancellation.
 
         Returns:
             Exchange response
@@ -1438,9 +1529,14 @@ class HyperliquidSDK:
         if not isinstance(oid, int) or oid <= 0:
             raise ValidationError(f"oid must be a positive integer, got: {oid}")
 
+        # Resolve asset to index if provided as string
+        asset_idx = 0
+        if asset is not None:
+            asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
+
         cancel_action = {
             "type": "cancel",
-            "cancels": [{"a": asset or 0, "o": oid}],
+            "cancels": [{"a": asset_idx, "o": oid}],
         }
         return self._build_sign_send(cancel_action)
 
@@ -1476,21 +1572,24 @@ class HyperliquidSDK:
     def cancel_by_cloid(
         self,
         cloid: str,
-        asset: str,
+        asset: Union[str, int],
     ) -> dict:
         """
         Cancel an order by client order ID (cloid).
 
         Args:
             cloid: Client order ID (hex string, e.g., "0x...")
-            asset: Asset name
+            asset: Asset name (str) or index (int)
 
         Returns:
             Exchange response
         """
+        # Resolve asset name to index if string
+        asset_idx = self._resolve_asset_index(asset) if isinstance(asset, str) else asset
+
         cancel_action = {
             "type": "cancelByCloid",
-            "cancels": [{"asset": asset, "cloid": cloid}],
+            "cancels": [{"asset": asset_idx, "cloid": cloid}],
         }
         return self._build_sign_send(cancel_action)
 
@@ -1608,12 +1707,18 @@ class HyperliquidSDK:
     # QUERIES
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def open_orders(self, user: Optional[str] = None) -> dict:
+    def open_orders(
+        self,
+        user: Optional[str] = None,
+        *,
+        dex: Optional[str] = None,
+    ) -> dict:
         """
         Get open orders with enriched info and pre-built cancel actions.
 
         Args:
             user: User address (default: self, requires private key)
+            dex: The perp dex name for HIP-3 (default: first perp dex)
 
         Returns:
             {
@@ -1628,15 +1733,25 @@ class HyperliquidSDK:
         if user is None:
             self._require_wallet()
             user = self.address
-        return self._post("/openOrders", {"user": user})
+        body: Dict[str, Any] = {"user": user}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post("/openOrders", body)
 
-    def order_status(self, oid: int, user: Optional[str] = None) -> dict:
+    def order_status(
+        self,
+        oid: int,
+        user: Optional[str] = None,
+        *,
+        dex: Optional[str] = None,
+    ) -> dict:
         """
         Get detailed status for an order.
 
         Args:
             oid: Order ID
             user: User address (default: self, requires private key)
+            dex: The perp dex name for HIP-3 (default: first perp dex)
 
         Returns:
             Order status with explanation
@@ -1644,7 +1759,10 @@ class HyperliquidSDK:
         if user is None:
             self._require_wallet()
             user = self.address
-        return self._post("/orderStatus", {"user": user, "oid": oid})
+        body: Dict[str, Any] = {"user": user, "oid": oid}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post("/orderStatus", body)
 
     def markets(self) -> dict:
         """
@@ -1792,27 +1910,78 @@ class HyperliquidSDK:
         # Default to 5 decimals (safe for most markets)
         return 5
 
+    def _resolve_asset_index(self, asset: str) -> int:
+        """Resolve asset name to numeric index (required by some API endpoints)."""
+        try:
+            # Use cached markets or fetch fresh (with TTL)
+            now = time_module.time()
+            if self._markets_cache is None or (now - self._markets_cache_time) > self.CACHE_TTL:
+                self._markets_cache = self.markets()
+                self._markets_cache_time = now
+
+            markets = self._markets_cache
+
+            # Check perps - index is position in universe
+            for i, m in enumerate(markets.get("perps", [])):
+                if m.get("name") == asset:
+                    return i
+
+            # Check spot - index is 10000 + position
+            for i, m in enumerate(markets.get("spot", [])):
+                if m.get("name") == asset:
+                    return 10000 + i
+
+            # Check HIP-3 markets
+            for dex, dex_markets in markets.get("hip3", {}).items():
+                for i, m in enumerate(dex_markets):
+                    if m.get("name") == asset:
+                        return m.get("assetId", i)
+
+        except Exception:
+            pass
+
+        raise ValidationError(
+            f"Could not resolve asset '{asset}' to index",
+            guidance="Check the asset name or use numeric index directly.",
+        )
+
     # ═══════════════════════════════════════════════════════════════════════════
     # APPROVAL MANAGEMENT
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def approve_builder_fee(self, max_fee: str = "1%") -> dict:
+    def approve_builder_fee(self, max_fee: str = "1%", builder: Optional[str] = None) -> dict:
         """
         Approve builder fee for trading.
 
         Args:
-            max_fee: Maximum fee rate (e.g., "1%")
+            max_fee: Maximum fee rate (e.g., "0.001%" or "1%")
+            builder: Builder address (default: QuickNode builder)
 
         Returns:
             Exchange response
         """
-        action = {"type": "approveBuilderFee", "maxFeeRate": max_fee}
+        # Default to QuickNode builder address
+        if builder is None:
+            builder = "0x8D62d3000eF0639d1fc9667D06BE7BB98d9993F5"
+
+        action = {
+            "type": "approveBuilderFee",
+            "hyperliquidChain": self._chain,
+            "signatureChainId": self._chain_id,
+            "maxFeeRate": max_fee,
+            "builder": builder,
+            "nonce": int(time_module.time() * 1000),
+        }
         return self._build_sign_send(action)
 
-    def revoke_builder_fee(self) -> dict:
-        """Revoke builder fee approval."""
-        action = {"type": "approveBuilderFee", "maxFeeRate": "0%"}
-        return self._build_sign_send(action)
+    def revoke_builder_fee(self, builder: Optional[str] = None) -> dict:
+        """
+        Revoke builder fee approval.
+
+        Args:
+            builder: Builder address (default: QuickNode builder)
+        """
+        return self.approve_builder_fee("0%", builder=builder)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # INTERNAL METHODS
@@ -1936,7 +2105,7 @@ class HyperliquidSDK:
     def _exchange(self, body: dict) -> dict:
         """POST to send/exchange endpoint (via QuickNode)."""
         try:
-            resp = self._session.post(self._api_url, json=body, timeout=self._timeout)
+            resp = self._session.post(self._exchange_url, json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Exchange request timed out after {self._timeout}s",
@@ -1956,9 +2125,9 @@ class HyperliquidSDK:
         return data
 
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
-        """GET request to API."""
+        """GET request to worker API."""
         try:
-            resp = self._session.get(f"{self._api_url}{path}", params=params, timeout=self._timeout)
+            resp = self._session.get(f"{self._worker_url}{path}", params=params, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",
@@ -1977,9 +2146,9 @@ class HyperliquidSDK:
         return data
 
     def _post(self, path: str, body: dict) -> Any:
-        """POST request to API."""
+        """POST request to worker API."""
         try:
-            resp = self._session.post(f"{self._api_url}{path}", json=body, timeout=self._timeout)
+            resp = self._session.post(f"{self._worker_url}{path}", json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",

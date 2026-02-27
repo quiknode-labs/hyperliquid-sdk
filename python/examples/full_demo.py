@@ -232,14 +232,14 @@ def demo_grpc(endpoint: str, duration: int = 5):
     print(f"Received: {trade_count[0]} trades")
 
 
-def demo_trading(private_key: str):
+def demo_trading(endpoint: str, private_key: str):
     """Demonstrate trading capabilities (dry-run style)."""
     separator("TRADING")
 
-    sdk = HyperliquidSDK(private_key=private_key, testnet=True)
+    sdk = HyperliquidSDK(endpoint, private_key=private_key)
 
     print(f"Address: {sdk.address}")
-    print(f"Network: Testnet")
+    print(f"Endpoint: {endpoint[:50]}...")
 
     subsection("Account Check")
     try:
@@ -288,7 +288,7 @@ def main():
         demo_grpc(endpoint, duration=5)
 
         if private_key:
-            demo_trading(private_key)
+            demo_trading(endpoint, private_key)
         else:
             print()
             print("--- TRADING (skipped - no PRIVATE_KEY) ---")

@@ -46,7 +46,7 @@ def main():
     print(f"Latest block: {block_num}")
 
     # Get block by number
-    block = hc.block_by_number(block_num)
+    block = hc.get_block(block_num)
     if block:
         txs = block.get("transactions", [])
         print(f"Block {block_num}:")
@@ -72,7 +72,7 @@ def main():
     print()
 
     # Get trades for specific coin
-    btc_trades = hc.trades_by_coin("BTC", count=3)
+    btc_trades = hc.latest_trades(coin="BTC", count=3)
     print(f"Last {len(btc_trades)} BTC trades:")
     for trade in btc_trades:
         px = trade.get("px", "?")
@@ -87,16 +87,19 @@ def main():
     print("Recent Orders")
     print("-" * 30)
 
-    # Get latest orders (all coins)
-    orders = hc.latest_orders(count=5)
-    print(f"Last {len(orders)} orders:")
-    for order in orders[:5]:
-        coin = order.get("coin", "?")
-        side = order.get("side", "?")
-        px = order.get("limitPx", "?")
-        sz = order.get("sz", "?")
-        status = order.get("status", "?")
-        print(f"  {coin}: {side} {sz} @ ${float(px):,.2f} - {status}")
+    try:
+        # Get latest orders (all coins)
+        orders = hc.latest_orders(count=5)
+        print(f"Last {len(orders)} orders:")
+        for order in orders[:5]:
+            coin = order.get("coin", "?")
+            side = order.get("side", "?")
+            px = order.get("limitPx", "?")
+            sz = order.get("sz", "?")
+            status = order.get("status", "?")
+            print(f"  {coin}: {side} {sz} @ ${float(px):,.2f} - {status}")
+    except Exception as e:
+        print(f"  Could not fetch orders: {e}")
     print()
 
     # ==========================================================================
@@ -105,13 +108,20 @@ def main():
     print("Block Range Query")
     print("-" * 30)
 
-    # Get blocks in range
-    start_block = max(0, block_num - 5)
-    blocks = hc.blocks_in_range(start_block, block_num)
-    print(f"Blocks {start_block} to {block_num}: {len(blocks)} blocks")
+    try:
+        # Get batch blocks
+        start_block = max(0, block_num - 5)
+        blocks = hc.get_batch_blocks(start_block, block_num)
+        print(f"Blocks {start_block} to {block_num}: {len(blocks)} blocks")
 
-    total_txs = sum(len(b.get("transactions", [])) for b in blocks)
-    print(f"Total transactions: {total_txs}")
+        # Safely count transactions
+        total_txs = 0
+        for b in blocks:
+            if isinstance(b, dict):
+                total_txs += len(b.get("transactions", []))
+        print(f"Total transactions: {total_txs}")
+    except Exception as e:
+        print(f"  Could not fetch blocks: {e}")
 
     print()
     print("=" * 50)
