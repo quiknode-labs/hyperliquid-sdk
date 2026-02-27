@@ -32,14 +32,25 @@ logger = logging.getLogger(__name__)
 
 
 class StreamType(str, Enum):
-    """Available stream types."""
+    """Available stream types.
+
+    QuickNode WebSocket streams (snake_case):
+    - trades, orders, book_updates, events, twap, writer_actions
+
+    Public Hyperliquid API streams (camelCase):
+    - l2Book, allMids, candle, bbo, and all user streams
+
+    Note: L2/L4 order books are available via gRPC on QuickNode.
+    """
+    # QuickNode-supported streams (snake_case)
     TRADES = "trades"
     ORDERS = "orders"
-    BOOK_UPDATES = "bookUpdates"
+    BOOK_UPDATES = "book_updates"  # QuickNode uses snake_case
     TWAP = "twap"
     EVENTS = "events"
-    WRITER_ACTIONS = "writerActions"
-    # Additional subscription types
+    WRITER_ACTIONS = "writer_actions"  # QuickNode uses snake_case
+
+    # Public Hyperliquid API streams only (not on QuickNode WebSocket)
     L2_BOOK = "l2Book"
     ALL_MIDS = "allMids"
     CANDLE = "candle"
@@ -144,6 +155,8 @@ class Stream:
         if not HAS_WEBSOCKET:
             raise ImportError("websocket-client required. Install: pip install hyperliquid-sdk[websocket]")
 
+        self._is_quicknode = False  # Set by _build_ws_url
+        self._jsonrpc_id = 0  # Counter for JSON-RPC request IDs
         self._ws_url = self._build_ws_url(endpoint)
         self._on_error = on_error
         self._on_close = on_close
@@ -186,11 +199,14 @@ class Stream:
         - QuickNode: https://x.quiknode.pro/TOKEN -> wss://x.quiknode.pro/TOKEN/hypercore/ws
         - Public API: wss://api.hyperliquid.xyz/ws -> wss://api.hyperliquid.xyz/ws
         - Direct WSS: wss://... -> wss://...
+
+        Per docs: wscat -c wss://endpoint/TOKEN/hypercore/ws
         """
         parsed = urlparse(url)
 
-        # If already a ws/wss URL, use it directly (possibly with /ws path)
+        # If already a ws/wss URL, use it directly
         if parsed.scheme in ("ws", "wss"):
+            # If it ends with /ws or /hypercore/ws, use as-is
             if parsed.path.rstrip("/").endswith("/ws"):
                 return url
             return url.rstrip("/") + "/ws" if not parsed.path.endswith("/ws") else url
@@ -201,9 +217,12 @@ class Stream:
 
         # Check if this is the public Hyperliquid API
         if "hyperliquid.xyz" in parsed.netloc or "api.hyperliquid" in parsed.netloc:
+            self._is_quicknode = False
             return f"{base}/ws"
 
-        # QuickNode endpoint - extract token and build hypercore/ws path
+        # QuickNode endpoint - extract token and build /hypercore/ws path
+        # Per docs: wscat -c wss://endpoint/TOKEN/hypercore/ws
+        self._is_quicknode = True
         path_parts = [p for p in parsed.path.strip("/").split("/") if p]
         token = ""
         for part in path_parts:
@@ -397,85 +416,154 @@ class Stream:
                 if self._ws and self._state == ConnectionState.CONNECTED:
                     self._send_unsubscribe(params)
 
+    def _get_jsonrpc_id(self) -> int:
+        """Get next JSON-RPC request ID."""
+        self._jsonrpc_id += 1
+        return self._jsonrpc_id
+
     def _send_subscribe(self, params: Dict[str, Any]) -> None:
         """Send subscription message.
 
-        Uses standard Hyperliquid format: {"method": "subscribe", "subscription": {...}}
+        QuickNode format: {"jsonrpc": "2.0", "method": "hl_subscribe", "params": {...}, "id": N}
+        Public API format: {"method": "subscribe", "subscription": {...}}
         """
         if not self._ws:
             return
 
         try:
-            # Convert SDK format to Hyperliquid API format
-            subscription: Dict[str, Any] = {"type": params.get("streamType", "trades")}
+            stream_type = params.get("streamType", "trades")
 
-            # Add coin filter if specified
-            coins = params.get("coin")
-            if coins:
-                # API expects single coin, so subscribe to each
-                if isinstance(coins, list):
-                    for coin in coins:
-                        sub = {**subscription, "coin": coin}
-                        self._ws.send(json.dumps({"method": "subscribe", "subscription": sub}))
-                    return
-                subscription["coin"] = coins
+            if self._is_quicknode:
+                # QuickNode JSON-RPC format
+                qn_params: Dict[str, Any] = {"streamType": stream_type}
 
-            # Add user filter if specified
-            users = params.get("user")
-            if users:
-                if isinstance(users, list):
-                    for user in users:
-                        sub = {**subscription, "user": user}
-                        self._ws.send(json.dumps({"method": "subscribe", "subscription": sub}))
-                    return
-                subscription["user"] = users
+                # Add filters if specified
+                filters: Dict[str, List[str]] = {}
+                coins = params.get("coin")
+                if coins:
+                    filters["coin"] = coins if isinstance(coins, list) else [coins]
+                users = params.get("user")
+                if users:
+                    filters["user"] = users if isinstance(users, list) else [users]
+                if filters:
+                    qn_params["filters"] = filters
 
-            self._ws.send(json.dumps({"method": "subscribe", "subscription": subscription}))
+                msg = {
+                    "jsonrpc": "2.0",
+                    "method": "hl_subscribe",
+                    "params": qn_params,
+                    "id": self._get_jsonrpc_id(),
+                }
+                self._ws.send(json.dumps(msg))
+            else:
+                # Standard Hyperliquid API format
+                subscription: Dict[str, Any] = {"type": stream_type}
+
+                # Add coin filter if specified
+                coins = params.get("coin")
+                if coins:
+                    # API expects single coin, so subscribe to each
+                    if isinstance(coins, list):
+                        for coin in coins:
+                            sub = {**subscription, "coin": coin}
+                            self._ws.send(json.dumps({"method": "subscribe", "subscription": sub}))
+                        return
+                    subscription["coin"] = coins
+
+                # Add user filter if specified
+                users = params.get("user")
+                if users:
+                    if isinstance(users, list):
+                        for user in users:
+                            sub = {**subscription, "user": user}
+                            self._ws.send(json.dumps({"method": "subscribe", "subscription": sub}))
+                        return
+                    subscription["user"] = users
+
+                self._ws.send(json.dumps({"method": "subscribe", "subscription": subscription}))
         except Exception as e:
             logger.warning(f"Failed to send subscription: {e}")
 
     def _send_unsubscribe(self, params: Dict[str, Any]) -> None:
-        """Send unsubscribe message."""
+        """Send unsubscribe message.
+
+        QuickNode format: {"jsonrpc": "2.0", "method": "hl_unsubscribe", "params": {...}, "id": N}
+        Public API format: {"method": "unsubscribe", "subscription": {...}}
+        """
         if not self._ws:
             return
 
         try:
-            subscription: Dict[str, Any] = {"type": params.get("streamType", "trades")}
-            coins = params.get("coin")
-            if coins:
-                if isinstance(coins, list):
-                    for coin in coins:
-                        sub = {**subscription, "coin": coin}
-                        self._ws.send(json.dumps({"method": "unsubscribe", "subscription": sub}))
-                    return
-                subscription["coin"] = coins
-            self._ws.send(json.dumps({"method": "unsubscribe", "subscription": subscription}))
+            stream_type = params.get("streamType", "trades")
+
+            if self._is_quicknode:
+                # QuickNode JSON-RPC format
+                msg = {
+                    "jsonrpc": "2.0",
+                    "method": "hl_unsubscribe",
+                    "params": {"streamType": stream_type},
+                    "id": self._get_jsonrpc_id(),
+                }
+                self._ws.send(json.dumps(msg))
+            else:
+                # Standard Hyperliquid API format
+                subscription: Dict[str, Any] = {"type": stream_type}
+                coins = params.get("coin")
+                if coins:
+                    if isinstance(coins, list):
+                        for coin in coins:
+                            sub = {**subscription, "coin": coin}
+                            self._ws.send(json.dumps({"method": "unsubscribe", "subscription": sub}))
+                        return
+                    subscription["coin"] = coins
+                self._ws.send(json.dumps({"method": "unsubscribe", "subscription": subscription}))
         except Exception as e:
             logger.warning(f"Failed to send unsubscribe: {e}")
 
     def _on_message(self, ws: Any, message: str) -> None:
-        """Handle incoming WebSocket message."""
+        """Handle incoming WebSocket message.
+
+        QuickNode format: {"type": "data", "stream": "hl.trades", "block": {...}}
+        Public API format: {"channel": "trades", "data": [...]}
+        """
         try:
             data = json.loads(message)
-            channel = data.get("channel", "")
 
             # Handle pong response
+            channel = data.get("channel", "")
             if channel == "pong" or data.get("type") == "pong":
-                self._last_pong = time.time()
+                with self._lock:
+                    self._last_pong = time.time()
                 return
 
-            # Skip subscription confirmations
+            # Skip subscription confirmations (public API)
             if channel == "subscriptionResponse":
                 return
 
-            # O(1) lookup: Get callbacks for this channel
+            # Skip JSON-RPC responses (QuickNode)
+            if "jsonrpc" in data and "result" in data:
+                # Subscription confirmation from QuickNode
+                return
+
+            # Determine the stream type based on message format
+            stream_type = ""
+            if self._is_quicknode:
+                # QuickNode format: {"type": "data", "stream": "hl.trades", "block": {...}}
+                stream = data.get("stream", "")
+                if stream.startswith("hl."):
+                    stream_type = stream[3:]  # Remove "hl." prefix
+            else:
+                # Public API format: {"channel": "trades", "data": [...]}
+                stream_type = channel
+
+            # O(1) lookup: Get callbacks for this stream
             # Copy callbacks under lock, then invoke outside lock to avoid blocking
             callbacks_to_invoke: List[Callable[[Dict[str, Any]], None]] = []
             with self._lock:
-                if channel in self._channel_callbacks:
+                if stream_type in self._channel_callbacks:
+                    callbacks_to_invoke = self._channel_callbacks[stream_type].copy()
+                elif channel and channel in self._channel_callbacks:
                     callbacks_to_invoke = self._channel_callbacks[channel].copy()
-                elif channel == "allMids" and "allMids" in self._channel_callbacks:
-                    callbacks_to_invoke = self._channel_callbacks["allMids"].copy()
 
             # Invoke callbacks outside the lock
             for callback in callbacks_to_invoke:
@@ -519,10 +607,10 @@ class Stream:
         self._set_state(ConnectionState.CONNECTED)
         self._reconnect_attempt = 0
         self._reconnect_delay = self.INITIAL_RECONNECT_DELAY
-        self._last_pong = time.time()
 
-        # Resubscribe to all streams
+        # Resubscribe to all streams (also reset last_pong under lock)
         with self._lock:
+            self._last_pong = time.time()
             for params in self._subscriptions.values():
                 self._send_subscribe(params)
 
@@ -586,8 +674,10 @@ class Stream:
                     if not self._running or self._state != ConnectionState.CONNECTED:
                         break
 
-                    # Check for stale connection
-                    if self._last_pong > 0 and time.time() - self._last_pong > self._ping_interval + self.PING_TIMEOUT:
+                    # Check for stale connection (read last_pong under lock)
+                    with self._lock:
+                        last_pong = self._last_pong
+                    if last_pong > 0 and time.time() - last_pong > self._ping_interval + self.PING_TIMEOUT:
                         logger.warning("Connection stale (no pong), closing")
                         if self._ws:
                             self._ws.close()

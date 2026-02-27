@@ -101,7 +101,7 @@ class HyperCore:
                 f"Connection failed: {e}",
                 code="CONNECTION_ERROR",
                 raw={"method": method, "error": str(e)},
-            )
+            ) from e
 
         if resp.status_code != 200:
             raise HyperliquidError(

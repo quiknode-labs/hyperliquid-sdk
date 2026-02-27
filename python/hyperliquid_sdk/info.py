@@ -23,7 +23,7 @@ from urllib.parse import urlparse, urljoin
 
 import requests
 
-from .errors import HyperliquidError
+from .errors import HyperliquidError, GeoBlockedError
 
 # Proxy URL for Info methods not available on QuickNode
 _PROXY_INFO_URL = "https://send.hyperliquidapi.com/info"
@@ -116,9 +116,21 @@ class Info:
                 f"Connection failed: {e}",
                 code="CONNECTION_ERROR",
                 raw={"type": req_type, "error": str(e)},
-            )
+            ) from e
 
         if resp.status_code != 200:
+            # Check for geo-blocking (403 with specific message)
+            if resp.status_code == 403:
+                try:
+                    error_data = resp.json()
+                    # Check the parsed JSON data for geo-blocking indicators
+                    error_str = str(error_data).lower()
+                    if "restricted" in error_str or "jurisdiction" in error_str:
+                        raise GeoBlockedError(error_data)
+                except ValueError:
+                    # If JSON parsing fails, check raw text
+                    if "restricted" in resp.text.lower() or "jurisdiction" in resp.text.lower():
+                        raise GeoBlockedError({"error": resp.text})
             raise HyperliquidError(
                 f"Request failed with status {resp.status_code}",
                 code="HTTP_ERROR",
@@ -142,11 +154,26 @@ class Info:
         """Get all asset mid prices."""
         return self._post({"type": "allMids"})
 
-    def l2_book(self, coin: str, *, n_sig_figs: Optional[int] = None) -> Dict[str, Any]:
-        """Get Level 2 order book for an asset."""
+    def l2_book(
+        self,
+        coin: str,
+        *,
+        n_sig_figs: Optional[int] = None,
+        mantissa: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get Level 2 order book for an asset.
+
+        Args:
+            coin: Asset name ("BTC", "ETH")
+            n_sig_figs: Number of significant figures for price bucketing (2-5)
+            mantissa: Bucketing mantissa multiplier (1, 2, or 5)
+        """
         body: Dict[str, Any] = {"type": "l2Book", "coin": coin}
         if n_sig_figs is not None:
             body["nSigFigs"] = n_sig_figs
+        if mantissa is not None:
+            body["mantissa"] = mantissa
         return self._post(body)
 
     def recent_trades(self, coin: str) -> List[Dict[str, Any]]:
@@ -211,9 +238,18 @@ class Info:
     # USER ACCOUNT
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def clearinghouse_state(self, user: str) -> Dict[str, Any]:
-        """Get user's perpetual positions and margin info."""
-        return self._post({"type": "clearinghouseState", "user": user})
+    def clearinghouse_state(self, user: str, *, dex: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get user's perpetual positions and margin info.
+
+        Args:
+            user: User address
+            dex: The perp dex name. Defaults to empty string for first perp dex.
+        """
+        body: Dict[str, Any] = {"type": "clearinghouseState", "user": user}
+        if dex is not None:
+            body["dex"] = dex
+        return self._post(body)
 
     def spot_clearinghouse_state(self, user: str) -> Dict[str, Any]:
         """Get user's spot token balances."""

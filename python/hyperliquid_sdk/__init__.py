@@ -1,40 +1,29 @@
 """
-Hyperliquid SDK — The simplest way to trade on Hyperliquid.
+Hyperliquid SDK — The simplest way to work with Hyperliquid.
 
-TRADING (no endpoint needed - uses public API):
+ONE SDK, ALL APIs:
     >>> from hyperliquid_sdk import HyperliquidSDK
+    >>> sdk = HyperliquidSDK("https://your-endpoint.quiknode.pro/TOKEN")
+
+    # Everything through one SDK instance:
+    >>> sdk.info.meta()                  # Info API (50+ methods)
+    >>> sdk.core.latest_block_number()   # HyperCore (blocks, trades)
+    >>> sdk.evm.block_number()           # HyperEVM (Ethereum JSON-RPC)
+    >>> sdk.stream.trades(["BTC"], cb)   # WebSocket streaming
+    >>> sdk.grpc.trades(["BTC"], cb)     # gRPC streaming
+    >>> sdk.evm_stream.new_heads(cb)     # EVM WebSocket (eth_subscribe)
+
+TRADING (add private key):
+    >>> sdk = HyperliquidSDK("https://...", private_key="0x...")
+    >>> sdk.market_buy("BTC", size=0.001)  # Market buy
+    >>> sdk.buy("BTC", size=0.001, price=67000)  # Limit buy
+    >>> sdk.close_position("BTC")  # Close position
+    >>> sdk.cancel_all()  # Cancel all orders
+
+READ-ONLY (no endpoint needed):
     >>> sdk = HyperliquidSDK()
-    >>> sdk.market_buy("BTC", notional=100)  # Buy $100 of BTC
-
-INFO QUERIES (requires QuickNode endpoint):
-    >>> from hyperliquid_sdk import Info
-    >>> info = Info("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-    >>> info.meta()                  # Exchange metadata
-    >>> info.clearinghouse_state("0x...")  # User positions
-
-HYPERCORE (requires QuickNode endpoint - blocks, trades, orders):
-    >>> from hyperliquid_sdk import HyperCore
-    >>> hc = HyperCore("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-    >>> hc.latest_block_number()     # Latest block
-    >>> hc.latest_trades(count=10)   # Recent trades (all coins)
-
-EVM (requires QuickNode endpoint):
-    >>> from hyperliquid_sdk import EVM
-    >>> evm = EVM("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-    >>> evm.block_number()
-    >>> evm.get_balance("0x...")
-
-WEBSOCKET STREAMING (requires QuickNode endpoint + WebSocket add-on):
-    >>> from hyperliquid_sdk import Stream
-    >>> stream = Stream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-    >>> stream.trades(["BTC"], lambda t: print(t))
-    >>> stream.run()
-
-GRPC STREAMING (requires QuickNode endpoint + gRPC add-on):
-    >>> from hyperliquid_sdk import GRPCStream
-    >>> stream = GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-    >>> stream.trades(["BTC"], lambda t: print(t))
-    >>> stream.run()
+    >>> sdk.markets()     # Get all markets
+    >>> sdk.get_mid("BTC")  # Get mid price
 """
 
 from .client import HyperliquidSDK
@@ -44,6 +33,7 @@ from .hypercore import HyperCore
 from .evm import EVM
 from .websocket import Stream, StreamType, ConnectionState
 from .grpc_stream import GRPCStream, GRPCStreamType
+from .evm_stream import EVMStream, EVMSubscriptionType
 from .errors import (
     HyperliquidError,
     BuildError,
@@ -66,25 +56,24 @@ from .errors import (
 )
 
 __all__ = [
-    # Trading (no endpoint needed)
+    # Main SDK (unified entry point)
     "HyperliquidSDK",
+    # Order building
     "Order",
     "PlacedOrder",
     "Side",
     "TIF",
-    # Info queries (requires endpoint)
+    # Sub-clients (can also be used standalone)
     "Info",
-    # HyperCore (requires endpoint)
     "HyperCore",
-    # EVM (requires endpoint)
     "EVM",
-    # WebSocket Streaming (requires endpoint + WebSocket add-on)
     "Stream",
     "StreamType",
     "ConnectionState",
-    # gRPC Streaming (requires endpoint + gRPC add-on)
     "GRPCStream",
     "GRPCStreamType",
+    "EVMStream",
+    "EVMSubscriptionType",
     # Errors
     "HyperliquidError",
     "BuildError",
@@ -106,4 +95,4 @@ __all__ = [
     "InvalidNonceError",
 ]
 
-__version__ = "0.5.3"
+__version__ = "0.5.13"

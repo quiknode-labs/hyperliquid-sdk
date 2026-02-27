@@ -6,12 +6,13 @@ One class to rule them all:
 - Auto approval management
 - Smart defaults everywhere
 - Full power when you need it
+- Unified access: sdk.info, sdk.core, sdk.evm, sdk.stream, sdk.grpc
 """
 
 from __future__ import annotations
 import os
 import time as time_module
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 
 import requests
@@ -28,29 +29,50 @@ from .errors import (
     parse_api_error,
 )
 
+if TYPE_CHECKING:
+    from .info import Info
+    from .hypercore import HyperCore
+    from .evm import EVM
+    from .websocket import Stream
+    from .grpc_stream import GRPCStream
+    from .evm_stream import EVMStream
+
 
 class HyperliquidSDK:
     """
     Hyperliquid SDK — Stupidly simple, insanely powerful.
 
+    Unified access to ALL Hyperliquid APIs through a single SDK instance.
+
     Examples:
-        # Initialize
-        sdk = HyperliquidSDK(private_key)
+        # QUICKNODE USERS — Full power with one line:
+        sdk = HyperliquidSDK("https://your-endpoint.quiknode.pro/TOKEN")
 
-        # Market order (1 line!)
-        order = sdk.market_buy("BTC", size=0.001)
+        # Access everything through the SDK:
+        sdk.info.meta()                    # Info API
+        sdk.info.clearinghouse_state("0x...")
+        sdk.core.latest_block_number()     # HyperCore
+        sdk.evm.block_number()             # HyperEVM
+        sdk.stream.trades(["BTC"], cb)     # WebSocket
+        sdk.grpc.trades(["BTC"], cb)       # gRPC
 
-        # Limit order
-        order = sdk.buy("BTC", size=0.001, price=67000)
+        # TRADING — Add private key:
+        sdk = HyperliquidSDK("https://...", private_key="0x...")
 
-        # Fluent builder
-        order = sdk.order(Order.buy("BTC").size(0.001).price(67000).gtc())
+        # Or use environment variable:
+        # export PRIVATE_KEY=0x...
+        sdk = HyperliquidSDK("https://...")
 
-        # Close position
+        # Then trade:
+        sdk.market_buy("BTC", size=0.001)
+        sdk.buy("BTC", size=0.001, price=67000)
         sdk.close_position("BTC")
-
-        # Cancel all
         sdk.cancel_all()
+
+        # PUBLIC API ONLY (no QuickNode endpoint):
+        sdk = HyperliquidSDK()
+        sdk.markets()     # Get all markets
+        sdk.get_mid("BTC")  # Get mid price
     """
 
     DEFAULT_API_URL = "https://send.hyperliquidapi.com"
@@ -61,11 +83,10 @@ class HyperliquidSDK:
 
     def __init__(
         self,
-        private_key: Optional[str] = None,
+        endpoint: Optional[str] = None,
         *,
-        api_url: Optional[str] = None,
-        info_url: Optional[str] = None,
-        auto_approve: bool = False,
+        private_key: Optional[str] = None,
+        auto_approve: bool = True,
         max_fee: str = "1%",
         slippage: float = DEFAULT_SLIPPAGE,
         timeout: int = DEFAULT_TIMEOUT,
@@ -74,30 +95,35 @@ class HyperliquidSDK:
         Initialize the SDK.
 
         Args:
+            endpoint: QuickNode endpoint URL. Enables: sdk.info, sdk.core, sdk.evm, sdk.stream, sdk.grpc
             private_key: Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var.
-            api_url: Builder API URL (default: https://send.hyperliquidapi.com)
-            info_url: Hyperliquid info API URL (default: https://api.hyperliquid.xyz/info)
-            auto_approve: Automatically approve builder fee if not approved
+                        Required for trading. Optional for read-only operations.
+            auto_approve: Automatically approve builder fee for trading (default: True)
             max_fee: Max builder fee to approve (default: "1%")
             slippage: Default slippage for market orders (default: 3%)
             timeout: Request timeout in seconds (default: 30)
         """
-        # Get private key
-        pk = private_key or os.environ.get("PRIVATE_KEY")
-        if not pk:
-            raise ValueError(
-                "Private key required. Pass private_key or set PRIVATE_KEY env var."
-            )
-
-        # Initialize wallet
-        self._wallet = Account.from_key(pk)
-        self.address = self._wallet.address
-
-        # Config
-        self._api_url = api_url or self.DEFAULT_API_URL
-        self._info_url = info_url or self.DEFAULT_INFO_URL
-        self._slippage = slippage
+        # Store endpoint for lazy initialization of sub-clients
+        self._endpoint = endpoint
         self._timeout = timeout
+        self._slippage = slippage
+        self._max_fee = max_fee
+        self._auto_approve = auto_approve
+
+        # Get private key (optional for read-only operations)
+        pk = private_key or os.environ.get("PRIVATE_KEY")
+
+        # Initialize wallet if key provided
+        if pk:
+            self._wallet = Account.from_key(pk)
+            self.address = self._wallet.address
+        else:
+            self._wallet = None
+            self.address = None
+
+        # Config for builder API (trading)
+        self._api_url = self.DEFAULT_API_URL
+        self._info_url = self.DEFAULT_INFO_URL
         self._session = requests.Session()
 
         # Cache for market metadata with TTL (reduces API calls)
@@ -105,9 +131,148 @@ class HyperliquidSDK:
         self._markets_cache_time: float = 0
         self._sz_decimals_cache: Dict[str, int] = {}
 
-        # Auto-approve if requested
-        if auto_approve:
+        # Lazy-initialized sub-clients
+        self._info: Optional[Info] = None
+        self._core: Optional[HyperCore] = None
+        self._evm: Optional[EVM] = None
+        self._stream: Optional[Stream] = None
+        self._grpc: Optional[GRPCStream] = None
+        self._evm_stream: Optional[EVMStream] = None
+
+        # Auto-approve if requested and wallet available
+        if auto_approve and self._wallet:
             self._ensure_approved(max_fee)
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # UNIFIED SUB-CLIENTS — Lazy initialization
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @property
+    def info(self) -> "Info":
+        """
+        Info API — Market data, positions, orders, vaults.
+
+        Examples:
+            sdk.info.meta()
+            sdk.info.all_mids()
+            sdk.info.clearinghouse_state("0x...")
+            sdk.info.open_orders("0x...")
+        """
+        if self._info is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for Info API. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .info import Info
+            self._info = Info(self._endpoint, timeout=self._timeout)
+        return self._info
+
+    @property
+    def core(self) -> "HyperCore":
+        """
+        HyperCore API — Blocks, trades, orders from the L1.
+
+        Examples:
+            sdk.core.latest_block_number()
+            sdk.core.latest_trades(count=10)
+            sdk.core.block_by_number(12345)
+        """
+        if self._core is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for HyperCore API. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .hypercore import HyperCore
+            self._core = HyperCore(self._endpoint, timeout=self._timeout)
+        return self._core
+
+    @property
+    def evm(self) -> "EVM":
+        """
+        HyperEVM API — Ethereum JSON-RPC for HyperEVM.
+
+        Examples:
+            sdk.evm.block_number()
+            sdk.evm.get_balance("0x...")
+            sdk.evm.call(to, data)
+        """
+        if self._evm is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for EVM API. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .evm import EVM
+            self._evm = EVM(self._endpoint, timeout=self._timeout)
+        return self._evm
+
+    @property
+    def stream(self) -> "Stream":
+        """
+        WebSocket Streaming — Real-time trades, orderbook, orders.
+
+        Examples:
+            sdk.stream.trades(["BTC"], lambda t: print(t))
+            sdk.stream.l2_book("ETH", callback)
+            sdk.stream.run()
+        """
+        if self._stream is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for WebSocket streaming. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .websocket import Stream
+            self._stream = Stream(self._endpoint)
+        return self._stream
+
+    @property
+    def grpc(self) -> "GRPCStream":
+        """
+        gRPC Streaming — High-performance real-time data.
+
+        Examples:
+            sdk.grpc.trades(["BTC"], lambda t: print(t))
+            sdk.grpc.l2_book("ETH", callback)
+            sdk.grpc.run()
+        """
+        if self._grpc is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for gRPC streaming. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .grpc_stream import GRPCStream
+            self._grpc = GRPCStream(self._endpoint)
+        return self._grpc
+
+    @property
+    def evm_stream(self) -> "EVMStream":
+        """
+        EVM WebSocket Streaming — eth_subscribe/eth_unsubscribe.
+
+        Stream EVM events via WebSocket on the /nanoreth namespace:
+        - newHeads: New block headers
+        - logs: Contract event logs
+        - newPendingTransactions: Pending transaction hashes
+
+        Examples:
+            sdk.evm_stream.new_heads(lambda h: print(f"Block: {h['number']}"))
+            sdk.evm_stream.logs({"address": "0x..."}, callback)
+            sdk.evm_stream.new_pending_transactions(callback)
+            sdk.evm_stream.start()
+        """
+        if self._evm_stream is None:
+            if not self._endpoint:
+                raise ValueError(
+                    "Endpoint required for EVM WebSocket streaming. "
+                    "Pass endpoint to HyperliquidSDK() constructor."
+                )
+            from .evm_stream import EVMStream
+            self._evm_stream = EVMStream(self._endpoint)
+        return self._evm_stream
 
     # ═══════════════════════════════════════════════════════════════════════════
     # ORDER PLACEMENT — The Simple Way
@@ -416,11 +581,35 @@ class HyperliquidSDK:
 
         Returns:
             PlacedOrder with new details
+
+        Raises:
+            ValidationError: If inputs are invalid
         """
+        # Input validation
+        if not isinstance(oid, int) or oid <= 0:
+            raise ValidationError(f"oid must be a positive integer, got: {oid}")
+        if not asset or not isinstance(asset, str):
+            raise ValidationError(f"asset must be a non-empty string, got: {asset}")
+
         if isinstance(side, Side):
             side = side.value
+        if side not in ("buy", "sell"):
+            raise ValidationError(f"side must be 'buy' or 'sell', got: {side}")
+
         if isinstance(tif, TIF):
             tif = tif.value
+        if tif not in ("gtc", "ioc", "alo"):
+            raise ValidationError(f"tif must be 'gtc', 'ioc', or 'alo', got: {tif}")
+
+        # Validate price and size are convertible to numbers
+        try:
+            float(price)
+        except (ValueError, TypeError):
+            raise ValidationError(f"price must be a valid number, got: {price}")
+        try:
+            float(size)
+        except (ValueError, TypeError):
+            raise ValidationError(f"size must be a valid number, got: {size}")
 
         modify_action = {
             "type": "batchModify",
@@ -458,7 +647,7 @@ class HyperliquidSDK:
         Get open orders with enriched info and pre-built cancel actions.
 
         Args:
-            user: User address (default: self)
+            user: User address (default: self, requires private key)
 
         Returns:
             {
@@ -470,19 +659,26 @@ class HyperliquidSDK:
                 }
             }
         """
-        return self._post("/openOrders", {"user": user or self.address})
+        if user is None:
+            self._require_wallet()
+            user = self.address
+        return self._post("/openOrders", {"user": user})
 
-    def order_status(self, oid: int) -> dict:
+    def order_status(self, oid: int, user: Optional[str] = None) -> dict:
         """
         Get detailed status for an order.
 
         Args:
             oid: Order ID
+            user: User address (default: self, requires private key)
 
         Returns:
             Order status with explanation
         """
-        return self._post("/orderStatus", {"user": self.address, "oid": oid})
+        if user is None:
+            self._require_wallet()
+            user = self.address
+        return self._post("/orderStatus", {"user": user, "oid": oid})
 
     def markets(self) -> dict:
         """
@@ -555,12 +751,15 @@ class HyperliquidSDK:
         Check builder fee approval status.
 
         Args:
-            user: User address (default: self)
+            user: User address (default: self, requires private key)
 
         Returns:
             {"approved": true, "maxFeeRate": "1%", ...}
         """
-        return self._get("/approval", params={"user": user or self.address})
+        if user is None:
+            self._require_wallet()
+            user = self.address
+        return self._get("/approval", params={"user": user})
 
     def get_mid(self, asset: str) -> float:
         """
@@ -711,6 +910,14 @@ class HyperliquidSDK:
             sdk=self,
         )
 
+    def _require_wallet(self) -> None:
+        """Ensure a wallet is configured for signing operations."""
+        if self._wallet is None:
+            raise ValueError(
+                "Private key required for this operation. "
+                "Pass private_key to HyperliquidSDK() or set PRIVATE_KEY env var."
+            )
+
     def _build_sign_send(self, action: dict) -> dict:
         """
         The magic ceremony — build, sign, send in one call.
@@ -719,6 +926,8 @@ class HyperliquidSDK:
         2. Sign: Sign the hash locally
         3. Send: POST action + nonce + signature
         """
+        self._require_wallet()
+
         # Step 1: Build
         build_result = self._exchange({"action": action})
 
@@ -760,19 +969,19 @@ class HyperliquidSDK:
                 code="TIMEOUT",
             )
         except requests.exceptions.ConnectionError as e:
-            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR") from e
 
         try:
             data = resp.json()
         except ValueError:
             raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
 
-        if data.get("error"):
+        if isinstance(data, dict) and data.get("error"):
             raise parse_api_error(data, resp.status_code)
 
         return data
 
-    def _get(self, path: str, params: Optional[dict] = None) -> dict:
+    def _get(self, path: str, params: Optional[dict] = None) -> Any:
         """GET request to API."""
         try:
             resp = self._session.get(f"{self._api_url}{path}", params=params, timeout=self._timeout)
@@ -782,18 +991,18 @@ class HyperliquidSDK:
                 code="TIMEOUT",
             )
         except requests.exceptions.ConnectionError as e:
-            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR") from e
 
         try:
             data = resp.json()
         except ValueError:
             raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
 
-        if data.get("error"):
+        if isinstance(data, dict) and data.get("error"):
             raise parse_api_error(data, resp.status_code)
         return data
 
-    def _post(self, path: str, body: dict) -> dict:
+    def _post(self, path: str, body: dict) -> Any:
         """POST request to API."""
         try:
             resp = self._session.post(f"{self._api_url}{path}", json=body, timeout=self._timeout)
@@ -803,14 +1012,14 @@ class HyperliquidSDK:
                 code="TIMEOUT",
             )
         except requests.exceptions.ConnectionError as e:
-            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR") from e
 
         try:
             data = resp.json()
         except ValueError:
             raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
 
-        if data.get("error"):
+        if isinstance(data, dict) and data.get("error"):
             raise parse_api_error(data, resp.status_code)
         return data
 
@@ -824,12 +1033,17 @@ class HyperliquidSDK:
                 code="TIMEOUT",
             )
         except requests.exceptions.ConnectionError as e:
-            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR") from e
 
         try:
-            return resp.json()
+            data = resp.json()
         except ValueError:
             raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
+
+        # Check for error responses (same pattern as _post)
+        if isinstance(data, dict) and data.get("error"):
+            raise parse_api_error(data, resp.status_code)
+        return data
 
     def _ensure_approved(self, max_fee: str) -> None:
         """Ensure builder fee is approved."""
@@ -848,4 +1062,6 @@ class HyperliquidSDK:
         self._session.close()
 
     def __repr__(self) -> str:
-        return f"<HyperliquidSDK {self.address[:10]}...>"
+        if self.address:
+            return f"<HyperliquidSDK {self.address[:10]}...>"
+        return "<HyperliquidSDK (read-only)>"

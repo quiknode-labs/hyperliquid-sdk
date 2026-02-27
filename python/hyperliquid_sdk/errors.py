@@ -92,27 +92,42 @@ class OrderNotFoundError(HyperliquidError):
 
 
 class GeoBlockedError(HyperliquidError):
-    """Access denied due to geographic restrictions."""
+    """Access denied due to geographic restrictions.
+
+    Hyperliquid blocks access from certain jurisdictions including the US.
+    The SDK detects this and raises a clear GeoBlockedError.
+    """
 
     def __init__(self, data: Dict[str, Any]):
         error_info = data.get("error", {})
         if isinstance(error_info, dict):
             message = error_info.get("message", "Access denied from restricted jurisdiction")
             jurisdictions = error_info.get("restricted_jurisdictions", "")
+            note = error_info.get("note", "")
         else:
             message = str(error_info) if error_info else "Access denied from restricted jurisdiction"
             jurisdictions = ""
+            note = ""
 
-        guidance = "Use a VPN to connect from a non-restricted location."
+        # Build clear guidance (no workaround suggestions)
+        guidance_parts = [
+            "Your IP is blocked by Hyperliquid's geo-restrictions.",
+        ]
         if jurisdictions:
-            guidance += f" Restricted: {str(jurisdictions)[:100]}..."
+            # Show first few restricted locations
+            restricted_list = str(jurisdictions).split(", ")[:5]
+            guidance_parts.append(f"Blocked regions include: {', '.join(restricted_list)}...")
+        if note:
+            guidance_parts.append(f"Note: {note}")
 
         super().__init__(
             message,
             code="GEO_BLOCKED",
-            guidance=guidance,
+            guidance=" ".join(guidance_parts),
             raw=data,
         )
+        self.jurisdictions = jurisdictions
+        self.note = note
 
 
 class InsufficientMarginError(HyperliquidError):

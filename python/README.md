@@ -382,7 +382,7 @@ def on_l4_book(data):
         px, sz, oid = bid[0], bid[1], bid[2]
         print(f"Bid: ${float(px):,.2f} x {sz} (order: {oid})")
 
-stream = GRPCStream("https://your-endpoint.quiknode.pro/TOKEN")
+stream = GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
 stream.l4_book("BTC", on_l4_book)
 stream.run()
 ```
@@ -509,10 +509,12 @@ Available error types:
 
 ```python
 HyperliquidSDK(
+    endpoint=None,         # QuickNode endpoint URL
     private_key=None,      # Falls back to PRIVATE_KEY env var
-    testnet=False,         # Use testnet
-    auto_approve=False,    # Auto-approve builder fee
+    auto_approve=True,     # Auto-approve builder fee (default: True)
     max_fee="1%",          # Max fee for auto-approval
+    slippage=0.03,         # Default slippage for market orders (3%)
+    timeout=30,            # Request timeout in seconds
 )
 ```
 

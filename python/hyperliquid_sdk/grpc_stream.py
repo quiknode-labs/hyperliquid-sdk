@@ -202,6 +202,18 @@ class GRPCStream:
                 except Exception as e:
                     logger.warning(f"State change callback error: {e}")
 
+    def _safe_callback(self, callback: Callable, data: Any) -> None:
+        """Safely invoke a user callback, catching and logging any exceptions."""
+        try:
+            callback(data)
+        except Exception as e:
+            logger.warning(f"Callback error: {e}")
+            if self._on_error:
+                try:
+                    self._on_error(e)
+                except Exception:
+                    pass  # Don't let error callback errors propagate
+
     def _parse_endpoint(self, url: str) -> Tuple[str, str]:
         """Parse endpoint URL to extract host and token."""
         parsed = urlparse(url)
@@ -362,6 +374,16 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.BLOCKS.value, callback)
         return self
 
+    def writer_actions(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to writer actions (HyperCore <-> HyperEVM asset transfers).
+
+        Args:
+            callback: Function called for each writer action
+        """
+        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback)
+        return self
+
     def l2_book(
         self,
         coin: str,
@@ -460,12 +482,12 @@ class GRPCStream:
                                             event_data['_block_number'] = block_number
                                             event_data['_timestamp'] = timestamp
                                             event_data['_user'] = user
-                                            callback(event_data)
+                                            self._safe_callback(callback, event_data)
                             else:
                                 # Fallback: return raw data if no events structure
                                 data['_block_number'] = block_number
                                 data['_timestamp'] = timestamp
-                                callback(data)
+                                self._safe_callback(callback, data)
                         except json.JSONDecodeError as e:
                             logger.warning(f"Failed to parse data: {e}")
                     elif response.HasField('pong'):
@@ -529,7 +551,7 @@ class GRPCStream:
 
                     try:
                         data = json.loads(block.data_json)
-                        callback(data)
+                        self._safe_callback(callback, data)
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse block: {e}")
 
@@ -604,7 +626,7 @@ class GRPCStream:
                         "bids": [[level.px, level.sz, level.n] for level in update.bids],
                         "asks": [[level.px, level.sz, level.n] for level in update.asks],
                     }
-                    callback(data)
+                    self._safe_callback(callback, data)
 
             except grpc.RpcError as e:
                 if not self._running:
@@ -685,7 +707,7 @@ class GRPCStream:
                     else:
                         continue
 
-                    callback(data)
+                    self._safe_callback(callback, data)
 
             except grpc.RpcError as e:
                 if not self._running:
