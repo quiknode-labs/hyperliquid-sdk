@@ -14,6 +14,7 @@ import os
 import time as time_module
 from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
+from urllib.parse import urlparse
 
 import requests
 from eth_account import Account
@@ -43,7 +44,9 @@ class HyperliquidSDK:
     Hyperliquid SDK — Stupidly simple, insanely powerful.
 
     Unified access to ALL Hyperliquid APIs through a single SDK instance.
-    All requests route through your QuickNode endpoint — never directly to Hyperliquid.
+    Requests route through your QuickNode endpoint when available. Worker-only
+    operations (/approval, /markets, /preflight) and unsupported Info methods
+    route through the public worker (send.hyperliquidapi.com).
 
     Examples:
         # Initialize with QuickNode endpoint (required):
@@ -80,8 +83,20 @@ class HyperliquidSDK:
     DEFAULT_TIMEOUT = 30  # seconds
     CACHE_TTL = 300  # 5 minutes cache TTL for market metadata
 
-    # Default URL - ALL requests go through the worker, NEVER directly to api.hyperliquid.xyz
+    # Default URL - Worker handles requests and routes to Hyperliquid
     DEFAULT_WORKER_URL = "https://send.hyperliquidapi.com"
+
+    # Info API methods supported by QuickNode nodes with --serve-info-endpoint
+    # Other methods (allMids, l2Book, recentTrades, etc.) route through the worker
+    QN_SUPPORTED_INFO_METHODS = {
+        "meta", "spotMeta", "clearinghouseState", "spotClearinghouseState",
+        "openOrders", "exchangeStatus", "frontendOpenOrders", "liquidatable",
+        "activeAssetData", "maxMarketOrderNtls", "vaultSummaries", "userVaultEquities",
+        "leadingVaults", "extraAgents", "subAccounts", "userFees", "userRateLimit",
+        "spotDeployState", "perpDeployAuctionStatus", "delegations", "delegatorSummary",
+        "maxBuilderFee", "userToMultiSigSigners", "userRole", "perpsAtOpenInterestCap",
+        "validatorL1Votes", "marginTable", "perpDexs", "webData2",
+    }
 
     def __init__(
         self,
@@ -150,13 +165,11 @@ class HyperliquidSDK:
         self._public_worker_url = self.DEFAULT_WORKER_URL
 
         if endpoint:
-            # QuickNode endpoint: route /send and /info through it
-            base = endpoint.rstrip("/")
-            # If it ends with /info or similar, use parent path
-            if base.endswith("/info"):
-                base = base.rsplit("/info", 1)[0]
-            self._exchange_url = f"{base}/send"  # Trading/exchange operations
-            self._info_url = f"{base}/info"  # Info API (markets, prices, etc.)
+            # QuickNode endpoint: extract token and build proper URLs
+            # Handles: /TOKEN, /TOKEN/info, /TOKEN/evm, /TOKEN/hypercore, etc.
+            base_url = self._build_base_url(endpoint)
+            self._exchange_url = f"{base_url}/send"  # Trading/exchange operations
+            self._info_url = f"{base_url}/info"  # Info API (markets, prices, etc.)
         else:
             # No endpoint: ALL requests go through the worker
             self._exchange_url = f"{self.DEFAULT_WORKER_URL}/exchange"  # Trading/exchange operations
@@ -179,6 +192,36 @@ class HyperliquidSDK:
         # Auto-approve if requested and wallet available
         if auto_approve and self._wallet:
             self._ensure_approved(max_fee)
+
+    def _build_base_url(self, url: str) -> str:
+        """
+        Extract token from QuickNode URL and build base URL.
+
+        Handles various URL formats:
+            https://x.quiknode.pro/TOKEN → https://x.quiknode.pro/TOKEN
+            https://x.quiknode.pro/TOKEN/info → https://x.quiknode.pro/TOKEN
+            https://x.quiknode.pro/TOKEN/evm → https://x.quiknode.pro/TOKEN
+            https://x.quiknode.pro/TOKEN/hypercore → https://x.quiknode.pro/TOKEN
+
+        Returns base URL without trailing path (e.g., https://host/TOKEN).
+        """
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        path_parts = [p for p in parsed.path.strip("/").split("/") if p]
+
+        # Known API path suffixes (not the token)
+        known_paths = {"info", "hypercore", "evm", "nanoreth", "ws", "send"}
+
+        # Find the token (first path part that's not a known API path)
+        token = None
+        for part in path_parts:
+            if part not in known_paths:
+                token = part
+                break
+
+        if token:
+            return f"{base}/{token}"
+        return base
 
     # ═══════════════════════════════════════════════════════════════════════════
     # CONFIGURATION PROPERTIES
@@ -2168,9 +2211,23 @@ class HyperliquidSDK:
         return data
 
     def _post_info(self, body: dict) -> dict:
-        """POST to Hyperliquid info API."""
+        """POST to Hyperliquid info API.
+
+        Routes requests based on method support:
+        - QN-supported methods → user's QuickNode endpoint
+        - Unsupported methods (allMids, l2Book, etc.) → public worker
+        """
+        req_type = body.get("type", "")
+
+        # Route based on method support
+        if req_type in self.QN_SUPPORTED_INFO_METHODS:
+            url = self._info_url
+        else:
+            # Fallback to worker for unsupported methods
+            url = f"{self._public_worker_url}/info"
+
         try:
-            resp = self._session.post(self._info_url, json=body, timeout=self._timeout)
+            resp = self._session.post(url, json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Info request timed out after {self._timeout}s",
@@ -2178,6 +2235,17 @@ class HyperliquidSDK:
             )
         except requests.exceptions.ConnectionError as e:
             raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR") from e
+
+        # Check for geo-blocking (403 with specific message)
+        if resp.status_code == 403:
+            try:
+                error_data = resp.json()
+                error_str = str(error_data).lower()
+                if "restricted" in error_str or "jurisdiction" in error_str:
+                    from .errors import GeoBlockedError
+                    raise GeoBlockedError(error_data)
+            except ValueError:
+                pass  # Not JSON, handle below
 
         try:
             data = resp.json()

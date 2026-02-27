@@ -722,6 +722,64 @@ See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-exam
 
 ---
 
+## Architecture Notes (For SDK Implementers)
+
+This section documents the routing logic for implementing SDKs in other languages.
+
+### URL Routing
+
+The SDK routes requests to different endpoints based on the operation:
+
+| Endpoint | Routes To | Notes |
+|----------|-----------|-------|
+| `/send` | QuickNode | Trading operations (orders, cancels, etc.) |
+| `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
+| `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
+| `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
+
+### QuickNode Supported Info Methods
+
+QuickNode nodes with `--serve-info-endpoint` support these methods:
+
+```
+meta, spotMeta, clearinghouseState, spotClearinghouseState,
+openOrders, exchangeStatus, frontendOpenOrders, liquidatable,
+activeAssetData, maxMarketOrderNtls, vaultSummaries, userVaultEquities,
+leadingVaults, extraAgents, subAccounts, userFees, userRateLimit,
+spotDeployState, perpDeployAuctionStatus, delegations, delegatorSummary,
+maxBuilderFee, userToMultiSigSigners, userRole, perpsAtOpenInterestCap,
+validatorL1Votes, marginTable, perpDexs, webData2
+```
+
+Methods NOT in this list (e.g., `allMids`, `l2Book`, `recentTrades`, `candleSnapshot`, `predictedFundings`) must route through the worker.
+
+### Endpoint Parsing
+
+The SDK extracts the token from any endpoint format:
+
+```
+https://x.quiknode.pro/TOKEN → base = https://x.quiknode.pro/TOKEN
+https://x.quiknode.pro/TOKEN/info → base = https://x.quiknode.pro/TOKEN
+https://x.quiknode.pro/TOKEN/evm → base = https://x.quiknode.pro/TOKEN
+https://x.quiknode.pro/TOKEN/hypercore → base = https://x.quiknode.pro/TOKEN
+```
+
+Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `send`
+
+### Worker URL
+
+Public worker: `https://send.hyperliquidapi.com`
+
+The worker handles:
+- `/exchange` - Trading (when no QuickNode endpoint)
+- `/info` - Info API fallback for unsupported methods
+- `/approval` - Builder fee approval status
+- `/markets` - Market metadata
+- `/dexes` - DEX info
+- `/preflight` - Order preflight validation
+
+---
+
 ## Disclaimer
 
 This is an **unofficial community SDK**. It is **not affiliated with Hyperliquid Foundation or Hyperliquid Labs**.
