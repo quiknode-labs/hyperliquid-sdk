@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hyperliquid-sdk"
-version = "0.5.0"
+version = "0.5.1"
 description = "Community SDK for Hyperliquid. One line to place orders, zero ceremony. HyperCore, HyperEVM, WebSocket and gRPC streams. Not affiliated with Hyperliquid Foundation."
 readme = "README.md"
 license = "MIT"

@@ -1,1 +1,1 @@
-# Tests for hyperliquid-sdk
+# Hyperliquid SDK Tests

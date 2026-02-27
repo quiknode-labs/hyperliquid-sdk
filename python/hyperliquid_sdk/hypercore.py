@@ -87,20 +87,49 @@ class HyperCore:
             body["params"] = params
         else:
             body["params"] = {}
-        resp = self._session.post(self._hypercore_url, json=body, timeout=self._timeout)
+
+        try:
+            resp = self._session.post(self._hypercore_url, json=body, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Request timed out after {self._timeout}s",
+                code="TIMEOUT",
+                raw={"method": method, "timeout": self._timeout},
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(
+                f"Connection failed: {e}",
+                code="CONNECTION_ERROR",
+                raw={"method": method, "error": str(e)},
+            )
+
         if resp.status_code != 200:
             raise HyperliquidError(
                 f"Request failed with status {resp.status_code}",
                 code="HTTP_ERROR",
                 raw={"status": resp.status_code, "body": resp.text},
             )
-        data = resp.json()
-        if "error" in data:
+
+        try:
+            data = resp.json()
+        except ValueError:
             raise HyperliquidError(
-                data["error"].get("message", "Unknown error"),
-                code="RPC_ERROR",
-                raw=data["error"],
+                "Invalid JSON response",
+                code="PARSE_ERROR",
+                raw={"body": resp.text[:500]},
             )
+
+        if "error" in data:
+            error = data["error"]
+            # Handle both dict and string error formats
+            if isinstance(error, dict):
+                message = error.get("message", str(error))
+                code = error.get("code", "RPC_ERROR")
+            else:
+                message = str(error)
+                code = "RPC_ERROR"
+            raise HyperliquidError(message, code=str(code), raw=error)
+
         return data.get("result")
 
     # ═══════════════════════════════════════════════════════════════════════════

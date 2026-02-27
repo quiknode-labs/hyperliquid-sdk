@@ -165,6 +165,8 @@ class Stream:
         self._lock = threading.RLock()
         self._subscriptions: Dict[str, Dict[str, Any]] = {}
         self._callbacks: Dict[str, Callable[[Dict[str, Any]], None]] = {}
+        # O(1) lookup: channel -> list of callback functions
+        self._channel_callbacks: Dict[str, List[Callable[[Dict[str, Any]], None]]] = {}
         self._sub_id = 0
 
     def _set_state(self, state: ConnectionState) -> None:
@@ -237,6 +239,10 @@ class Stream:
         with self._lock:
             self._subscriptions[sub_id] = params
             self._callbacks[sub_id] = callback
+            # Update O(1) channel lookup
+            if stream_type not in self._channel_callbacks:
+                self._channel_callbacks[stream_type] = []
+            self._channel_callbacks[stream_type].append(callback)
             if self._ws and self._state == ConnectionState.CONNECTED:
                 self._send_subscribe(params)
 
@@ -286,12 +292,16 @@ class Stream:
 
     def candle(self, coin: str, interval: str, callback: Callable[[Dict[str, Any]], None]) -> str:
         """Subscribe to candlestick data. Interval: 1m, 5m, 15m, 1h, 4h, 1d."""
-        # Need special handling for interval
         sub_id = self._get_sub_id()
-        params = {"streamType": StreamType.CANDLE.value, "coin": [coin], "interval": interval}
+        stream_type = StreamType.CANDLE.value
+        params = {"streamType": stream_type, "coin": [coin], "interval": interval}
         with self._lock:
             self._subscriptions[sub_id] = params
             self._callbacks[sub_id] = callback
+            # Update O(1) channel lookup
+            if stream_type not in self._channel_callbacks:
+                self._channel_callbacks[stream_type] = []
+            self._channel_callbacks[stream_type].append(callback)
             if self._ws and self._state == ConnectionState.CONNECTED:
                 self._send_subscribe(params)
         return sub_id
@@ -335,10 +345,15 @@ class Stream:
     def active_asset_data(self, user: str, coin: str, callback: Callable[[Dict[str, Any]], None]) -> str:
         """Subscribe to user's active asset trading parameters."""
         sub_id = self._get_sub_id()
-        params = {"streamType": StreamType.ACTIVE_ASSET_DATA.value, "user": [user], "coin": [coin]}
+        stream_type = StreamType.ACTIVE_ASSET_DATA.value
+        params = {"streamType": stream_type, "user": [user], "coin": [coin]}
         with self._lock:
             self._subscriptions[sub_id] = params
             self._callbacks[sub_id] = callback
+            # Update O(1) channel lookup
+            if stream_type not in self._channel_callbacks:
+                self._channel_callbacks[stream_type] = []
+            self._channel_callbacks[stream_type].append(callback)
             if self._ws and self._state == ConnectionState.CONNECTED:
                 self._send_subscribe(params)
         return sub_id
@@ -368,7 +383,17 @@ class Stream:
         with self._lock:
             if sub_id in self._subscriptions:
                 params = self._subscriptions.pop(sub_id)
-                self._callbacks.pop(sub_id, None)
+                callback = self._callbacks.pop(sub_id, None)
+                # Remove from O(1) channel lookup
+                stream_type = params.get("streamType", "")
+                if callback and stream_type in self._channel_callbacks:
+                    try:
+                        self._channel_callbacks[stream_type].remove(callback)
+                        # Clean up empty lists
+                        if not self._channel_callbacks[stream_type]:
+                            del self._channel_callbacks[stream_type]
+                    except ValueError:
+                        pass  # Callback not in list
                 if self._ws and self._state == ConnectionState.CONNECTED:
                     self._send_unsubscribe(params)
 
@@ -443,26 +468,22 @@ class Stream:
             if channel == "subscriptionResponse":
                 return
 
-            # Route message to appropriate callback based on channel
+            # O(1) lookup: Get callbacks for this channel
+            # Copy callbacks under lock, then invoke outside lock to avoid blocking
+            callbacks_to_invoke: List[Callable[[Dict[str, Any]], None]] = []
             with self._lock:
-                for sub_id, params in self._subscriptions.items():
-                    stream_type = params.get("streamType", "")
-                    # Match channel to stream type
-                    if channel == stream_type or channel == "allMids":
-                        callback = self._callbacks.get(sub_id)
-                        if callback:
-                            try:
-                                callback(data)
-                            except Exception as e:
-                                logger.warning(f"Callback error: {e}")
-                        break
-                else:
-                    # If no specific match, send to all callbacks
-                    for callback in self._callbacks.values():
-                        try:
-                            callback(data)
-                        except Exception as e:
-                            logger.warning(f"Callback error: {e}")
+                if channel in self._channel_callbacks:
+                    callbacks_to_invoke = self._channel_callbacks[channel].copy()
+                elif channel == "allMids" and "allMids" in self._channel_callbacks:
+                    callbacks_to_invoke = self._channel_callbacks["allMids"].copy()
+
+            # Invoke callbacks outside the lock
+            for callback in callbacks_to_invoke:
+                try:
+                    callback(data)
+                except Exception as e:
+                    logger.warning(f"Callback error: {e}")
+
         except json.JSONDecodeError:
             logger.warning(f"Invalid JSON received: {message[:100]}")
         except Exception as e:

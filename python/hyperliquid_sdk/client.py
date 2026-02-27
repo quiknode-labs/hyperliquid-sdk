@@ -10,6 +10,7 @@ One class to rule them all:
 
 from __future__ import annotations
 import os
+import time as time_module
 from typing import Optional, Union, List, Dict, Any
 from decimal import Decimal
 
@@ -55,6 +56,8 @@ class HyperliquidSDK:
     DEFAULT_API_URL = "https://send.hyperliquidapi.com"
     DEFAULT_INFO_URL = "https://api.hyperliquid.xyz/info"
     DEFAULT_SLIPPAGE = 0.03  # 3% for market orders
+    DEFAULT_TIMEOUT = 30  # seconds
+    CACHE_TTL = 300  # 5 minutes cache TTL for market metadata
 
     def __init__(
         self,
@@ -65,6 +68,7 @@ class HyperliquidSDK:
         auto_approve: bool = False,
         max_fee: str = "1%",
         slippage: float = DEFAULT_SLIPPAGE,
+        timeout: int = DEFAULT_TIMEOUT,
     ):
         """
         Initialize the SDK.
@@ -76,6 +80,7 @@ class HyperliquidSDK:
             auto_approve: Automatically approve builder fee if not approved
             max_fee: Max builder fee to approve (default: "1%")
             slippage: Default slippage for market orders (default: 3%)
+            timeout: Request timeout in seconds (default: 30)
         """
         # Get private key
         pk = private_key or os.environ.get("PRIVATE_KEY")
@@ -92,10 +97,12 @@ class HyperliquidSDK:
         self._api_url = api_url or self.DEFAULT_API_URL
         self._info_url = info_url or self.DEFAULT_INFO_URL
         self._slippage = slippage
+        self._timeout = timeout
         self._session = requests.Session()
 
-        # Cache for market metadata (reduces API calls)
+        # Cache for market metadata with TTL (reduces API calls)
         self._markets_cache: Optional[dict] = None
+        self._markets_cache_time: float = 0
         self._sz_decimals_cache: Dict[str, int] = {}
 
         # Auto-approve if requested
@@ -574,6 +581,12 @@ class HyperliquidSDK:
 
         return float(data.get(asset, 0))
 
+    def refresh_markets(self) -> dict:
+        """Force refresh of market metadata cache."""
+        self._markets_cache = self.markets()
+        self._markets_cache_time = time_module.time()
+        return self._markets_cache
+
     def _get_size_decimals(self, asset: str) -> int:
         """Get the maximum decimal places for order size on this market (cached)."""
         # Check cache first
@@ -581,9 +594,11 @@ class HyperliquidSDK:
             return self._sz_decimals_cache[asset]
 
         try:
-            # Use cached markets or fetch fresh
-            if self._markets_cache is None:
+            # Use cached markets or fetch fresh (with TTL)
+            now = time_module.time()
+            if self._markets_cache is None or (now - self._markets_cache_time) > self.CACHE_TTL:
                 self._markets_cache = self.markets()
+                self._markets_cache_time = now
 
             markets = self._markets_cache
 
@@ -737,8 +752,20 @@ class HyperliquidSDK:
 
     def _exchange(self, body: dict) -> dict:
         """POST to /exchange endpoint."""
-        resp = self._session.post(f"{self._api_url}/exchange", json=body)
-        data = resp.json()
+        try:
+            resp = self._session.post(f"{self._api_url}/exchange", json=body, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Exchange request timed out after {self._timeout}s",
+                code="TIMEOUT",
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+
+        try:
+            data = resp.json()
+        except ValueError:
+            raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
 
         if data.get("error"):
             raise parse_api_error(data, resp.status_code)
@@ -747,24 +774,62 @@ class HyperliquidSDK:
 
     def _get(self, path: str, params: Optional[dict] = None) -> dict:
         """GET request to API."""
-        resp = self._session.get(f"{self._api_url}{path}", params=params)
-        data = resp.json()
+        try:
+            resp = self._session.get(f"{self._api_url}{path}", params=params, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Request timed out after {self._timeout}s",
+                code="TIMEOUT",
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+
+        try:
+            data = resp.json()
+        except ValueError:
+            raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
+
         if data.get("error"):
             raise parse_api_error(data, resp.status_code)
         return data
 
     def _post(self, path: str, body: dict) -> dict:
         """POST request to API."""
-        resp = self._session.post(f"{self._api_url}{path}", json=body)
-        data = resp.json()
+        try:
+            resp = self._session.post(f"{self._api_url}{path}", json=body, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Request timed out after {self._timeout}s",
+                code="TIMEOUT",
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+
+        try:
+            data = resp.json()
+        except ValueError:
+            raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
+
         if data.get("error"):
             raise parse_api_error(data, resp.status_code)
         return data
 
     def _post_info(self, body: dict) -> dict:
         """POST to Hyperliquid info API."""
-        resp = self._session.post(self._info_url, json=body)
-        return resp.json()
+        try:
+            resp = self._session.post(self._info_url, json=body, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Info request timed out after {self._timeout}s",
+                code="TIMEOUT",
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(f"Connection failed: {e}", code="CONNECTION_ERROR")
+
+        try:
+            return resp.json()
+        except ValueError:
+            raise HyperliquidError("Invalid JSON response", code="PARSE_ERROR")
 
     def _ensure_approved(self, max_fee: str) -> None:
         """Ensure builder fee is approved."""

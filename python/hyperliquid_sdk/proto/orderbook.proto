@@ -1,59 +1,94 @@
+// Order book streaming service for grpc.
+//
+// Provides L2 (aggregated price levels) and L4 (individual orders) order book
+// data via gRPC server-streaming RPCs. The order book state is maintained
+// in-memory by the OrderBookProcessor, which consumes BookDiffs and
+// OrderStatuses from the existing grpc multiplexer pipeline.
+
 syntax = "proto3";
+package hyperliquid;
 
-package orderbook;
+// Service for streaming real-time order book data.
+// L2 provides aggregated price levels (px, total_sz, order_count).
+// L4 provides individual order details (user, trigger info, timestamps).
+service OrderBookStreaming {
+  // Subscribe to L2 aggregated book updates for a coin.
+  // Sends a full L2 snapshot after each block is processed.
+  rpc StreamL2Book (L2BookRequest) returns (stream L2BookUpdate);
 
-option go_package = "github.com/quiknode-labs/hyperliquid-sdk/proto";
-
-// Level 2 Order Book streaming
-service L2Book {
-  // Stream Level 2 order book updates
-  rpc StreamL2Book(StreamL2BookRequest) returns (stream StreamL2BookResponse);
+  // Subscribe to L4 full order book for a coin.
+  // Sends an initial L4 snapshot, then incremental diffs per block.
+  rpc StreamL4Book (L4BookRequest) returns (stream L4BookUpdate);
 }
 
-// Level 4 Order Book streaming (individual orders)
-service L4Book {
-  // Stream Level 4 order book updates
-  rpc StreamL4Book(StreamL4BookRequest) returns (stream StreamL4BookResponse);
-}
-
-// Request for L2 book stream
-message StreamL2BookRequest {
-  string coin = 1;              // Coin symbol (e.g., "BTC")
-  optional int32 n_sig_figs = 2;  // Number of significant figures for price aggregation
-}
-
-// Response from L2 book stream
-message StreamL2BookResponse {
+// Request parameters for L2 book streaming.
+message L2BookRequest {
   string coin = 1;
-  repeated PriceLevel bids = 2;
-  repeated PriceLevel asks = 3;
-  int64 timestamp = 4;
+  uint32 n_levels = 2;
+  optional uint32 n_sig_figs = 3;
+  optional uint64 mantissa = 4;
 }
 
-// Price level in the order book
-message PriceLevel {
-  string price = 1;             // Price as string for precision
-  string size = 2;              // Size as string for precision
-  int32 count = 3;              // Number of orders at this level
-}
-
-// Request for L4 book stream
-message StreamL4BookRequest {
-  string coin = 1;              // Coin symbol (e.g., "BTC")
-}
-
-// Response from L4 book stream
-message StreamL4BookResponse {
+// An L2 book update: full snapshot of aggregated price levels at a point in time.
+message L2BookUpdate {
   string coin = 1;
-  repeated Order bids = 2;
-  repeated Order asks = 3;
-  int64 timestamp = 4;
+  uint64 time = 2;
+  uint64 block_number = 3;
+  repeated L2Level bids = 4;
+  repeated L2Level asks = 5;
 }
 
-// Individual order in L4 book
-message Order {
-  string price = 1;
-  string size = 2;
-  string order_id = 3;
-  string user = 4;              // User address
+// A single aggregated price level.
+message L2Level {
+  string px = 1;
+  string sz = 2;
+  uint32 n = 3;
+}
+
+// Request parameters for L4 book streaming.
+message L4BookRequest {
+  string coin = 1;
+}
+
+// An L4 book update: either a full snapshot or an incremental diff.
+message L4BookUpdate {
+  oneof update {
+    L4BookSnapshot snapshot = 1;
+    L4BookDiff diff = 2;
+  }
+}
+
+// Full L4 order book snapshot for a single coin.
+message L4BookSnapshot {
+  string coin = 1;
+  uint64 time = 2;
+  uint64 height = 3;
+  repeated L4Order bids = 4;
+  repeated L4Order asks = 5;
+}
+
+// Incremental L4 book diff: raw order statuses and book diffs for one block.
+message L4BookDiff {
+  uint64 time = 1;
+  uint64 height = 2;
+  string data = 3;
+}
+
+// A single L4 order with full details.
+message L4Order {
+  string user = 1;
+  string coin = 2;
+  string side = 3;
+  string limit_px = 4;
+  string sz = 5;
+  uint64 oid = 6;
+  uint64 timestamp = 7;
+  string trigger_condition = 8;
+  bool is_trigger = 9;
+  string trigger_px = 10;
+  bool is_position_tpsl = 11;
+  bool reduce_only = 12;
+  string order_type = 13;
+  optional string tif = 14;
+  optional string cloid = 15;
 }

@@ -79,6 +79,14 @@ class Info:
         base = f"{parsed.scheme}://{parsed.netloc}"
         path_parts = [p for p in parsed.path.strip("/").split("/") if p]
 
+        # Check if this is the public Hyperliquid API
+        if "hyperliquid.xyz" in parsed.netloc or "api.hyperliquid" in parsed.netloc:
+            return f"{base}/info"
+
+        # Check if URL already ends with /info
+        if path_parts and path_parts[-1] == "info":
+            return url.rstrip("/")
+
         # Find the token (not a known path like info, evm, etc.)
         token = None
         for part in path_parts:
@@ -95,14 +103,36 @@ class Info:
         req_type = body.get("type", "")
         url = _PROXY_INFO_URL if req_type in _PROXIED_TYPES else self._info_url
 
-        resp = self._session.post(url, json=body, timeout=self._timeout)
+        try:
+            resp = self._session.post(url, json=body, timeout=self._timeout)
+        except requests.exceptions.Timeout:
+            raise HyperliquidError(
+                f"Request timed out after {self._timeout}s",
+                code="TIMEOUT",
+                raw={"type": req_type, "timeout": self._timeout},
+            )
+        except requests.exceptions.ConnectionError as e:
+            raise HyperliquidError(
+                f"Connection failed: {e}",
+                code="CONNECTION_ERROR",
+                raw={"type": req_type, "error": str(e)},
+            )
+
         if resp.status_code != 200:
             raise HyperliquidError(
                 f"Request failed with status {resp.status_code}",
                 code="HTTP_ERROR",
                 raw={"status": resp.status_code, "body": resp.text},
             )
-        return resp.json()
+
+        try:
+            return resp.json()
+        except ValueError:
+            raise HyperliquidError(
+                "Invalid JSON response",
+                code="PARSE_ERROR",
+                raw={"body": resp.text[:500]},
+            )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # MARKET DATA

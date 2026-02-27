@@ -196,11 +196,49 @@ class Order:
                 guidance="Use .size(0.001) or .notional(100)",
             )
 
+        # Validate size is positive
+        if self._size is not None:
+            try:
+                size_val = float(self._size)
+                if size_val <= 0:
+                    raise ValidationError(
+                        "Size must be positive",
+                        guidance=f"Got size={self._size}, use a positive value like 0.001",
+                    )
+            except ValueError:
+                raise ValidationError(
+                    f"Invalid size value: {self._size}",
+                    guidance="Size must be a valid number",
+                )
+
+        # Validate notional is positive
+        if self._notional is not None and self._notional <= 0:
+            raise ValidationError(
+                "Notional must be positive",
+                guidance=f"Got notional={self._notional}, use a positive value like 100",
+            )
+
+        # Validate price for limit orders
         if self._tif != TIF.MARKET and self._price is None and self._notional is None:
             raise ValidationError(
                 "Price is required for limit orders",
                 guidance="Use .price(67000) or .market() for market orders",
             )
+
+        # Validate price is positive for limit orders
+        if self._price is not None:
+            try:
+                price_val = float(self._price)
+                if price_val <= 0:
+                    raise ValidationError(
+                        "Price must be positive",
+                        guidance=f"Got price={self._price}, use a positive value like 67000",
+                    )
+            except ValueError:
+                raise ValidationError(
+                    f"Invalid price value: {self._price}",
+                    guidance="Price must be a valid number",
+                )
 
     # ═══════════════ REPR ═══════════════
 

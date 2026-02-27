@@ -1,12 +1,64 @@
 syntax = "proto3";
+package hyperliquid;
 
-package streaming;
+service Streaming {
+  // Bi-directional streaming
+  rpc StreamData (stream SubscribeRequest) returns (stream SubscribeUpdate);
+  rpc Ping (PingRequest) returns (PingResponse);
+}
 
-option go_package = "github.com/quiknode-labs/hyperliquid-sdk/proto";
+service BlockStreaming {
+  // Stream replica_cmds (raw blocks)
+  rpc StreamBlocks (Timestamp) returns (stream Block);
+}
 
-// StreamType enums for subscription types
+// --- Requests ---
+message SubscribeRequest {
+  oneof request {
+    StreamSubscribe subscribe = 1;
+    Ping ping = 3;
+  }
+  reserved 2;
+}
+
+message StreamSubscribe {
+  StreamType stream_type = 1;
+
+  // Generic filters - field name to allowed values
+  // Recursively searches each event for matching field/value pairs
+  // Example: {"coin": ["ETH", "BTC"], "user": ["0x123..."], "type": ["deposit"]}
+  map<string, FilterValues> filters = 3;
+
+  // Optional name for this filter
+  // Allows multiple independent filters per stream (OR logic)
+  string filter_name = 4;
+}
+
+// Container for filter values
+message FilterValues {
+  repeated string values = 1;
+}
+
+message Ping { int64 timestamp = 1; }
+
+// --- Responses ---
+message SubscribeUpdate {
+  oneof update {
+    StreamResponse data = 1;
+    Pong pong = 2;
+  }
+}
+
+message StreamResponse {
+  uint64 block_number = 1;
+  uint64 timestamp = 2; // Server ingress timestamp
+  // Raw JSON data from the file (Exact replica of source)
+  string data = 3;
+}
+
+// --- Data Types ---
 enum StreamType {
-  STREAM_TYPE_UNSPECIFIED = 0;
+  UNKNOWN = 0;
   TRADES = 1;
   ORDERS = 2;
   BOOK_UPDATES = 3;
@@ -16,51 +68,11 @@ enum StreamType {
   WRITER_ACTIONS = 7;
 }
 
-// Streaming service for real-time data
-service Streaming {
-  // Stream real-time data (trades, orders, book updates, etc.)
-  rpc StreamData(StreamDataRequest) returns (stream StreamDataResponse);
-
-  // Ping to keep connection alive
-  rpc Ping(PingRequest) returns (PingResponse);
+message Block {
+    string data_json = 1;
 }
 
-// BlockStreaming service for block data
-service BlockStreaming {
-  // Stream blocks
-  rpc StreamBlocks(StreamBlocksRequest) returns (stream StreamBlocksResponse);
-}
-
-// Request for StreamData
-message StreamDataRequest {
-  StreamType stream_type = 1;
-  repeated string coins = 2;    // Filter by coin symbols (e.g., ["BTC", "ETH"])
-  repeated string users = 3;    // Filter by user addresses
-}
-
-// Response from StreamData
-message StreamDataResponse {
-  StreamType stream_type = 1;
-  string data = 2;              // JSON-encoded data
-  int64 timestamp = 3;          // Unix timestamp in milliseconds
-}
-
-// Request for StreamBlocks
-message StreamBlocksRequest {
-  optional uint64 start_block = 1;  // Starting block number (optional)
-}
-
-// Response from StreamBlocks
-message StreamBlocksResponse {
-  uint64 block_number = 1;
-  string block_data = 2;        // JSON-encoded block data
-  int64 timestamp = 3;
-}
-
-// Ping request
-message PingRequest {}
-
-// Ping response
-message PingResponse {
-  int64 timestamp = 1;
-}
+message Pong { int64 timestamp = 1; }
+message Timestamp { int64 timestamp = 1; }
+message PingRequest { int32 count = 1; }
+message PingResponse { int32 count = 1; }
