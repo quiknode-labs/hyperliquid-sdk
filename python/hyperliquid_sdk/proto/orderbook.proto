@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package orderbook;
+
+option go_package = "github.com/quiknode-labs/hyperliquid-sdk/proto";
+
+// Level 2 Order Book streaming
+service L2Book {
+  // Stream Level 2 order book updates
+  rpc StreamL2Book(StreamL2BookRequest) returns (stream StreamL2BookResponse);
+}
+
+// Level 4 Order Book streaming (individual orders)
+service L4Book {
+  // Stream Level 4 order book updates
+  rpc StreamL4Book(StreamL4BookRequest) returns (stream StreamL4BookResponse);
+}
+
+// Request for L2 book stream
+message StreamL2BookRequest {
+  string coin = 1;              // Coin symbol (e.g., "BTC")
+  optional int32 n_sig_figs = 2;  // Number of significant figures for price aggregation
+}
+
+// Response from L2 book stream
+message StreamL2BookResponse {
+  string coin = 1;
+  repeated PriceLevel bids = 2;
+  repeated PriceLevel asks = 3;
+  int64 timestamp = 4;
+}
+
+// Price level in the order book
+message PriceLevel {
+  string price = 1;             // Price as string for precision
+  string size = 2;              // Size as string for precision
+  int32 count = 3;              // Number of orders at this level
+}
+
+// Request for L4 book stream
+message StreamL4BookRequest {
+  string coin = 1;              // Coin symbol (e.g., "BTC")
+}
+
+// Response from L4 book stream
+message StreamL4BookResponse {
+  string coin = 1;
+  repeated Order bids = 2;
+  repeated Order asks = 3;
+  int64 timestamp = 4;
+}
+
+// Individual order in L4 book
+message Order {
+  string price = 1;
+  string size = 2;
+  string order_id = 3;
+  string user = 4;              // User address
+}

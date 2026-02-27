@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hyperliquid-sdk"
-version = "0.2.2"
-description = "Community SDK for Hyperliquid by QuickNode. One line to place orders, zero ceremony. Not affiliated with Hyperliquid Foundation."
+version = "0.5.0"
+description = "Community SDK for Hyperliquid. One line to place orders, zero ceremony. HyperCore, HyperEVM, WebSocket and gRPC streams. Not affiliated with Hyperliquid Foundation."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
@@ -22,6 +22,11 @@ keywords = [
     "perpetuals",
     "sdk",
     "api",
+    "hypercore",
+    "hyperevm",
+    "websocket",
+    "grpc",
+    "streaming",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -40,6 +45,8 @@ classifiers = [
 dependencies = [
     "requests>=2.28.0",
     "eth-account>=0.10.0",
+    "websocket-client>=1.6.0",
+    "grpcio>=1.60.0",
 ]
 
 [project.urls]
@@ -48,6 +55,7 @@ Documentation = "https://hyperliquidapi.com/docs"
 Repository = "https://github.com/quiknode-labs/hyperliquid-sdk"
 Examples = "https://github.com/quiknode-labs/hyperliquid-examples"
 Changelog = "https://github.com/quiknode-labs/hyperliquid-sdk/releases"
+QuickNode = "https://www.quicknode.com/docs/hyperliquid"
 
 [project.optional-dependencies]
 dev = [
@@ -56,6 +64,7 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.0.0",
+    "grpcio-tools>=1.60.0",
 ]
 
 [tool.hatch.build.targets.wheel]

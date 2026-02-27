@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+"""
+Full Demo — Comprehensive example of all SDK capabilities.
+
+This example demonstrates all major SDK features:
+- Info API (market data, user info)
+- HyperCore API (blocks, trades, orders)
+- EVM API (chain data, balances)
+- WebSocket streaming
+- gRPC streaming
+- Trading (orders, positions)
+
+Requirements:
+    pip install hyperliquid-sdk[all]
+
+Usage:
+    export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+    export PRIVATE_KEY="0x..."  # Optional, for trading
+    python full_demo.py
+"""
+
+import os
+import sys
+import time
+import threading
+
+# Optional: Set endpoint via command line
+if len(sys.argv) > 1:
+    os.environ["QUICKNODE_ENDPOINT"] = sys.argv[1]
+
+from hyperliquid_sdk import (
+    Info,
+    HyperCore,
+    EVM,
+    HyperliquidSDK,
+    Stream,
+    HyperliquidError,
+)
+
+# Try to import gRPC (optional)
+try:
+    from hyperliquid_sdk import GRPCStream
+    HAS_GRPC = True
+except ImportError:
+    HAS_GRPC = False
+
+
+def separator(title: str):
+    """Print a section separator."""
+    print()
+    print("=" * 60)
+    print(f"  {title}")
+    print("=" * 60)
+
+
+def subsection(title: str):
+    """Print a subsection."""
+    print()
+    print(f"--- {title} ---")
+
+
+def demo_info_api(endpoint: str):
+    """Demonstrate Info API capabilities."""
+    separator("INFO API")
+
+    info = Info(endpoint)
+
+    subsection("Market Prices")
+    mids = info.all_mids()
+    print(f"Total markets: {len(mids)}")
+    for coin in ["BTC", "ETH", "SOL", "DOGE"]:
+        if coin in mids:
+            print(f"  {coin}: ${float(mids[coin]):,.2f}")
+
+    subsection("Order Book")
+    book = info.l2_book("BTC")
+    levels = book.get("levels", [[], []])
+    bids = levels[0] if len(levels) > 0 else []
+    asks = levels[1] if len(levels) > 1 else []
+    if bids and asks:
+        print(f"  Best Bid: {bids[0]['sz']} @ ${float(bids[0]['px']):,.2f}")
+        print(f"  Best Ask: {asks[0]['sz']} @ ${float(asks[0]['px']):,.2f}")
+        print(f"  Spread: ${float(asks[0]['px']) - float(bids[0]['px']):,.2f}")
+
+    subsection("Recent Trades")
+    trades = info.recent_trades("ETH")
+    print(f"Last 3 ETH trades:")
+    for t in trades[:3]:
+        print(f"  {t['sz']} @ ${float(t['px']):,.2f} ({t['side']})")
+
+    subsection("Exchange Metadata")
+    meta = info.meta()
+    universe = meta.get("universe", [])
+    print(f"Total perp markets: {len(universe)}")
+
+    subsection("Predicted Funding")
+    fundings = info.predicted_fundings()
+    print(f"Top 3 funding rates:")
+    sorted_fundings = sorted(fundings, key=lambda x: abs(float(x.get("fundingRate", 0))), reverse=True)
+    for f in sorted_fundings[:3]:
+        rate = float(f.get("fundingRate", 0)) * 100
+        print(f"  {f['coin']}: {rate:+.4f}% (8h)")
+
+
+def demo_hypercore_api(endpoint: str):
+    """Demonstrate HyperCore API capabilities."""
+    separator("HYPERCORE API")
+
+    hc = HyperCore(endpoint)
+
+    subsection("Latest Block")
+    block_num = hc.latest_block_number()
+    print(f"Latest block: {block_num:,}")
+
+    block = hc.block_by_number(block_num)
+    if block:
+        txs = block.get("transactions", [])
+        print(f"Block {block_num}: {len(txs)} transactions")
+
+    subsection("Recent Trades")
+    trades = hc.latest_trades(count=5)
+    print(f"Last 5 trades across all markets:")
+    for t in trades:
+        coin = t.get("coin", "?")
+        print(f"  {coin}: {t.get('sz', '?')} @ ${float(t.get('px', 0)):,.2f}")
+
+    subsection("Recent Orders")
+    orders = hc.latest_orders(count=5)
+    print(f"Last 5 orders:")
+    for o in orders:
+        coin = o.get("coin", "?")
+        side = o.get("side", "?")
+        status = o.get("status", "?")
+        print(f"  {coin}: {side} @ ${float(o.get('limitPx', 0)):,.2f} - {status}")
+
+
+def demo_evm_api(endpoint: str):
+    """Demonstrate EVM API capabilities."""
+    separator("EVM API")
+
+    evm = EVM(endpoint)
+
+    subsection("Chain Info")
+    chain_id = evm.chain_id()
+    block_num = evm.block_number()
+    gas_price = evm.gas_price()
+
+    print(f"Chain ID: {chain_id} ({'Mainnet' if chain_id == 999 else 'Testnet'})")
+    print(f"Block: {block_num:,}")
+    print(f"Gas: {gas_price / 1e9:.2f} Gwei")
+
+    subsection("Latest Block")
+    block = evm.get_block_by_number(block_num)
+    if block:
+        print(f"Block {block_num}:")
+        print(f"  Hash: {block.get('hash', '?')[:30]}...")
+        print(f"  Gas Used: {int(block.get('gasUsed', '0x0'), 16):,}")
+
+
+def demo_websocket(endpoint: str, duration: int = 5):
+    """Demonstrate WebSocket streaming."""
+    separator("WEBSOCKET STREAMING")
+
+    trade_count = [0]
+    book_count = [0]
+
+    def on_trade(data):
+        trade_count[0] += 1
+        if trade_count[0] <= 3:
+            d = data.get("data", {})
+            print(f"  [TRADE] {d.get('coin', '?')}: {d.get('sz', '?')} @ {d.get('px', '?')}")
+
+    def on_book(data):
+        book_count[0] += 1
+        if book_count[0] <= 2:
+            d = data.get("data", {})
+            print(f"  [BOOK] {d.get('coin', '?')} update")
+
+    def on_error(e):
+        print(f"  [ERROR] {e}")
+
+    def on_open():
+        print(f"  [CONNECTED] WebSocket stream ready")
+
+    print(f"Streaming for {duration} seconds...")
+
+    stream = Stream(endpoint, on_error=on_error, on_open=on_open)
+    stream.trades(["BTC", "ETH"], on_trade)
+    stream.book_updates(["BTC"], on_book)
+
+    # Run in background
+    stream.start()
+    time.sleep(duration)
+    stream.stop()
+
+    print()
+    print(f"Received: {trade_count[0]} trades, {book_count[0]} book updates")
+
+
+def demo_grpc(endpoint: str, duration: int = 5):
+    """Demonstrate gRPC streaming."""
+    separator("GRPC STREAMING")
+
+    if not HAS_GRPC:
+        print("gRPC not installed. Install with: pip install hyperliquid-sdk[grpc]")
+        return
+
+    trade_count = [0]
+
+    def on_trade(data):
+        trade_count[0] += 1
+        if trade_count[0] <= 3:
+            print(f"  [TRADE] {data}")
+
+    def on_error(e):
+        print(f"  [ERROR] {e}")
+
+    def on_connect():
+        print(f"  [CONNECTED] gRPC stream ready")
+
+    print(f"Streaming for {duration} seconds...")
+
+    stream = GRPCStream(endpoint, on_error=on_error, on_connect=on_connect)
+    stream.trades(["BTC", "ETH"], on_trade)
+
+    # Run in background
+    stream.start()
+    time.sleep(duration)
+    stream.stop()
+
+    print()
+    print(f"Received: {trade_count[0]} trades")
+
+
+def demo_trading(private_key: str):
+    """Demonstrate trading capabilities (dry-run style)."""
+    separator("TRADING")
+
+    sdk = HyperliquidSDK(private_key=private_key, testnet=True)
+
+    print(f"Address: {sdk.address}")
+    print(f"Network: Testnet")
+
+    subsection("Account Check")
+    try:
+        # This would show positions if the account has any
+        print("  Trading SDK initialized successfully")
+        print("  Ready to place orders (not executing in demo)")
+    except Exception as e:
+        print(f"  Note: {e}")
+
+    subsection("Order Building (Example)")
+    print("  Market buy: sdk.market_buy('BTC', notional=100)")
+    print("  Limit sell: sdk.place_order(Order(coin='ETH', side=Side.SELL, size=1.0, limit_price=4000))")
+    print("  Close pos:  sdk.market_close('BTC')")
+
+
+def main():
+    print()
+    print("*" * 60)
+    print("  HYPERLIQUID SDK - FULL DEMO")
+    print("*" * 60)
+
+    endpoint = os.environ.get("QUICKNODE_ENDPOINT")
+    private_key = os.environ.get("PRIVATE_KEY")
+
+    if not endpoint:
+        print()
+        print("Error: QUICKNODE_ENDPOINT not set")
+        print()
+        print("Usage:")
+        print("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+        print("  python full_demo.py")
+        print()
+        print("Or:")
+        print("  python full_demo.py 'https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+        sys.exit(1)
+
+    print()
+    print(f"Endpoint: {endpoint[:50]}...")
+
+    # Run all demos
+    try:
+        demo_info_api(endpoint)
+        demo_hypercore_api(endpoint)
+        demo_evm_api(endpoint)
+        demo_websocket(endpoint, duration=5)
+        demo_grpc(endpoint, duration=5)
+
+        if private_key:
+            demo_trading(private_key)
+        else:
+            print()
+            print("--- TRADING (skipped - no PRIVATE_KEY) ---")
+
+    except HyperliquidError as e:
+        print(f"\nError: {e}")
+        print(f"Code: {e.code}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nInterrupted")
+        sys.exit(0)
+
+    separator("DONE")
+    print("All demos completed successfully!")
+    print()
+
+
+if __name__ == "__main__":
+    main()

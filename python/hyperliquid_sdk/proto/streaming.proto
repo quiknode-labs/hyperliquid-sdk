@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package streaming;
+
+option go_package = "github.com/quiknode-labs/hyperliquid-sdk/proto";
+
+// StreamType enums for subscription types
+enum StreamType {
+  STREAM_TYPE_UNSPECIFIED = 0;
+  TRADES = 1;
+  ORDERS = 2;
+  BOOK_UPDATES = 3;
+  TWAP = 4;
+  EVENTS = 5;
+  BLOCKS = 6;
+  WRITER_ACTIONS = 7;
+}
+
+// Streaming service for real-time data
+service Streaming {
+  // Stream real-time data (trades, orders, book updates, etc.)
+  rpc StreamData(StreamDataRequest) returns (stream StreamDataResponse);
+
+  // Ping to keep connection alive
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// BlockStreaming service for block data
+service BlockStreaming {
+  // Stream blocks
+  rpc StreamBlocks(StreamBlocksRequest) returns (stream StreamBlocksResponse);
+}
+
+// Request for StreamData
+message StreamDataRequest {
+  StreamType stream_type = 1;
+  repeated string coins = 2;    // Filter by coin symbols (e.g., ["BTC", "ETH"])
+  repeated string users = 3;    // Filter by user addresses
+}
+
+// Response from StreamData
+message StreamDataResponse {
+  StreamType stream_type = 1;
+  string data = 2;              // JSON-encoded data
+  int64 timestamp = 3;          // Unix timestamp in milliseconds
+}
+
+// Request for StreamBlocks
+message StreamBlocksRequest {
+  optional uint64 start_block = 1;  // Starting block number (optional)
+}
+
+// Response from StreamBlocks
+message StreamBlocksResponse {
+  uint64 block_number = 1;
+  string block_data = 2;        // JSON-encoded block data
+  int64 timestamp = 3;
+}
+
+// Ping request
+message PingRequest {}
+
+// Ping response
+message PingResponse {
+  int64 timestamp = 1;
+}
