@@ -51,7 +51,7 @@ All SDKs share the same design philosophy:
 
 ## Links
 
-- **Documentation**: https://hyperliquidapi.com/docs
+- **Documentation**: https://hyperliquidapi.com
 - **Examples**: https://github.com/quiknode-labs/hyperliquid-examples
 
 ## Disclaimer
