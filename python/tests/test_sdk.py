@@ -376,7 +376,7 @@ class TestSDKVersion:
         """Test SDK has version."""
         import hyperliquid_sdk
         assert hasattr(hyperliquid_sdk, "__version__")
-        assert hyperliquid_sdk.__version__ == "0.5.1"
+        assert hyperliquid_sdk.__version__ == "0.5.2"
 
 
 if __name__ == "__main__":

@@ -445,10 +445,27 @@ class GRPCStream:
                     if response.HasField('data'):
                         try:
                             data = json.loads(response.data.data)
-                            # Add metadata to the data
-                            data['_block_number'] = response.data.block_number
-                            data['_timestamp'] = response.data.timestamp
-                            callback(data)
+                            block_number = response.data.block_number
+                            timestamp = response.data.timestamp
+
+                            # Data structure: {"block_number":..., "events":[[user, {...}], ...]}
+                            # Extract events and call callback for each
+                            events = data.get("events", [])
+                            if events:
+                                for event in events:
+                                    if isinstance(event, list) and len(event) >= 2:
+                                        user, event_data = event[0], event[1]
+                                        if isinstance(event_data, dict):
+                                            # Add metadata
+                                            event_data['_block_number'] = block_number
+                                            event_data['_timestamp'] = timestamp
+                                            event_data['_user'] = user
+                                            callback(event_data)
+                            else:
+                                # Fallback: return raw data if no events structure
+                                data['_block_number'] = block_number
+                                data['_timestamp'] = timestamp
+                                callback(data)
                         except json.JSONDecodeError as e:
                             logger.warning(f"Failed to parse data: {e}")
                     elif response.HasField('pong'):
