@@ -43,6 +43,44 @@ class Info:
         info.user_fills("0x...")
     """
 
+    # Methods supported by QuickNode nodes with --serve-info-endpoint
+    # Other methods require fallback to worker (which proxies to public HL)
+    QN_SUPPORTED_METHODS = {
+        "meta",
+        "spotMeta",
+        "clearinghouseState",
+        "spotClearinghouseState",
+        "openOrders",
+        "exchangeStatus",
+        "frontendOpenOrders",
+        "liquidatable",
+        "activeAssetData",
+        "maxMarketOrderNtls",
+        "vaultSummaries",
+        "userVaultEquities",
+        "leadingVaults",
+        "extraAgents",
+        "subAccounts",
+        "userFees",
+        "userRateLimit",
+        "spotDeployState",
+        "perpDeployAuctionStatus",
+        "delegations",
+        "delegatorSummary",
+        "maxBuilderFee",
+        "userToMultiSigSigners",
+        "userRole",
+        "perpsAtOpenInterestCap",
+        "validatorL1Votes",
+        "marginTable",
+        "perpDexs",
+        "webData2",
+    }
+
+    # Worker URL for methods not supported by QuickNode
+    # Worker proxies to public HL endpoint
+    DEFAULT_WORKER_INFO = "https://send.hyperliquidapi.com/info"
+
     def __init__(self, endpoint: str, *, timeout: int = 30):
         """
         Initialize the Info client.
@@ -52,6 +90,7 @@ class Info:
             timeout: Request timeout in seconds (default: 30)
         """
         self._info_url = self._build_info_url(endpoint)
+        self._worker_info_url = self.DEFAULT_WORKER_INFO
         self._timeout = timeout
         self._session = requests.Session()
 
@@ -77,10 +116,23 @@ class Info:
         return f"{base}/info"
 
     def _post(self, body: Dict[str, Any]) -> Any:
-        """POST to /info endpoint (via QuickNode)."""
+        """POST to /info endpoint.
+
+        For QN-supported methods → routes to user's QN endpoint.
+        For unsupported methods (allMids, l2Book, etc.) → routes to worker.
+        The worker proxies these to the public HL endpoint.
+        """
         req_type = body.get("type", "")
+
+        # Route based on method support
+        if req_type in self.QN_SUPPORTED_METHODS:
+            url = self._info_url
+        else:
+            # Fallback to worker for unsupported methods
+            url = self._worker_info_url
+
         try:
-            resp = self._session.post(self._info_url, json=body, timeout=self._timeout)
+            resp = self._session.post(url, json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",

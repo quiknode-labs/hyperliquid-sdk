@@ -145,19 +145,20 @@ class HyperliquidSDK:
             self._wallet = None
             self.address = None
 
-        # Build URLs - ALL requests go through worker, NEVER directly to api.hyperliquid.xyz
+        # Build URLs for different APIs
+        # Worker-only endpoints (/approval, /markets, /dexes, /preflight) always go to the worker
+        self._public_worker_url = self.DEFAULT_WORKER_URL
+
         if endpoint:
-            # QuickNode endpoint: route all requests through it
+            # QuickNode endpoint: route /send and /info through it
             base = endpoint.rstrip("/")
             # If it ends with /info or similar, use parent path
             if base.endswith("/info"):
                 base = base.rsplit("/info", 1)[0]
-            self._worker_url = base  # Base URL for worker endpoints
             self._exchange_url = f"{base}/send"  # Trading/exchange operations
             self._info_url = f"{base}/info"  # Info API (markets, prices, etc.)
         else:
             # No endpoint: ALL requests go through the worker
-            self._worker_url = self.DEFAULT_WORKER_URL  # Base URL for worker endpoints
             self._exchange_url = f"{self.DEFAULT_WORKER_URL}/exchange"  # Trading/exchange operations
             self._info_url = f"{self.DEFAULT_WORKER_URL}/info"  # Info API
         self._session = requests.Session()
@@ -2125,9 +2126,9 @@ class HyperliquidSDK:
         return data
 
     def _get(self, path: str, params: Optional[dict] = None) -> Any:
-        """GET request to worker API."""
+        """GET request to public worker API (for /approval, /markets, etc.)."""
         try:
-            resp = self._session.get(f"{self._worker_url}{path}", params=params, timeout=self._timeout)
+            resp = self._session.get(f"{self._public_worker_url}{path}", params=params, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",
@@ -2146,9 +2147,9 @@ class HyperliquidSDK:
         return data
 
     def _post(self, path: str, body: dict) -> Any:
-        """POST request to worker API."""
+        """POST request to public worker API (for /preflight, /approval, etc.)."""
         try:
-            resp = self._session.post(f"{self._worker_url}{path}", json=body, timeout=self._timeout)
+            resp = self._session.post(f"{self._public_worker_url}{path}", json=body, timeout=self._timeout)
         except requests.exceptions.Timeout:
             raise HyperliquidError(
                 f"Request timed out after {self._timeout}s",
