@@ -11,7 +11,7 @@
  *     npx ts-node info_market_data.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
 

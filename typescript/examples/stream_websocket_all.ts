@@ -13,7 +13,7 @@
  *     npx ts-node stream_websocket_all.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.ENDPOINT;
 const USER = process.env.USER_ADDRESS || "0x0000000000000000000000000000000000000000";

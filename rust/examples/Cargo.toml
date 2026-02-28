@@ -1,0 +1,190 @@
+[package]
+name = "hyperliquid-sdk-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Keep this crate out of parent workspace
+[workspace]
+
+[dependencies]
+quicknode-hyperliquid-sdk = "0.1.1"
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde_json = "1.0"
+
+[[bin]]
+name = "approve"
+path = "approve.rs"
+
+[[bin]]
+name = "builder_fee"
+path = "builder_fee.rs"
+
+[[bin]]
+name = "cancel_all"
+path = "cancel_all.rs"
+
+[[bin]]
+name = "cancel_by_cloid"
+path = "cancel_by_cloid.rs"
+
+[[bin]]
+name = "cancel_order"
+path = "cancel_order.rs"
+
+[[bin]]
+name = "close_position"
+path = "close_position.rs"
+
+[[bin]]
+name = "evm_basics"
+path = "evm_basics.rs"
+
+[[bin]]
+name = "evm_example"
+path = "evm_example.rs"
+
+[[bin]]
+name = "fluent_builder"
+path = "fluent_builder.rs"
+
+[[bin]]
+name = "full_demo"
+path = "full_demo.rs"
+
+[[bin]]
+name = "grpc_streaming"
+path = "grpc_streaming.rs"
+
+[[bin]]
+name = "hip3_order"
+path = "hip3_order.rs"
+
+[[bin]]
+name = "hypercore_blocks"
+path = "hypercore_blocks.rs"
+
+[[bin]]
+name = "hypercore_example"
+path = "hypercore_example.rs"
+
+[[bin]]
+name = "info_batch_queries"
+path = "info_batch_queries.rs"
+
+[[bin]]
+name = "info_candles"
+path = "info_candles.rs"
+
+[[bin]]
+name = "info_example"
+path = "info_example.rs"
+
+[[bin]]
+name = "info_market_data"
+path = "info_market_data.rs"
+
+[[bin]]
+name = "info_user_data"
+path = "info_user_data.rs"
+
+[[bin]]
+name = "info_vaults"
+path = "info_vaults.rs"
+
+[[bin]]
+name = "isolated_margin"
+path = "isolated_margin.rs"
+
+[[bin]]
+name = "leverage"
+path = "leverage.rs"
+
+[[bin]]
+name = "market_order"
+path = "market_order.rs"
+
+[[bin]]
+name = "markets"
+path = "markets.rs"
+
+[[bin]]
+name = "modify_order"
+path = "modify_order.rs"
+
+[[bin]]
+name = "open_orders"
+path = "open_orders.rs"
+
+[[bin]]
+name = "place_order"
+path = "place_order.rs"
+
+[[bin]]
+name = "preflight"
+path = "preflight.rs"
+
+[[bin]]
+name = "roundtrip"
+path = "roundtrip.rs"
+
+[[bin]]
+name = "schedule_cancel"
+path = "schedule_cancel.rs"
+
+[[bin]]
+name = "staking"
+path = "staking.rs"
+
+[[bin]]
+name = "stream_grpc"
+path = "stream_grpc.rs"
+
+[[bin]]
+name = "stream_l2_book"
+path = "stream_l2_book.rs"
+
+[[bin]]
+name = "stream_l4_book"
+path = "stream_l4_book.rs"
+
+[[bin]]
+name = "stream_orderbook"
+path = "stream_orderbook.rs"
+
+[[bin]]
+name = "stream_trades"
+path = "stream_trades.rs"
+
+[[bin]]
+name = "stream_websocket_all"
+path = "stream_websocket_all.rs"
+
+[[bin]]
+name = "trading_example"
+path = "trading_example.rs"
+
+[[bin]]
+name = "transfers"
+path = "transfers.rs"
+
+[[bin]]
+name = "trigger_orders"
+path = "trigger_orders.rs"
+
+[[bin]]
+name = "twap"
+path = "twap.rs"
+
+[[bin]]
+name = "vaults"
+path = "vaults.rs"
+
+[[bin]]
+name = "websocket_streaming"
+path = "websocket_streaming.rs"
+
+[[bin]]
+name = "withdraw"
+path = "withdraw.rs"

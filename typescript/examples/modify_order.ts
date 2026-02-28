@@ -5,7 +5,7 @@
  * Place a resting order and then modify its price.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

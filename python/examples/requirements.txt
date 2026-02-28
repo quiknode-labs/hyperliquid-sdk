@@ -1,0 +1,1 @@
+hyperliquid-sdk>=0.6.10

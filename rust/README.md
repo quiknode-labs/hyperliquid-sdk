@@ -23,7 +23,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hyperliquid-sdk = { git = "https://github.com/quiknode-labs/raptor", version = "0.1" }
+quicknode-hyperliquid-sdk = "0.1"
 tokio = { version = "1", features = ["full"] }
 ```
 

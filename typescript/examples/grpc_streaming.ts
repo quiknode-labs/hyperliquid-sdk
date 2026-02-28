@@ -24,7 +24,7 @@
  * - Handles keepalive and reconnection
  */
 
-import { HyperliquidSDK, GRPCConnectionState } from 'hyperliquid-sdk';
+import { HyperliquidSDK, GRPCConnectionState } from '@quicknode/hyperliquid-sdk';
 
 // Get endpoint from args or environment
 const ENDPOINT = process.argv[2] || process.env.ENDPOINT;

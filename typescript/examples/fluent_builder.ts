@@ -5,7 +5,7 @@
  * For power users who want maximum control with IDE autocomplete.
  */
 
-import { HyperliquidSDK, Order } from 'hyperliquid-sdk';
+import { HyperliquidSDK, Order } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

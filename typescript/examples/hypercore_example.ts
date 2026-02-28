@@ -12,7 +12,7 @@
  *     npx ts-node hypercore_example.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 // Get endpoint from environment
 const ENDPOINT = process.env.ENDPOINT;

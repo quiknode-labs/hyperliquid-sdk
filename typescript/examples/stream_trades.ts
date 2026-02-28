@@ -19,7 +19,7 @@
  *     npx ts-node stream_trades.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.ENDPOINT;
 

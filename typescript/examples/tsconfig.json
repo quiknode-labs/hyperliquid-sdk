@@ -10,11 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "./dist",
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "paths": {
-      "hyperliquid-sdk": ["../dist/esm/index.js"]
-    },
-    "baseUrl": "."
+    "allowSyntheticDefaultImports": true
   },
   "include": ["./*.ts"],
   "exclude": ["node_modules", "dist"]

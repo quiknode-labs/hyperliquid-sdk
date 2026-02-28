@@ -5,7 +5,7 @@
  * Complete trade cycle: buy then sell to end up flat.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

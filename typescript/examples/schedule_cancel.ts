@@ -9,7 +9,7 @@
  * NOTE: Requires $1M trading volume on your account to use this feature.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

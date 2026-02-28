@@ -5,7 +5,7 @@
  * Place an order and then cancel it by OID.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

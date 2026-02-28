@@ -18,7 +18,7 @@
  * The SDK automatically handles URL parsing - you can pass any valid endpoint URL.
  */
 
-import { HyperliquidSDK, StreamConnectionState } from 'hyperliquid-sdk';
+import { HyperliquidSDK, StreamConnectionState } from '@quicknode/hyperliquid-sdk';
 
 // Get endpoint from args or environment
 const ENDPOINT = process.argv[2] || process.env.ENDPOINT;

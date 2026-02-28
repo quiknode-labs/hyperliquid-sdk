@@ -13,7 +13,7 @@
  *     npx ts-node trading_example.ts
  */
 
-import { HyperliquidSDK, Order, Side, TriggerOrder } from 'hyperliquid-sdk';
+import { HyperliquidSDK, Order, Side, TriggerOrder } from '@quicknode/hyperliquid-sdk';
 
 // Get endpoint and private key from environment
 const ENDPOINT = process.env.QUICKNODE_ENDPOINT;

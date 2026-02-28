@@ -6,7 +6,7 @@
  * Required before placing orders.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;

@@ -7,7 +7,7 @@
  * Requires: PRIVATE_KEY environment variable
  */
 
-import { HyperliquidSDK, Side } from 'hyperliquid-sdk';
+import { HyperliquidSDK, Side } from '@quicknode/hyperliquid-sdk';
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 

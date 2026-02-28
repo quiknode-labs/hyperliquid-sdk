@@ -19,7 +19,7 @@
  *     npx ts-node full_demo.ts
  */
 
-import { HyperliquidSDK, HyperliquidError } from 'hyperliquid-sdk';
+import { HyperliquidSDK, HyperliquidError } from '@quicknode/hyperliquid-sdk';
 
 function separator(title: string) {
   console.log();

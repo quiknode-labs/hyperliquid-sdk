@@ -7,7 +7,7 @@
  * No endpoint or private key needed — uses public API.
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 async function main() {
   // No endpoint or private key needed for read-only public queries

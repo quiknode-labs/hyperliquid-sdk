@@ -3,7 +3,7 @@
 **The simplest way to trade on Hyperliquid.** One line to place orders, zero ceremony.
 
 ```typescript
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const sdk = new HyperliquidSDK(endpoint);
 const order = await sdk.marketBuy("BTC", { notional: 100 });  // Buy $100 of BTC
@@ -16,9 +16,9 @@ That's it. No build-sign-send ceremony. No manual hash signing. No nonce trackin
 ## Installation
 
 ```bash
-npm install hyperliquid-sdk
+npm install @quicknode/hyperliquid-sdk
 # or
-yarn add hyperliquid-sdk
+yarn add @quicknode/hyperliquid-sdk
 ```
 
 Everything is included: trading, market data, WebSocket streaming, gRPC streaming, HyperCore blocks, and EVM.
@@ -34,7 +34,7 @@ export PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 ### 2. Start trading
 
 ```typescript
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const sdk = new HyperliquidSDK(endpoint);
 
@@ -405,7 +405,7 @@ await sdk.topUpIsolatedOnlyMargin("BTC", 100);                         // Specia
 ### Trigger Orders (Stop Loss / Take Profit)
 
 ```typescript
-import { Side } from 'hyperliquid-sdk';
+import { Side } from '@quicknode/hyperliquid-sdk';
 
 // Stop loss (market order when triggered)
 await sdk.stopLoss("BTC", { size: 0.001, triggerPrice: 60000 });
@@ -475,7 +475,7 @@ await sdk.undelegate("0x...", 250);
 ### Fluent Order Builder
 
 ```typescript
-import { Order } from 'hyperliquid-sdk';
+import { Order } from '@quicknode/hyperliquid-sdk';
 
 const order = await sdk.order(
   Order.buy("BTC")
@@ -498,7 +498,7 @@ import {
   ApprovalError,
   InsufficientMarginError,
   GeoBlockedError,
-} from 'hyperliquid-sdk';
+} from '@quicknode/hyperliquid-sdk';
 
 try {
   const order = await sdk.buy("BTC", { size: 0.001, price: 65000 });

@@ -16,7 +16,7 @@
  * - Manages keepalive pings
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.ENDPOINT;
 

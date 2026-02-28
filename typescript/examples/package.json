@@ -1,0 +1,16 @@
+{
+  "name": "hyperliquid-sdk-examples",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Examples for @quicknode/hyperliquid-sdk",
+  "scripts": {
+    "example": "tsx"
+  },
+  "dependencies": {
+    "@quicknode/hyperliquid-sdk": "^0.1.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

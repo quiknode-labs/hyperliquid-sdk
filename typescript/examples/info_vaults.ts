@@ -10,7 +10,7 @@
  *     npx ts-node info_vaults.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
 const USER = process.env.USER_ADDRESS;

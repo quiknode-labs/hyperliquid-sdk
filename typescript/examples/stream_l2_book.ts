@@ -20,7 +20,7 @@
  *     npx ts-node stream_l2_book.ts
  */
 
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
 const ENDPOINT = process.env.ENDPOINT;
 
