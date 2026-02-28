@@ -8,7 +8,7 @@
 syntax = "proto3";
 package hyperliquid;
 
-option go_package = "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid/proto";
+option go_package = "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto";
 
 // Service for streaming real-time order book data.
 // L2 provides aggregated price levels (px, total_sz, order_count).

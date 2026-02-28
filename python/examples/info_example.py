@@ -8,21 +8,21 @@ Requirements:
     pip install hyperliquid-sdk
 
 Usage:
-    export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+    export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
     python info_example.py
 """
 
 import os
 import sys
 
-from hyperliquid_sdk import Info
+from hyperliquid_sdk import HyperliquidSDK
 
 # Get endpoint from environment
-ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT")
+ENDPOINT = os.environ.get("ENDPOINT") or os.environ.get("QUICKNODE_ENDPOINT")
 
 if not ENDPOINT:
-    print("Error: Set QUICKNODE_ENDPOINT environment variable")
-    print("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+    print("Error: Set ENDPOINT environment variable")
+    print("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
     sys.exit(1)
 
 
@@ -32,8 +32,8 @@ def main():
     print(f"Endpoint: {ENDPOINT[:50]}...")
     print()
 
-    # Create Info client
-    info = Info(ENDPOINT)
+    # Create SDK
+    sdk = HyperliquidSDK(ENDPOINT)
 
     # ==========================================================================
     # Market Data
@@ -42,14 +42,14 @@ def main():
     print("-" * 30)
 
     # Get all mid prices
-    mids = info.all_mids()
+    mids = sdk.info().all_mids()
     print(f"BTC mid: ${float(mids.get('BTC', 0)):,.2f}")
     print(f"ETH mid: ${float(mids.get('ETH', 0)):,.2f}")
     print(f"Total assets: {len(mids)}")
     print()
 
     # Get L2 order book
-    book = info.l2_book("BTC")
+    book = sdk.info().l2_book("BTC")
     levels = book.get("levels", [[], []])
     bids = levels[0] if len(levels) > 0 else []
     asks = levels[1] if len(levels) > 1 else []
@@ -65,7 +65,7 @@ def main():
     print()
 
     # Get recent trades
-    trades = info.recent_trades("ETH")
+    trades = sdk.info().recent_trades("ETH")
     print(f"Recent ETH trades: {len(trades)}")
     if trades:
         last_trade = trades[0]
@@ -78,7 +78,7 @@ def main():
     print("Exchange Metadata")
     print("-" * 30)
 
-    meta = info.meta()
+    meta = sdk.info().meta()
     universe = meta.get("universe", [])
     print(f"Total perp markets: {len(universe)}")
 
@@ -100,7 +100,7 @@ def main():
 
     try:
         # Get clearinghouse state (positions, margin)
-        state = info.clearinghouse_state(user_address)
+        state = sdk.info().clearinghouse_state(user_address)
         equity = float(state.get("marginSummary", {}).get("accountValue", 0))
         print(f"Account equity: ${equity:,.2f}")
 
@@ -127,7 +127,7 @@ def main():
     print("-" * 30)
 
     try:
-        fundings = info.predicted_fundings()
+        fundings = sdk.info().predicted_fundings()
         # API returns [[coin, [[venue, fundingInfo], ...]], ...]
         print(f"Predicted funding rates for {len(fundings)} assets:")
         count = 0

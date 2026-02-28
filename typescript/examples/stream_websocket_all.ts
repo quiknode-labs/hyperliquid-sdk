@@ -1,6 +1,6 @@
 #!/usr/bin/env npx ts-node
 /**
- * WebSocket Streaming — Complete Reference
+ * WebSocket Streaming - Complete Reference
  *
  * This example demonstrates ALL WebSocket subscription types:
  * - Market Data: trades, l2_book, book_updates, all_mids, candle, bbo
@@ -9,13 +9,13 @@
  * - System: events, notification
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node stream_websocket_all.ts
  */
 
-import { Stream } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 const USER = process.env.USER_ADDRESS || "0x0000000000000000000000000000000000000000";
 
 if (!ENDPOINT) {
@@ -23,7 +23,7 @@ if (!ENDPOINT) {
   console.log("=".repeat(60));
   console.log();
   console.log("Usage:");
-  console.log("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  export USER_ADDRESS='0x...'  # Optional, for user data streams");
   console.log("  npx ts-node stream_websocket_all.ts");
   process.exit(1);
@@ -70,25 +70,26 @@ async function demoMarketData() {
   console.log("  - bbo(coin, callback)");
   console.log();
 
-  const stream = new Stream(ENDPOINT!, { reconnect: false });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
   // trades: Real-time executed trades
-  stream.trades(["BTC", "ETH"], makeCallback("trades"));
+  sdk.stream.trades(["BTC", "ETH"], makeCallback("trades"));
 
   // book_updates: Incremental order book changes
-  stream.bookUpdates(["BTC"], makeCallback("book_updates"));
+  sdk.stream.bookUpdates(["BTC"], makeCallback("book_updates"));
 
   // l2_book: Full L2 order book snapshots
-  stream.l2Book("BTC", makeCallback("l2_book"));
+  sdk.stream.l2Book("BTC", makeCallback("l2_book"));
 
   console.log("Starting market data streams for 10 seconds...");
   console.log("-".repeat(60));
 
-  await stream.start();
+  await sdk.stream.start();
 
   await new Promise(resolve => setTimeout(resolve, 10000));
 
-  stream.stop();
+  sdk.stream.stop();
 
   console.log("\nMarket data summary:");
   for (const [name, count] of Object.entries(counts)) {
@@ -97,7 +98,7 @@ async function demoMarketData() {
 }
 
 async function main() {
-  console.log("WebSocket Streaming — Complete Reference");
+  console.log("WebSocket Streaming - Complete Reference");
   console.log("=".repeat(60));
 
   await demoMarketData();

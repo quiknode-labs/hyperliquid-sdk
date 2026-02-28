@@ -8,18 +8,18 @@
  *     npm install hyperliquid-sdk
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node hypercore_example.ts
  */
 
-import { HyperCore } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
 // Get endpoint from environment
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
-  console.error("Error: Set QUICKNODE_ENDPOINT environment variable");
-  console.error("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+  console.error("Error: Set ENDPOINT environment variable");
+  console.error("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   process.exit(1);
 }
 
@@ -29,8 +29,8 @@ async function main() {
   console.log(`Endpoint: ${ENDPOINT.slice(0, 50)}...`);
   console.log();
 
-  // Create HyperCore client
-  const hc = new HyperCore(ENDPOINT);
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT);
 
   // ==========================================================================
   // Block Data
@@ -39,11 +39,11 @@ async function main() {
   console.log("-".repeat(30));
 
   // Get latest block number
-  const blockNum = await hc.latestBlockNumber();
+  const blockNum = await sdk.core.latestBlockNumber();
   console.log(`Latest block: ${blockNum}`);
 
   // Get block by number
-  const block = await hc.getBlock(blockNum);
+  const block = await sdk.core.getBlock(blockNum);
   if (block) {
     const txs = (block as Record<string, unknown>).transactions as unknown[] || [];
     console.log(`Block ${blockNum}:`);
@@ -59,7 +59,7 @@ async function main() {
   console.log("-".repeat(30));
 
   // Get latest trades (all coins)
-  const trades = await hc.latestTrades({ count: 5 });
+  const trades = await sdk.core.latestTrades({ count: 5 });
   console.log(`Last ${trades.length} trades:`);
   for (const trade of trades.slice(0, 5)) {
     const t = trade as Record<string, unknown>;
@@ -72,7 +72,7 @@ async function main() {
   console.log();
 
   // Get trades for specific coin
-  const btcTrades = await hc.latestTrades({ coin: "BTC", count: 3 });
+  const btcTrades = await sdk.core.latestTrades({ coin: "BTC", count: 3 });
   console.log(`Last ${btcTrades.length} BTC trades:`);
   for (const trade of btcTrades) {
     const t = trade as Record<string, unknown>;
@@ -91,7 +91,7 @@ async function main() {
 
   try {
     // Get latest orders (all coins)
-    const orders = await hc.latestOrders({ count: 5 });
+    const orders = await sdk.core.latestOrders({ count: 5 });
     console.log(`Last ${orders.length} orders:`);
     for (const order of orders.slice(0, 5)) {
       const o = order as Record<string, unknown>;
@@ -116,7 +116,7 @@ async function main() {
   try {
     // Get batch blocks
     const startBlock = Math.max(0, blockNum - 5);
-    const blocks = await hc.getBatchBlocks(startBlock, blockNum);
+    const blocks = await sdk.core.getBatchBlocks(startBlock, blockNum);
     console.log(`Blocks ${startBlock} to ${blockNum}: ${blocks.length} blocks`);
 
     // Safely count transactions

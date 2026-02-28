@@ -3,7 +3,7 @@
 **The simplest way to trade on Hyperliquid.** One line to place orders, zero ceremony.
 
 ```go
-import "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+import "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 
 sdk, _ := hyperliquid.New(endpoint, hyperliquid.WithPrivateKey(privateKey))
 order, _ := sdk.MarketBuy("BTC", hyperliquid.WithNotional(100))  // Buy $100 of BTC
@@ -16,7 +16,7 @@ That's it. No build-sign-send ceremony. No manual hash signing. No nonce trackin
 ## Installation
 
 ```bash
-go get github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid
+go get github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid
 ```
 
 That's it. Everything is included: trading, Info API, WebSocket streaming, gRPC streaming, HyperCore, and EVM.
@@ -47,7 +47,7 @@ export PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 ### 2. Start trading
 
 ```go
-import "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+import "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 
 sdk, _ := hyperliquid.New(endpoint, hyperliquid.WithPrivateKey(os.Getenv("PRIVATE_KEY")))
 
@@ -322,7 +322,7 @@ stream.Run()
 
 ### gRPC Streaming (High Performance)
 
-Lower latency streaming via gRPC for high-frequency applications. gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
+Lower latency streaming via gRPC for high-frequency applications.
 
 ```go
 stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
@@ -361,8 +361,6 @@ stream.Stop()
 // Or run blocking
 stream.Run()
 ```
-
-The SDK automatically connects to port 10000 with your token.
 
 **Available gRPC Streams:**
 
@@ -687,7 +685,7 @@ if err != nil {
 
 ```go
 hyperliquid.New(
-    endpoint,                                  // QuickNode endpoint URL
+    endpoint,                                  // Endpoint URL
     hyperliquid.WithPrivateKey(key),           // Private key for signing
     hyperliquid.WithAutoApprove(true),         // Auto-approve builder fee (default: true)
     hyperliquid.WithMaxFee("1%"),              // Max fee for auto-approval
@@ -751,7 +749,7 @@ hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
 | Variable | Description |
 |----------|-------------|
 | `PRIVATE_KEY` | Your Ethereum private key (hex, with or without 0x) |
-| `ENDPOINT` | QuickNode endpoint URL |
+| `ENDPOINT` | Endpoint URL |
 
 ---
 
@@ -816,102 +814,6 @@ See the `examples/` directory for complete, runnable examples:
 
 **Complete Demo:**
 - [full_demo](examples/full_demo/) — All features in one file
-
-**Learn More**
-- Learn more about [Hyperliquid API](https://hyperliquidapi.com) here
-
----
-
-## Architecture Notes (For SDK Implementers)
-
-This section documents the routing logic for implementing SDKs in other languages.
-
-### URL Routing
-
-The SDK routes requests to different endpoints based on the operation:
-
-| Endpoint | Routes To | Notes |
-|----------|-----------|-------|
-| `/exchange` | Worker | ALL trading operations (orders, cancels, etc.) |
-| `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
-| `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
-| `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
-
-### QuickNode Supported Info Methods
-
-QuickNode nodes with `--serve-info-endpoint` support these methods:
-
-```
-meta, spotMeta, clearinghouseState, spotClearinghouseState,
-openOrders, exchangeStatus, frontendOpenOrders, liquidatable,
-activeAssetData, maxMarketOrderNtls, vaultSummaries, userVaultEquities,
-leadingVaults, extraAgents, subAccounts, userFees, userRateLimit,
-spotDeployState, perpDeployAuctionStatus, delegations, delegatorSummary,
-maxBuilderFee, userToMultiSigSigners, userRole, perpsAtOpenInterestCap,
-validatorL1Votes, marginTable, perpDexs, webData2
-```
-
-Methods NOT in this list (e.g., `allMids`, `l2Book`, `recentTrades`, `candleSnapshot`, `predictedFundings`) must route through the worker.
-
-### Endpoint Parsing
-
-The SDK extracts the token from any endpoint format:
-
-```
-https://x.quiknode.pro/TOKEN → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/info → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/evm → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/hypercore → base = https://x.quiknode.pro/TOKEN
-```
-
-Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `send`
-
-### Worker URL
-
-Public worker: `https://send.hyperliquidapi.com`
-
-The worker handles:
-- `/exchange` - ALL trading operations (orders, cancels, positions, etc.)
-- `/info` - Info API fallback for unsupported methods
-- `/approval` - Builder fee approval status
-- `/markets` - Market metadata
-- `/dexes` - DEX info
-- `/preflight` - Order preflight validation
-
-### Signature Chain IDs
-
-```go
-const MainnetChainID = "0xa4b1"  // Arbitrum
-const TestnetChainID = "0x66eee" // Arbitrum Sepolia
-```
-
----
-
-## API Parity with Python SDK
-
-This Go SDK implements all features of the Python SDK:
-
-| Feature | Python | Go |
-|---------|--------|-----|
-| Order Placement | ✅ | ✅ |
-| Fluent Builders | ✅ | ✅ |
-| Trigger Orders | ✅ | ✅ |
-| TWAP Orders | ✅ | ✅ |
-| Order Management | ✅ | ✅ |
-| Info API (50+ methods) | ✅ | ✅ |
-| HyperCore API | ✅ | ✅ |
-| EVM JSON-RPC | ✅ | ✅ |
-| WebSocket Streaming (20+ types) | ✅ | ✅ |
-| gRPC Streaming (L2/L4 book) | ✅ | ✅ |
-| Transfers | ✅ | ✅ |
-| Vaults | ✅ | ✅ |
-| Staking | ✅ | ✅ |
-| Builder Fee | ✅ | ✅ |
-| Agent Management | ✅ | ✅ |
-| Account Abstraction | ✅ | ✅ |
-| Advanced Transfers | ✅ | ✅ |
-| Auto-reconnect | ✅ | ✅ |
-| Error Translation | ✅ | ✅ |
 
 ---
 

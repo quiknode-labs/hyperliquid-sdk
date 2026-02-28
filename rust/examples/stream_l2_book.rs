@@ -4,11 +4,11 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example stream_l2_book
 //! ```
 
-use hyperliquid_sdk::Stream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if endpoint.is_none() {
         eprintln!("Usage:");
-        eprintln!("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+        eprintln!("  export ENDPOINT='https://your-endpoint/TOKEN'");
         eprintln!("  cargo run --example stream_l2_book");
         std::process::exit(1);
     }
@@ -27,7 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("L2 Orderbook Stream Example");
     println!("{}", "=".repeat(50));
 
-    // Create stream
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
+    // Create stream via SDK
     println!("\n1. Creating WebSocket stream...");
 
     let update_count = Arc::new(AtomicUsize::new(0));
@@ -35,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let eth_count = update_count.clone();
     let sol_count = update_count.clone();
 
-    let mut stream = Stream::new(endpoint)
+    let mut stream = sdk.stream()
         .on_open(|| {
             println!("   [Connected]");
         })

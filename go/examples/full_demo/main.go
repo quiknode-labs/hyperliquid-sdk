@@ -7,8 +7,6 @@
 // - WebSocket streaming
 // - gRPC streaming
 // - Trading (orders, positions)
-//
-// This example matches the Python full_demo.py exactly.
 package main
 
 import (
@@ -19,7 +17,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func separator(title string) {
@@ -34,14 +32,9 @@ func subsection(title string) {
 	fmt.Printf("--- %s ---\n", title)
 }
 
-func demoInfoAPI(endpoint string) {
+func demoInfoAPI(sdk *hyperliquid.SDK) {
 	separator("INFO API")
 
-	sdk, err := hyperliquid.New(endpoint)
-	if err != nil {
-		log.Printf("Failed to create SDK: %v", err)
-		return
-	}
 	info := sdk.Info()
 
 	subsection("Market Prices")
@@ -167,14 +160,9 @@ func demoInfoAPI(endpoint string) {
 	}
 }
 
-func demoHyperCoreAPI(endpoint string) {
+func demoHyperCoreAPI(sdk *hyperliquid.SDK) {
 	separator("HYPERCORE API")
 
-	sdk, err := hyperliquid.New(endpoint)
-	if err != nil {
-		log.Printf("Failed to create SDK: %v", err)
-		return
-	}
 	hc := sdk.Core()
 
 	subsection("Latest Block")
@@ -225,14 +213,9 @@ func demoHyperCoreAPI(endpoint string) {
 	}
 }
 
-func demoEVMAPI(endpoint string) {
+func demoEVMAPI(sdk *hyperliquid.SDK) {
 	separator("EVM API")
 
-	sdk, err := hyperliquid.New(endpoint)
-	if err != nil {
-		log.Printf("Failed to create SDK: %v", err)
-		return
-	}
 	evm := sdk.EVM()
 
 	subsection("Chain Info")
@@ -267,13 +250,13 @@ func demoEVMAPI(endpoint string) {
 	}
 }
 
-func demoWebSocket(endpoint string, duration int) {
+func demoWebSocket(sdk *hyperliquid.SDK, duration int) {
 	separator("WEBSOCKET STREAMING")
 
 	tradeCount := 0
 	bookCount := 0
 
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
+	stream := sdk.NewStream(&hyperliquid.StreamConfig{
 		Reconnect: false,
 		OnError: func(err error) {
 			fmt.Printf("  [ERROR] %v\n", err)
@@ -317,12 +300,12 @@ func demoWebSocket(endpoint string, duration int) {
 	fmt.Printf("Received: %d trades, %d book updates\n", tradeCount, bookCount)
 }
 
-func demoGRPC(endpoint string, duration int) {
+func demoGRPC(sdk *hyperliquid.SDK, duration int) {
 	separator("GRPC STREAMING")
 
 	tradeCount := 0
 
-	stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Reconnect: false,
 		OnError: func(err error) {
 			fmt.Printf("  [ERROR] %v\n", err)
@@ -353,21 +336,10 @@ func demoGRPC(endpoint string, duration int) {
 	fmt.Printf("Received: %d trades\n", tradeCount)
 }
 
-func demoTrading(endpoint, privateKey string) {
+func demoTrading(sdk *hyperliquid.SDK) {
 	separator("TRADING")
 
-	sdk, err := hyperliquid.New(endpoint, hyperliquid.WithPrivateKey(privateKey))
-	if err != nil {
-		log.Printf("Failed to create SDK: %v", err)
-		return
-	}
-
 	fmt.Printf("Address: %s\n", sdk.Address())
-	displayEndpoint := endpoint
-	if len(displayEndpoint) > 50 {
-		displayEndpoint = displayEndpoint[:50]
-	}
-	fmt.Printf("Endpoint: %s...\n", displayEndpoint)
 
 	subsection("Account Check")
 	fmt.Println("  Trading SDK initialized successfully")
@@ -385,25 +357,27 @@ func main() {
 	fmt.Println("  HYPERLIQUID SDK - FULL DEMO")
 	fmt.Println("************************************************************")
 
-	endpoint := os.Getenv("QUICKNODE_ENDPOINT")
+	endpoint := os.Getenv("ENDPOINT")
 	privateKey := os.Getenv("PRIVATE_KEY")
-
-	// Also check command line args
-	if len(os.Args) > 1 {
-		endpoint = os.Args[1]
-	}
 
 	if endpoint == "" {
 		fmt.Println()
-		fmt.Println("Error: QUICKNODE_ENDPOINT not set")
+		fmt.Println("Error: ENDPOINT not set")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://your-endpoint/TOKEN'")
 		fmt.Println("  go run main.go")
-		fmt.Println()
-		fmt.Println("Or:")
-		fmt.Println("  go run main.go 'https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
 		os.Exit(1)
+	}
+
+	// Create SDK once
+	var opts []hyperliquid.Option
+	if privateKey != "" {
+		opts = append(opts, hyperliquid.WithPrivateKey(privateKey))
+	}
+	sdk, err := hyperliquid.New(endpoint, opts...)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
 	}
 
 	displayEndpoint := endpoint
@@ -413,15 +387,15 @@ func main() {
 	fmt.Println()
 	fmt.Printf("Endpoint: %s...\n", displayEndpoint)
 
-	// Run all demos
-	demoInfoAPI(endpoint)
-	demoHyperCoreAPI(endpoint)
-	demoEVMAPI(endpoint)
-	demoWebSocket(endpoint, 5)
-	demoGRPC(endpoint, 5)
+	// Run all demos using the same SDK instance
+	demoInfoAPI(sdk)
+	demoHyperCoreAPI(sdk)
+	demoEVMAPI(sdk)
+	demoWebSocket(sdk, 5)
+	demoGRPC(sdk, 5)
 
 	if privateKey != "" {
-		demoTrading(endpoint, privateKey)
+		demoTrading(sdk)
 	} else {
 		fmt.Println()
 		fmt.Println("--- TRADING (skipped - no PRIVATE_KEY) ---")

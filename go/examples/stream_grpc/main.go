@@ -3,11 +3,9 @@
 // Stream trades, orders, L2 book, L4 book, and blocks via gRPC.
 // gRPC provides lower latency than WebSocket for high-frequency trading.
 //
-// gRPC is included with all QuickNode Hyperliquid endpoints — no add-on needed.
-//
 // Usage:
 //
-//	export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+//	export ENDPOINT="https://your-endpoint/YOUR_TOKEN"
 //	go run main.go
 //
 // The SDK:
@@ -19,10 +17,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
@@ -32,10 +31,8 @@ func main() {
 		fmt.Println(string(repeat('=', 60)))
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
-		fmt.Println()
-		fmt.Println("gRPC is included with all QuickNode Hyperliquid endpoints.")
 		os.Exit(1)
 	}
 
@@ -43,13 +40,19 @@ func main() {
 	fmt.Println("gRPC Streaming Examples")
 	fmt.Println(string(repeat('=', 60)))
 
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
 	// Example 1: Stream Trades
 	fmt.Println("\nExample 1: Streaming Trades")
 	fmt.Println(string(repeat('-', 60)))
 
 	tradeCount := 0
 
-	stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 		OnConnect: func() {
@@ -95,7 +98,7 @@ func main() {
 
 	l2Count := 0
 
-	l2Stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	l2Stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 	})
@@ -130,7 +133,7 @@ func main() {
 
 	blockCount := 0
 
-	blockStream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	blockStream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 	})

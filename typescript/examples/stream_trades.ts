@@ -1,11 +1,10 @@
 #!/usr/bin/env npx ts-node
 /**
- * WebSocket Streaming Example — Real-Time HyperCore Data
+ * WebSocket Streaming Example - Real-Time Trade Data
  *
- * Stream trades, orders, book updates, events, and TWAP via WebSocket.
- * These are the data streams available on QuickNode endpoints.
+ * Stream trades via WebSocket.
  *
- * Available QuickNode WebSocket streams:
+ * Available WebSocket streams:
  * - trades: Executed trades with price, size, direction
  * - orders: Order lifecycle events (open, filled, cancelled)
  * - book_updates: Order book changes (incremental deltas)
@@ -16,20 +15,20 @@
  * Note: L2/L4 order book snapshots are available via gRPC (see stream_orderbook.ts).
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node stream_trades.ts
  */
 
-import { Stream } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
   console.log("WebSocket Streaming Example");
   console.log("=".repeat(60));
   console.log();
   console.log("Usage:");
-  console.log("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  npx ts-node stream_trades.ts");
   process.exit(1);
 }
@@ -45,14 +44,14 @@ async function main() {
 
   let tradeCount = 0;
 
-  const stream = new Stream(ENDPOINT!, {
-    reconnect: false,
-    onConnect: () => console.log("[CONNECTED]"),
-    onError: (err) => console.log(`[ERROR] ${err.message}`),
-  });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
-  stream.trades(["BTC", "ETH"], (data: any) => {
-    // QuickNode format: {"type": "data", "stream": "hl.trades", "block": {"events": [...]}}
+  // Configure stream
+  sdk.stream.onConnect = () => console.log("[CONNECTED]");
+  sdk.stream.onError = (err) => console.log(`[ERROR] ${err.message}`);
+
+  sdk.stream.trades(["BTC", "ETH"], (data: any) => {
     // Events are [[user, trade_data], ...]
     const block = data.block || {};
     for (const event of block.events || []) {
@@ -76,14 +75,14 @@ async function main() {
   console.log("\nSubscribing to BTC and ETH trades...");
   console.log("-".repeat(60));
 
-  await stream.start();
+  await sdk.stream.start();
 
   const start = Date.now();
   while (tradeCount < 10 && Date.now() - start < 30000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  stream.stop();
+  sdk.stream.stop();
 
   console.log("\n" + "=".repeat(60));
   console.log("Done!");

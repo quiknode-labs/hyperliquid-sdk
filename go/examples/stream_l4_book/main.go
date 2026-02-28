@@ -2,32 +2,28 @@
 //
 // L4 book provides more granular orderbook data with additional depth
 // compared to L2, useful for market making and algorithmic trading.
-//
-// This example matches the Python streaming patterns exactly.
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
 
 	if endpoint == "" {
 		fmt.Println("Stream L4 Book Example")
 		fmt.Println("==================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
 		os.Exit(1)
 	}
@@ -41,8 +37,14 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
-	// Create stream
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
+	// Create stream via SDK
+	stream := sdk.NewStream(&hyperliquid.StreamConfig{
 		Reconnect:    true,
 		PingInterval: 30,
 		OnError: func(err error) {

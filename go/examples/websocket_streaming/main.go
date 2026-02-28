@@ -5,36 +5,29 @@
 // - Subscribing to trades, orders, and book updates
 // - Automatic reconnection handling
 // - Graceful shutdown
-//
-// This example matches the Python websocket_streaming.py exactly.
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
 
 	if endpoint == "" {
 		fmt.Println("Hyperliquid WebSocket Streaming Example")
 		fmt.Println("==================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
-		fmt.Println()
-		fmt.Println("Or:")
-		fmt.Println("  go run main.go 'https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
 		os.Exit(1)
 	}
 
@@ -47,8 +40,14 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
-	// Create stream with all callbacks
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
+	// Create stream with all callbacks via SDK
+	stream := sdk.NewStream(&hyperliquid.StreamConfig{
 		Reconnect:    true, // Auto-reconnect on disconnect
 		PingInterval: 30,   // Heartbeat every 30 seconds
 		OnError: func(err error) {
@@ -67,7 +66,6 @@ func main() {
 
 	// Subscribe to BTC and ETH trades
 	stream.Trades([]string{"BTC", "ETH"}, func(data map[string]any) {
-		// QuickNode format: { type: 'data', stream: 'hl.trades', block: { events: [...] } }
 		block, ok := data["block"].(map[string]any)
 		if !ok {
 			return
@@ -102,7 +100,6 @@ func main() {
 
 	// Subscribe to BTC book updates
 	stream.BookUpdates([]string{"BTC"}, func(data map[string]any) {
-		// QuickNode format: { type: 'data', stream: 'hl.book_updates', block: { events: [...] } }
 		block, ok := data["block"].(map[string]any)
 		if !ok {
 			return

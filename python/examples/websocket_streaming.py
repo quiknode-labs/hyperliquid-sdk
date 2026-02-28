@@ -3,7 +3,6 @@
 WebSocket Streaming Example — Real-time market data via WebSocket.
 
 This example demonstrates:
-- Connecting to Hyperliquid's WebSocket API
 - Subscribing to trades, orders, and book updates
 - Automatic reconnection handling
 - Graceful shutdown
@@ -12,27 +11,15 @@ Requirements:
     pip install hyperliquid-sdk[websocket]
 
 Usage:
-    # Set your endpoint (any path after the token works - SDK handles it)
     export ENDPOINT="https://YOUR-ENDPOINT.hype-mainnet.quiknode.pro/YOUR-TOKEN"
     python websocket_streaming.py
-
-    # Or pass directly
-    python websocket_streaming.py "https://YOUR-ENDPOINT.quiknode.pro/TOKEN"
-
-The SDK automatically handles URL parsing - you can pass:
-- https://x.quiknode.pro/TOKEN
-- https://x.quiknode.pro/TOKEN/info
-- https://x.quiknode.pro/TOKEN/hypercore
-- https://x.quiknode.pro/TOKEN/evm
-
-All will work correctly - the SDK extracts the token and builds the right WebSocket URL.
 """
 
 import os
 import signal
 import sys
 
-from hyperliquid_sdk import Stream, ConnectionState
+from hyperliquid_sdk import HyperliquidSDK, ConnectionState
 
 # Get endpoint from args or environment
 if len(sys.argv) > 1:
@@ -47,9 +34,6 @@ if not ENDPOINT:
     print("Usage:")
     print("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
     print("  python websocket_streaming.py")
-    print()
-    print("Or:")
-    print("  python websocket_streaming.py 'https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
     sys.exit(1)
 
 
@@ -112,16 +96,15 @@ def main():
     print(f"Endpoint: {ENDPOINT[:60]}{'...' if len(ENDPOINT) > 60 else ''}")
     print()
 
-    # Create stream with all callbacks
-    stream = Stream(
-        ENDPOINT,
-        on_error=on_error,
-        on_close=on_close,
-        on_state_change=on_state_change,
-        on_reconnect=on_reconnect,
-        reconnect=True,  # Auto-reconnect on disconnect
-        ping_interval=30,  # Heartbeat every 30 seconds
-    )
+    # Create SDK and get stream
+    sdk = HyperliquidSDK(ENDPOINT)
+    stream = sdk.stream()
+
+    # Configure callbacks
+    stream.on_error = on_error
+    stream.on_close = on_close
+    stream.on_state_change = on_state_change
+    stream.on_reconnect = on_reconnect
 
     # Subscribe to BTC and ETH trades
     stream.trades(["BTC", "ETH"], on_trade)

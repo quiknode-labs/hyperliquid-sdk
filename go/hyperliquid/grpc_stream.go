@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	pb "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid/proto"
+	pb "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"

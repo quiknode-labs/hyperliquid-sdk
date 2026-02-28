@@ -2,33 +2,29 @@
 //
 // This example demonstrates subscribing to multiple WebSocket channels
 // simultaneously: trades, book updates, and user events.
-//
-// This example matches the Python streaming patterns exactly.
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
 
 	if endpoint == "" {
 		fmt.Println("Stream WebSocket All Example")
 		fmt.Println("==================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
 		os.Exit(1)
 	}
@@ -42,6 +38,12 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
 	// Track statistics
 	stats := struct {
 		trades int
@@ -49,8 +51,8 @@ func main() {
 		start  time.Time
 	}{start: time.Now()}
 
-	// Create stream with all callbacks
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
+	// Create stream via SDK
+	stream := sdk.NewStream(&hyperliquid.StreamConfig{
 		Reconnect:    true,
 		PingInterval: 30,
 		OnError: func(err error) {

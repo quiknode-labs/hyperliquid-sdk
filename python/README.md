@@ -5,7 +5,7 @@
 ```python
 from hyperliquid_sdk import HyperliquidSDK
 
-sdk = HyperliquidSDK()
+sdk = HyperliquidSDK(endpoint)
 order = sdk.market_buy("BTC", notional=100)  # Buy $100 of BTC
 ```
 
@@ -19,24 +19,9 @@ That's it. No build-sign-send ceremony. No manual hash signing. No nonce trackin
 pip install hyperliquid-sdk
 ```
 
-That's it. Everything is included: trading, Info API, WebSocket streaming, gRPC streaming, HyperCore, and EVM.
+Everything is included: trading, market data, WebSocket streaming, gRPC streaming, HyperCore blocks, and EVM.
 
 ## Quick Start
-
-### Endpoint Flexibility
-
-The SDK automatically handles any endpoint format you provide:
-
-```python
-# All of these work - the SDK extracts the token and routes correctly
-endpoint = "https://x.quiknode.pro/TOKEN"
-endpoint = "https://x.quiknode.pro/TOKEN/"
-endpoint = "https://x.quiknode.pro/TOKEN/info"
-endpoint = "https://x.quiknode.pro/TOKEN/hypercore"
-endpoint = "https://x.quiknode.pro/TOKEN/evm"
-```
-
-Just pass your endpoint - the SDK handles the rest.
 
 ### 1. Set your private key
 
@@ -49,7 +34,7 @@ export PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 ```python
 from hyperliquid_sdk import HyperliquidSDK
 
-sdk = HyperliquidSDK()
+sdk = HyperliquidSDK(endpoint)
 
 # Market orders
 order = sdk.market_buy("BTC", size=0.001)
@@ -67,76 +52,74 @@ print(order.oid)     # Order ID
 
 ## Data APIs
 
-Query Hyperliquid data with clean, simple interfaces.
+All data APIs are accessed through the SDK instance.
 
 ### Info API
 
 50+ methods for account state, positions, market data, and metadata.
 
 ```python
-from hyperliquid_sdk import Info
-
-info = Info("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+sdk = HyperliquidSDK(endpoint)
 
 # Market data
-info.all_mids()                          # All mid prices
-info.l2_book("BTC")                      # Order book
-info.recent_trades("BTC")                # Recent trades
-info.candles("BTC", "1h", start, end)    # OHLCV candles
-info.funding_history("BTC", start, end)  # Funding history
-info.predicted_fundings()                # Predicted funding rates
+sdk.info().all_mids()                          # All mid prices
+sdk.info().l2_book("BTC")                      # Order book
+sdk.info().recent_trades("BTC")                # Recent trades
+sdk.info().candles("BTC", "1h", start, end)    # OHLCV candles
+sdk.info().funding_history("BTC", start, end)  # Funding history
+sdk.info().predicted_fundings()                # Predicted funding rates
 
 # Metadata
-info.meta()                              # Exchange metadata
-info.spot_meta()                         # Spot metadata
-info.exchange_status()                   # Exchange status
-info.perp_dexs()                         # Perpetual DEX info
-info.max_market_order_ntls()             # Max market order notionals
+sdk.info().meta()                              # Exchange metadata
+sdk.info().spot_meta()                         # Spot metadata
+sdk.info().exchange_status()                   # Exchange status
+sdk.info().perp_dexs()                         # Perpetual DEX info
+sdk.info().max_market_order_ntls()             # Max market order notionals
 
 # User data
-info.clearinghouse_state("0x...")        # Positions & margin
-info.spot_clearinghouse_state("0x...")   # Spot balances
-info.open_orders("0x...")                # Open orders
-info.frontend_open_orders("0x...")       # Enhanced open orders
-info.order_status("0x...", oid)          # Specific order status
-info.historical_orders("0x...")          # Order history
-info.user_fills("0x...")                 # Trade history
-info.user_fills_by_time("0x...", start)  # Fills by time range
-info.user_funding("0x...")               # Funding payments
-info.user_fees("0x...")                  # Fee structure
-info.user_rate_limit("0x...")            # Rate limit status
-info.user_role("0x...")                  # Account type
-info.portfolio("0x...")                  # Portfolio history
-info.sub_accounts("0x...")               # Sub-accounts
-info.extra_agents("0x...")               # API keys/agents
+sdk.info().clearinghouse_state("0x...")        # Positions & margin
+sdk.info().spot_clearinghouse_state("0x...")   # Spot balances
+sdk.info().open_orders("0x...")                # Open orders
+sdk.info().frontend_open_orders("0x...")       # Enhanced open orders
+sdk.info().order_status("0x...", oid)          # Specific order status
+sdk.info().historical_orders("0x...")          # Order history
+sdk.info().user_fills("0x...")                 # Trade history
+sdk.info().user_fills_by_time("0x...", start)  # Fills by time range
+sdk.info().user_funding("0x...")               # Funding payments
+sdk.info().user_fees("0x...")                  # Fee structure
+sdk.info().user_rate_limit("0x...")            # Rate limit status
+sdk.info().user_role("0x...")                  # Account type
+sdk.info().portfolio("0x...")                  # Portfolio history
+sdk.info().sub_accounts("0x...")               # Sub-accounts
+sdk.info().extra_agents("0x...")               # API keys/agents
 
 # TWAP
-info.user_twap_slice_fills("0x...")      # TWAP slice fills
+sdk.info().user_twap_slice_fills("0x...")      # TWAP slice fills
 
 # Batch queries
-info.batch_clearinghouse_states(["0x...", "0x..."])
+sdk.info().batch_clearinghouse_states(["0x...", "0x..."])
 
 # Vaults
-info.vault_summaries()                   # All vault summaries
-info.vault_details("0x...")              # Specific vault
-info.user_vault_equities("0x...")        # User's vault equities
-info.leading_vaults("0x...")             # Vaults user leads
+sdk.info().vault_summaries()                   # All vault summaries
+sdk.info().vault_details("0x...")              # Specific vault
+sdk.info().user_vault_equities("0x...")        # User's vault equities
+sdk.info().leading_vaults("0x...")             # Vaults user leads
 
 # Delegation/Staking
-info.delegations("0x...")                # Active delegations
-info.delegator_summary("0x...")          # Delegation summary
-info.delegator_history("0x...")          # Delegation history
-info.delegator_rewards("0x...")          # Delegation rewards
+sdk.info().delegations("0x...")                # Active delegations
+sdk.info().delegator_summary("0x...")          # Delegation summary
+sdk.info().delegator_history("0x...")          # Delegation history
+sdk.info().delegator_rewards("0x...")          # Delegation rewards
 
 # Tokens
-info.token_details("token_id")           # Token details
-info.spot_deploy_state("0x...")          # Spot deployment state
+sdk.info().token_details("token_id")           # Token details
+sdk.info().spot_deploy_state("0x...")          # Spot deployment state
 
 # Other
-info.referral("0x...")                   # Referral info
-info.max_builder_fee("0x...", "0x...")   # Builder fee limits
-info.approved_builders("0x...")          # Approved builders
-info.liquidatable()                      # Liquidatable positions
+sdk.info().referral("0x...")                   # Referral info
+sdk.info().max_builder_fee("0x...", "0x...")   # Builder fee limits
+sdk.info().approved_builders("0x...")          # Approved builders
+sdk.info().liquidatable()                      # Liquidatable positions
 ```
 
 ### HyperCore API
@@ -144,52 +127,29 @@ info.liquidatable()                      # Liquidatable positions
 Block data, trading operations, and real-time data via JSON-RPC.
 
 ```python
-from hyperliquid_sdk import HyperCore
-
-hc = HyperCore("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+sdk = HyperliquidSDK(endpoint)
 
 # Block data
-hc.latest_block_number()                 # Latest block
-hc.get_block(12345)                      # Get specific block
-hc.get_batch_blocks(100, 110)            # Get block range
-hc.latest_blocks(count=10)               # Latest blocks
+sdk.core().latest_block_number()                 # Latest block
+sdk.core().get_block(12345)                      # Get specific block
+sdk.core().get_batch_blocks(100, 110)            # Get block range
+sdk.core().latest_blocks(count=10)               # Latest blocks
 
 # Recent data
-hc.latest_trades(count=10)               # Recent trades (all coins)
-hc.latest_trades(count=10, coin="BTC")   # Recent BTC trades
-hc.latest_orders(count=10)               # Recent order events
-hc.latest_book_updates(count=10)         # Recent book updates
+sdk.core().latest_trades(count=10)               # Recent trades (all coins)
+sdk.core().latest_trades(count=10, coin="BTC")   # Recent BTC trades
+sdk.core().latest_orders(count=10)               # Recent order events
+sdk.core().latest_book_updates(count=10)         # Recent book updates
 
 # Discovery
-hc.list_dexes()                          # All DEXes
-hc.list_markets()                        # All markets
-hc.list_markets(dex="hyperliquidity")    # Markets by DEX
+sdk.core().list_dexes()                          # All DEXes
+sdk.core().list_markets()                        # All markets
+sdk.core().list_markets(dex="hyperliquidity")    # Markets by DEX
 
 # Order queries
-hc.open_orders("0x...")                  # User's open orders
-hc.order_status("0x...", oid)            # Specific order status
-hc.preflight(...)                        # Validate order before signing
-
-# Order building (for manual signing)
-hc.build_order(coin, is_buy, limit_px, sz, user)
-hc.build_cancel(coin, oid, user)
-hc.build_modify(coin, oid, user, limit_px=..., sz=...)
-hc.build_approve_builder_fee(user, builder, rate, nonce)
-hc.build_revoke_builder_fee(user, builder, nonce)
-
-# Send signed actions
-hc.send_order(action, signature, nonce)
-hc.send_cancel(action, signature, nonce)
-hc.send_modify(action, signature, nonce)
-hc.send_approval(action, signature)
-hc.send_revocation(action, signature)
-
-# Builder fees
-hc.get_max_builder_fee("0x...", "0x...")
-
-# Subscriptions
-hc.subscribe({"type": "trades", "coin": "BTC"})
-hc.unsubscribe({"type": "trades", "coin": "BTC"})
+sdk.core().open_orders("0x...")                  # User's open orders
+sdk.core().order_status("0x...", oid)            # Specific order status
+sdk.core().preflight(...)                        # Validate order before signing
 ```
 
 ### EVM (Ethereum JSON-RPC)
@@ -197,55 +157,48 @@ hc.unsubscribe({"type": "trades", "coin": "BTC"})
 50+ Ethereum JSON-RPC methods for Hyperliquid's EVM chain (chain ID 999 mainnet, 998 testnet).
 
 ```python
-from hyperliquid_sdk import EVM
-
-evm = EVM("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+sdk = HyperliquidSDK(endpoint)
 
 # Chain info
-evm.block_number()                       # Latest block
-evm.chain_id()                           # 999 mainnet, 998 testnet
-evm.gas_price()                          # Current gas price
-evm.max_priority_fee_per_gas()           # Priority fee
-evm.net_version()                        # Network version
-evm.syncing()                            # Sync status
+sdk.evm().block_number()                       # Latest block
+sdk.evm().chain_id()                           # 999 mainnet, 998 testnet
+sdk.evm().gas_price()                          # Current gas price
+sdk.evm().max_priority_fee_per_gas()           # Priority fee
+sdk.evm().net_version()                        # Network version
+sdk.evm().syncing()                            # Sync status
 
 # Accounts
-evm.get_balance("0x...")                 # Account balance
-evm.get_transaction_count("0x...")       # Nonce
-evm.get_code("0x...")                    # Contract code
-evm.get_storage_at("0x...", position)    # Storage value
+sdk.evm().get_balance("0x...")                 # Account balance
+sdk.evm().get_transaction_count("0x...")       # Nonce
+sdk.evm().get_code("0x...")                    # Contract code
+sdk.evm().get_storage_at("0x...", position)    # Storage value
 
 # Transactions
-evm.call({"to": "0x...", "data": "0x..."})
-evm.estimate_gas(tx)
-evm.send_raw_transaction(signed_tx)
-evm.get_transaction_by_hash("0x...")
-evm.get_transaction_receipt("0x...")
+sdk.evm().call({"to": "0x...", "data": "0x..."})
+sdk.evm().estimate_gas(tx)
+sdk.evm().send_raw_transaction(signed_tx)
+sdk.evm().get_transaction_by_hash("0x...")
+sdk.evm().get_transaction_receipt("0x...")
 
 # Blocks
-evm.get_block_by_number(12345)
-evm.get_block_by_hash("0x...")
-evm.get_block_receipts(12345)
-evm.get_block_transaction_count_by_number(12345)
+sdk.evm().get_block_by_number(12345)
+sdk.evm().get_block_by_hash("0x...")
+sdk.evm().get_block_receipts(12345)
+sdk.evm().get_block_transaction_count_by_number(12345)
 
 # Logs
-evm.get_logs({"address": "0x...", "topics": [...]})
+sdk.evm().get_logs({"address": "0x...", "topics": [...]})
 
 # HyperEVM-specific
-evm.big_block_gas_price()                # Big block gas price
-evm.using_big_blocks()                   # Is using big blocks?
-evm.get_system_txs_by_block_number(12345)
+sdk.evm().big_block_gas_price()                # Big block gas price
+sdk.evm().using_big_blocks()                   # Is using big blocks?
+sdk.evm().get_system_txs_by_block_number(12345)
 
-# Debug/Trace (use EVM(endpoint, debug=True))
-evm = EVM(endpoint, debug=True)
-evm.debug_trace_transaction("0x...", {"tracer": "callTracer"})
-evm.debug_trace_block_by_number(12345)
-evm.debug_storage_range_at(block_hash, tx_idx, addr, key, max)
-evm.trace_transaction("0x...")
-evm.trace_block(12345)
-evm.trace_call(tx, ["trace", "vmTrace"])
-evm.trace_filter({"fromBlock": "0x1", "toBlock": "0x10"})
-evm.trace_replay_transaction("0x...", ["trace"])
+# Debug/Trace
+sdk.evm().debug_trace_transaction("0x...", {"tracer": "callTracer"})
+sdk.evm().debug_trace_block_by_number(12345)
+sdk.evm().trace_transaction("0x...")
+sdk.evm().trace_block(12345)
 ```
 
 ---
@@ -257,26 +210,24 @@ evm.trace_replay_transaction("0x...", ["trace"])
 20+ subscription types for real-time data with automatic reconnection.
 
 ```python
-from hyperliquid_sdk import Stream
-
-stream = Stream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+sdk = HyperliquidSDK(endpoint)
 
 # Subscribe to trades
-stream.trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
+sdk.stream().trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
 
 # Subscribe to book updates
-stream.book_updates(["BTC"], lambda b: print(f"Book: {b}"))
+sdk.stream().book_updates(["BTC"], lambda b: print(f"Book: {b}"))
 
 # Subscribe to orders (your orders)
-stream.orders(["BTC"], lambda o: print(f"Order: {o}"), users=["0x..."])
+sdk.stream().orders(["BTC"], lambda o: print(f"Order: {o}"), users=["0x..."])
 
 # Run in background
-stream.start()  # or stream.run_in_background()
+sdk.stream().start()
 # ... do other work ...
-stream.stop()
+sdk.stream().stop()
 
 # Or run blocking
-stream.run()
+sdk.stream().run()
 ```
 
 Available streams:
@@ -314,35 +265,31 @@ Available streams:
 
 ### gRPC Streaming (High Performance)
 
-Lower latency streaming via gRPC for high-frequency applications. gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
+Lower latency streaming via gRPC for high-frequency applications.
 
 ```python
-from hyperliquid_sdk import GRPCStream
-
-stream = GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
+sdk = HyperliquidSDK(endpoint)
 
 # Subscribe to trades
-stream.trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
+sdk.grpc().trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
 
 # Subscribe to L2 order book (aggregated by price level)
-stream.l2_book("BTC", lambda b: print(f"Book: {b}"), n_sig_figs=5)
+sdk.grpc().l2_book("BTC", lambda b: print(f"Book: {b}"), n_sig_figs=5)
 
 # Subscribe to L4 order book (CRITICAL: individual orders with order IDs)
-stream.l4_book("BTC", lambda b: print(f"L4: {b}"))
+sdk.grpc().l4_book("BTC", lambda b: print(f"L4: {b}"))
 
 # Subscribe to blocks
-stream.blocks(lambda b: print(f"Block: {b}"))
+sdk.grpc().blocks(lambda b: print(f"Block: {b}"))
 
 # Run in background
-stream.start()
+sdk.grpc().start()
 # ... do other work ...
-stream.stop()
+sdk.grpc().stop()
 
 # Or run blocking
-stream.run()
+sdk.grpc().run()
 ```
-
-The SDK automatically connects to port 10000 with your token.
 
 **Available gRPC Streams:**
 
@@ -367,8 +314,6 @@ L4 order book shows **every individual order** with its order ID. This is essent
 - **HFT**: Lower latency than WebSocket
 
 ```python
-from hyperliquid_sdk import GRPCStream
-
 def on_l4_book(data):
     """
     L4 book data structure:
@@ -382,9 +327,9 @@ def on_l4_book(data):
         px, sz, oid = bid[0], bid[1], bid[2]
         print(f"Bid: ${float(px):,.2f} x {sz} (order: {oid})")
 
-stream = GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
-stream.l4_book("BTC", on_l4_book)
-stream.run()
+sdk = HyperliquidSDK(endpoint)
+sdk.grpc().l4_book("BTC", on_l4_book)
+sdk.grpc().run()
 ```
 
 ### L2 vs L4 Comparison
@@ -589,194 +534,90 @@ Available error types:
 
 ## API Reference
 
-### HyperliquidSDK (Trading)
+### HyperliquidSDK
 
 ```python
 HyperliquidSDK(
-    endpoint=None,         # QuickNode endpoint URL
+    endpoint=None,         # Endpoint URL
     private_key=None,      # Falls back to PRIVATE_KEY env var
     auto_approve=True,     # Auto-approve builder fee (default: True)
     max_fee="1%",          # Max fee for auto-approval
     slippage=0.03,         # Default slippage for market orders (3%)
     timeout=30,            # Request timeout in seconds
 )
-```
 
-### Info (Account & Metadata)
-
-```python
-Info(
-    endpoint,              # Endpoint URL
-    timeout=30,            # Request timeout
-)
-```
-
-### HyperCore (Blocks & Trades)
-
-```python
-HyperCore(
-    endpoint,              # Endpoint URL
-    timeout=30,            # Request timeout
-)
-```
-
-### EVM (Ethereum JSON-RPC)
-
-```python
-EVM(
-    endpoint,              # Endpoint URL
-    timeout=30,            # Request timeout
-)
-```
-
-### Stream (WebSocket)
-
-```python
-Stream(
-    endpoint,              # Endpoint URL
-    on_error=None,         # Error callback
-    on_close=None,         # Close callback
-    on_open=None,          # Open callback
-    reconnect=True,        # Auto-reconnect
-)
-```
-
-### GRPCStream (gRPC)
-
-```python
-GRPCStream(
-    endpoint,              # Endpoint URL (token extracted)
-    on_error=None,         # Error callback
-    on_close=None,         # Close callback
-    on_connect=None,       # Connect callback
-    secure=True,           # Use TLS
-)
+# Access sub-clients
+sdk.info()      # Info API (market data, user data, metadata)
+sdk.core()      # HyperCore (blocks, trades, orders)
+sdk.evm()       # EVM (Ethereum JSON-RPC)
+sdk.stream()    # WebSocket streaming
+sdk.grpc()      # gRPC streaming
+sdk.evm_stream() # EVM WebSocket (eth_subscribe)
 ```
 
 ---
 
 ## Examples
 
-See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-examples) repository for complete, runnable examples:
+See the [examples](https://github.com/quiknode-labs/hyperliquid-sdk/tree/main/python/examples) directory for complete, runnable examples:
 
 **Trading:**
-- [market_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/market_order.py) — Place market orders
-- [place_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/place_order.py) — Place limit orders
-- [modify_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/modify_order.py) — Modify existing orders
-- [cancel_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_order.py) — Cancel orders
-- [cancel_by_cloid.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_by_cloid.py) — Cancel by client order ID
-- [cancel_all.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/cancel_all.py) — Cancel all orders
-- [close_position.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/close_position.py) — Close positions
-- [fluent_builder.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/fluent_builder.py) — Fluent order builder
-- [roundtrip.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/roundtrip.py) — Buy and sell round trip
-- [hip3_order.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/hip3_order.py) — HIP-3 DEX orders
+- `market_order.py` — Place market orders
+- `place_order.py` — Place limit orders
+- `modify_order.py` — Modify existing orders
+- `cancel_order.py` — Cancel orders
+- `cancel_by_cloid.py` — Cancel by client order ID
+- `cancel_all.py` — Cancel all orders
+- `close_position.py` — Close positions
+- `fluent_builder.py` — Fluent order builder
+- `roundtrip.py` — Buy and sell round trip
+- `hip3_order.py` — HIP-3 DEX orders
 
 **Trigger Orders:**
-- [trigger_orders.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/trigger_orders.py) — Stop loss and take profit orders
+- `trigger_orders.py` — Stop loss and take profit orders
 
 **TWAP:**
-- [twap.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/twap.py) — Time-weighted average price orders
+- `twap.py` — Time-weighted average price orders
 
 **Leverage & Margin:**
-- [leverage.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/leverage.py) — Update leverage
-- [isolated_margin.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/isolated_margin.py) — Isolated margin management
+- `leverage.py` — Update leverage
+- `isolated_margin.py` — Isolated margin management
 
 **Transfers & Withdrawals:**
-- [transfers.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/transfers.py) — USD and spot transfers
-- [withdraw.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/withdraw.py) — Withdraw to L1 (Arbitrum)
+- `transfers.py` — USD and spot transfers
+- `withdraw.py` — Withdraw to L1 (Arbitrum)
 
 **Vaults:**
-- [vaults.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/vaults.py) — Vault deposits and withdrawals
+- `vaults.py` — Vault deposits and withdrawals
 
 **Staking:**
-- [staking.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/staking.py) — Stake, unstake, and delegate
+- `staking.py` — Stake, unstake, and delegate
 
 **Approval:**
-- [approve.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/approve.py) — Builder fee approval
-- [builder_fee.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/builder_fee.py) — Check approval status
+- `approve.py` — Builder fee approval
+- `builder_fee.py` — Check approval status
 
 **Market Info:**
-- [markets.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/markets.py) — List markets and mid prices
-- [open_orders.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/open_orders.py) — Query open orders
-- [preflight.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/preflight.py) — Validate orders before sending
+- `markets.py` — List markets and mid prices
+- `open_orders.py` — Query open orders
+- `preflight.py` — Validate orders before sending
 
 **Data APIs:**
-- [info_market_data.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/info_market_data.py) — Market data and order book
-- [info_user_data.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/info_user_data.py) — User positions and orders
-- [hypercore_blocks.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/hypercore_blocks.py) — Block and trade data
-- [evm_basics.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/evm_basics.py) — EVM chain interaction
+- `info_market_data.py` — Market data and order book
+- `info_user_data.py` — User positions and orders
+- `hypercore_blocks.py` — Block and trade data
+- `evm_basics.py` — EVM chain interaction
 
 **Streaming:**
-- [stream_trades.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_trades.py) — WebSocket streaming basics
-- [stream_grpc.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_grpc.py) — gRPC streaming basics
-- [stream_l4_book.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_l4_book.py) — **L4 order book (individual orders) — CRITICAL**
-- [stream_l2_book.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_l2_book.py) — L2 order book (gRPC vs WebSocket)
-- [stream_orderbook.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_orderbook.py) — L2 vs L4 comparison
-- [stream_websocket_all.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/stream_websocket_all.py) — Complete WebSocket reference (20+ types)
+- `stream_trades.py` — WebSocket streaming basics
+- `stream_grpc.py` — gRPC streaming basics
+- `stream_l4_book.py` — L4 order book (individual orders)
+- `stream_l2_book.py` — L2 order book
+- `stream_orderbook.py` — L2 vs L4 comparison
+- `stream_websocket_all.py` — Complete WebSocket reference (20+ types)
 
 **Complete Demo:**
-- [full_demo.py](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/python/full_demo.py) — All features in one file
-
-**Learn More**
-- Learn more about [Hyperliquid API](https://hyperliquidapi.com) here 
-
----
-
-## Architecture Notes (For SDK Implementers)
-
-This section documents the routing logic for implementing SDKs in other languages.
-
-### URL Routing
-
-The SDK routes requests to different endpoints based on the operation:
-
-| Endpoint | Routes To | Notes |
-|----------|-----------|-------|
-| `/exchange` | Worker | ALL trading operations (orders, cancels, etc.) |
-| `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
-| `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
-| `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
-
-### QuickNode Supported Info Methods
-
-QuickNode nodes with `--serve-info-endpoint` support these methods:
-
-```
-meta, spotMeta, clearinghouseState, spotClearinghouseState,
-openOrders, exchangeStatus, frontendOpenOrders, liquidatable,
-activeAssetData, maxMarketOrderNtls, vaultSummaries, userVaultEquities,
-leadingVaults, extraAgents, subAccounts, userFees, userRateLimit,
-spotDeployState, perpDeployAuctionStatus, delegations, delegatorSummary,
-maxBuilderFee, userToMultiSigSigners, userRole, perpsAtOpenInterestCap,
-validatorL1Votes, marginTable, perpDexs, webData2
-```
-
-Methods NOT in this list (e.g., `allMids`, `l2Book`, `recentTrades`, `candleSnapshot`, `predictedFundings`) must route through the worker.
-
-### Endpoint Parsing
-
-The SDK extracts the token from any endpoint format:
-
-```
-https://x.quiknode.pro/TOKEN → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/info → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/evm → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/hypercore → base = https://x.quiknode.pro/TOKEN
-```
-
-Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `send`
-
-### Worker URL
-
-Public worker: `https://send.hyperliquidapi.com`
-
-The worker handles:
-- `/exchange` - ALL trading operations (orders, cancels, positions, etc.)
-- `/info` - Info API fallback for unsupported methods
-- `/approval` - Builder fee approval status
-- `/markets` - Market metadata
-- `/dexes` - DEX info
-- `/preflight` - Order preflight validation
+- `full_demo.py` — All features in one file
 
 ---
 

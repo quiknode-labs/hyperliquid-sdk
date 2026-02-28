@@ -7,44 +7,29 @@
 // - Graceful shutdown
 //
 // gRPC offers lower latency than WebSocket for high-frequency data.
-// gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
-//
-// This example matches the Python grpc_streaming.py exactly.
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
-
-	// Also check command line args
-	if len(os.Args) > 1 {
-		endpoint = os.Args[1]
-	}
 
 	if endpoint == "" {
 		fmt.Println("Hyperliquid gRPC Streaming Example")
 		fmt.Println("==================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
-		fmt.Println()
-		fmt.Println("Or:")
-		fmt.Println("  go run main.go 'https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
-		fmt.Println()
-		fmt.Println("gRPC is included with all QuickNode Hyperliquid endpoints.")
 		os.Exit(1)
 	}
 
@@ -57,8 +42,14 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
-	// Create gRPC stream with all callbacks
-	stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
+	// Create gRPC stream with all callbacks via SDK
+	stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Reconnect: true, // Auto-reconnect on disconnect
 		OnError: func(err error) {
 			fmt.Printf("[ERROR] %v\n", err)
@@ -139,7 +130,7 @@ func main() {
 	}()
 
 	fmt.Println()
-	fmt.Println("Streaming via gRPC (port 10000)... Press Ctrl+C to stop")
+	fmt.Println("Streaming via gRPC... Press Ctrl+C to stop")
 	fmt.Println("--------------------------------------------------")
 
 	// Run the stream (blocking)

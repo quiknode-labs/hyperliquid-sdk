@@ -8,18 +8,18 @@
  *     npm install hyperliquid-sdk
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node evm_example.ts
  */
 
-import { EVM } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
 // Get endpoint from environment
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
-  console.error("Error: Set QUICKNODE_ENDPOINT environment variable");
-  console.error("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+  console.error("Error: Set ENDPOINT environment variable");
+  console.error("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   process.exit(1);
 }
 
@@ -29,8 +29,8 @@ async function main() {
   console.log(`Endpoint: ${ENDPOINT.slice(0, 50)}...`);
   console.log();
 
-  // Create EVM client
-  const evm = new EVM(ENDPOINT);
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT);
 
   // ==========================================================================
   // Chain Info
@@ -39,16 +39,16 @@ async function main() {
   console.log("-".repeat(30));
 
   // Get chain ID
-  const chainId = await evm.chainId();
+  const chainId = await sdk.evm.chainId();
   console.log(`Chain ID: ${chainId}`);
   console.log(`Network: ${chainId === 999 ? 'Mainnet' : chainId === 998 ? 'Testnet' : 'Unknown'}`);
 
   // Get latest block number
-  const blockNum = await evm.blockNumber();
+  const blockNum = await sdk.evm.blockNumber();
   console.log(`Latest block: ${blockNum}`);
 
   // Get gas price
-  const gasPrice = await evm.gasPrice();
+  const gasPrice = await sdk.evm.gasPrice();
   const gasGwei = Number(gasPrice) / 1e9;
   console.log(`Gas price: ${gasGwei.toFixed(2)} Gwei`);
   console.log();
@@ -62,7 +62,7 @@ async function main() {
   // Example address - replace with your address
   const address = "0x0000000000000000000000000000000000000000";
 
-  const balanceWei = await evm.getBalance(address);
+  const balanceWei = await sdk.evm.getBalance(address);
   const balanceEth = Number(balanceWei) / 1e18;
   console.log(`Address: ${address}`);
   console.log(`Balance: ${balanceEth.toFixed(6)} HYPE`);
@@ -75,7 +75,7 @@ async function main() {
   console.log("-".repeat(30));
 
   // Get latest block
-  const block = await evm.getBlockByNumber(blockNum);
+  const block = await sdk.evm.getBlockByNumber(blockNum);
   if (block) {
     const b = block as Record<string, unknown>;
     console.log(`Block ${blockNum}:`);
@@ -94,7 +94,7 @@ async function main() {
   console.log("Transaction Count");
   console.log("-".repeat(30));
 
-  const txCount = await evm.getTransactionCount(address);
+  const txCount = await sdk.evm.getTransactionCount(address);
   console.log(`Nonce for ${address.slice(0, 10)}...: ${txCount}`);
   console.log();
 
@@ -107,7 +107,7 @@ async function main() {
   // Example: Read a contract (this is just a demonstration)
   // In real usage, you'd use actual contract addresses and proper ABI encoding
   console.log("  (Contract call example would go here)");
-  console.log("  Use evm.call() with proper contract address and data");
+  console.log("  Use sdk.evm.call() with proper contract address and data");
   console.log();
 
   console.log("=".repeat(50));

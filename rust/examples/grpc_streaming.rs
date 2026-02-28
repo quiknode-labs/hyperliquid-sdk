@@ -7,15 +7,14 @@
 //! - Graceful shutdown
 //!
 //! gRPC offers lower latency than WebSocket for high-frequency data.
-//! gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example grpc_streaming
 //! ```
 
-use hyperliquid_sdk::GRPCStream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,10 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", "=".repeat(50));
         println!();
         println!("Usage:");
-        println!("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+        println!("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'");
         println!("  cargo run --example grpc_streaming");
-        println!();
-        println!("gRPC is included with all QuickNode Hyperliquid endpoints.");
         std::process::exit(1);
     }
 
@@ -46,6 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
     // Create counters
     let trade_count = Arc::new(AtomicUsize::new(0));
     let book_count = Arc::new(AtomicUsize::new(0));
@@ -54,8 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let book_count_cb = book_count.clone();
     let block_count_cb = block_count.clone();
 
-    // Create gRPC stream with all callbacks
-    let mut stream = GRPCStream::new(endpoint)
+    // Create gRPC stream via SDK
+    let mut stream = sdk.grpc()
         .on_connect(|| {
             println!("[CONNECTED] gRPC stream ready");
         })
@@ -160,7 +163,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ─────────────────────────────────────────────────────────────────────────
 
     println!();
-    println!("Streaming via gRPC (port 10000)... (will run for 30 seconds)");
+    println!("Streaming via gRPC... (will run for 30 seconds)");
     println!("{}", "-".repeat(50));
 
     stream.start()?;

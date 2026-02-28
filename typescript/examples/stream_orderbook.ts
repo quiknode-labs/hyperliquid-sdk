@@ -1,33 +1,30 @@
 #!/usr/bin/env npx ts-node
 /**
- * Order Book Streaming Example — L2 and L4 Order Books via gRPC
+ * Order Book Streaming Example - L2 and L4 Order Books via gRPC
  *
  * This example demonstrates how to stream order book data via gRPC:
  * - L2 Book: Aggregated by price level (total size and order count per price)
  * - L4 Book: Individual orders with order IDs
- *
- * Note: L2/L4 order books are only available via gRPC on QuickNode.
- *       WebSocket streaming provides book_updates (incremental deltas) instead.
  *
  * Use cases:
  * - L2 Book: Market depth, spread monitoring, analytics dashboards
  * - L4 Book: HFT, quant trading, market making, order flow analysis
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node stream_orderbook.ts
  */
 
-import { GRPCStream } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
   console.log("Order Book Streaming Example");
   console.log("=".repeat(60));
   console.log();
   console.log("Usage:");
-  console.log("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  npx ts-node stream_orderbook.ts");
   process.exit(1);
 }
@@ -43,9 +40,10 @@ async function streamL2Example() {
 
   let count = 0;
 
-  const stream = new GRPCStream(ENDPOINT!, { reconnect: false });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
-  stream.l2Book("BTC", (data: any) => {
+  sdk.grpc.l2Book("BTC", (data: any) => {
     count++;
     const bids = data.bids || [];
     const asks = data.asks || [];
@@ -65,14 +63,14 @@ async function streamL2Example() {
     }
   }, { nLevels: 10 });
 
-  await stream.start();
+  await sdk.grpc.start();
 
   const start = Date.now();
   while (count < 3 && Date.now() - start < 15000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  stream.stop();
+  sdk.grpc.stop();
   console.log(`\nReceived ${count} L2 updates.`);
 }
 
@@ -83,9 +81,10 @@ async function streamL4Example() {
 
   let count = 0;
 
-  const stream = new GRPCStream(ENDPOINT!, { reconnect: false });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
-  stream.l4Book("ETH", (data: any) => {
+  sdk.grpc.l4Book("ETH", (data: any) => {
     count++;
 
     if (data.type === "snapshot") {
@@ -99,14 +98,14 @@ async function streamL4Example() {
     }
   });
 
-  await stream.start();
+  await sdk.grpc.start();
 
   const start = Date.now();
   while (count < 3 && Date.now() - start < 20000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  stream.stop();
+  sdk.grpc.stop();
   console.log(`\nReceived ${count} L4 updates.`);
 }
 

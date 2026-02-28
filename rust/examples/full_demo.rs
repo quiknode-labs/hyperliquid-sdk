@@ -10,12 +10,12 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! export PRIVATE_KEY="0x..."  # Optional, for trading
 //! cargo run --example full_demo
 //! ```
 
-use hyperliquid_sdk::{HyperliquidSDK, Order, Stream};
+use hyperliquid_sdk::{HyperliquidSDK, Order};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -224,7 +224,7 @@ async fn demo_evm_api(sdk: &HyperliquidSDK) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-async fn demo_websocket(endpoint: &Option<String>, duration: u64) {
+async fn demo_websocket(sdk: &HyperliquidSDK, duration: u64) {
     separator("WEBSOCKET STREAMING");
 
     let trade_count = Arc::new(AtomicUsize::new(0));
@@ -232,7 +232,7 @@ async fn demo_websocket(endpoint: &Option<String>, duration: u64) {
     let trade_count_cb = trade_count.clone();
     let book_count_cb = book_count.clone();
 
-    let mut stream = Stream::new(endpoint.clone())
+    let mut stream = sdk.stream()
         .on_open(|| {
             println!("  [CONNECTED] WebSocket stream ready");
         })
@@ -276,15 +276,13 @@ async fn demo_websocket(endpoint: &Option<String>, duration: u64) {
     );
 }
 
-async fn demo_grpc(endpoint: &Option<String>, duration: u64) {
-    use hyperliquid_sdk::GRPCStream;
-
+async fn demo_grpc(sdk: &HyperliquidSDK, duration: u64) {
     separator("GRPC STREAMING");
 
     let trade_count = Arc::new(AtomicUsize::new(0));
     let trade_count_cb = trade_count.clone();
 
-    let mut stream = GRPCStream::new(endpoint.clone())
+    let mut stream = sdk.grpc()
         .on_connect(|| {
             println!("  [CONNECTED] gRPC stream ready");
         })
@@ -348,7 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Error: ENDPOINT not set");
         println!();
         println!("Usage:");
-        println!("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+        println!("  export ENDPOINT='https://your-endpoint/TOKEN'");
         println!("  cargo run --example full_demo");
         std::process::exit(1);
     }
@@ -370,12 +368,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sdk = builder.build().await?;
 
-    // Run all demos
+    // Run all demos using the same SDK instance
     demo_info_api(&sdk).await?;
     demo_hypercore_api(&sdk).await?;
     demo_evm_api(&sdk).await?;
-    demo_websocket(&endpoint, 5).await;
-    demo_grpc(&endpoint, 5).await;
+    demo_websocket(&sdk, 5).await;
+    demo_grpc(&sdk, 5).await;
 
     if private_key.is_some() {
         demo_trading(&sdk).await;

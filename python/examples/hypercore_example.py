@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-HyperCore API Example — Low-level block and trade data via JSON-RPC.
+HyperCore API Example — Block and trade data via JSON-RPC.
 
 This example shows how to query blocks, trades, and orders using the HyperCore API.
 
@@ -8,21 +8,21 @@ Requirements:
     pip install hyperliquid-sdk
 
 Usage:
-    export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+    export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
     python hypercore_example.py
 """
 
 import os
 import sys
 
-from hyperliquid_sdk import HyperCore
+from hyperliquid_sdk import HyperliquidSDK
 
 # Get endpoint from environment
-ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT")
+ENDPOINT = os.environ.get("ENDPOINT") or os.environ.get("QUICKNODE_ENDPOINT")
 
 if not ENDPOINT:
-    print("Error: Set QUICKNODE_ENDPOINT environment variable")
-    print("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
+    print("Error: Set ENDPOINT environment variable")
+    print("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'")
     sys.exit(1)
 
 
@@ -32,8 +32,8 @@ def main():
     print(f"Endpoint: {ENDPOINT[:50]}...")
     print()
 
-    # Create HyperCore client
-    hc = HyperCore(ENDPOINT)
+    # Create SDK
+    sdk = HyperliquidSDK(ENDPOINT)
 
     # ==========================================================================
     # Block Data
@@ -42,11 +42,11 @@ def main():
     print("-" * 30)
 
     # Get latest block number
-    block_num = hc.latest_block_number()
+    block_num = sdk.core().latest_block_number()
     print(f"Latest block: {block_num}")
 
     # Get block by number
-    block = hc.get_block(block_num)
+    block = sdk.core().get_block(block_num)
     if block:
         txs = block.get("transactions", [])
         print(f"Block {block_num}:")
@@ -61,7 +61,7 @@ def main():
     print("-" * 30)
 
     # Get latest trades (all coins)
-    trades = hc.latest_trades(count=5)
+    trades = sdk.core().latest_trades(count=5)
     print(f"Last {len(trades)} trades:")
     for trade in trades[:5]:
         coin = trade.get("coin", "?")
@@ -72,7 +72,7 @@ def main():
     print()
 
     # Get trades for specific coin
-    btc_trades = hc.latest_trades(coin="BTC", count=3)
+    btc_trades = sdk.core().latest_trades(coin="BTC", count=3)
     print(f"Last {len(btc_trades)} BTC trades:")
     for trade in btc_trades:
         px = trade.get("px", "?")
@@ -89,7 +89,7 @@ def main():
 
     try:
         # Get latest orders (all coins)
-        orders = hc.latest_orders(count=5)
+        orders = sdk.core().latest_orders(count=5)
         print(f"Last {len(orders)} orders:")
         for order in orders[:5]:
             coin = order.get("coin", "?")
@@ -111,7 +111,7 @@ def main():
     try:
         # Get batch blocks
         start_block = max(0, block_num - 5)
-        blocks = hc.get_batch_blocks(start_block, block_num)
+        blocks = sdk.core().get_batch_blocks(start_block, block_num)
         print(f"Blocks {start_block} to {block_num}: {len(blocks)} blocks")
 
         # Safely count transactions

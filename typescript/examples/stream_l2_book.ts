@@ -1,6 +1,6 @@
 #!/usr/bin/env npx ts-node
 /**
- * L2 Order Book Streaming — Aggregated Price Levels
+ * L2 Order Book Streaming - Aggregated Price Levels
  *
  * L2 order book shows total size at each price level (aggregated).
  * Available via both WebSocket and gRPC.
@@ -16,20 +16,20 @@
  * - Order flow analysis
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node stream_l2_book.ts
  */
 
-import { GRPCStream } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
   console.log("L2 Order Book Streaming Example");
   console.log("=".repeat(60));
   console.log();
   console.log("Usage:");
-  console.log("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  npx ts-node stream_l2_book.ts");
   process.exit(1);
 }
@@ -98,13 +98,14 @@ async function main() {
 
   const tracker = new L2BookTracker("ETH");
 
-  const stream = new GRPCStream(ENDPOINT!, {
-    reconnect: false,
-    onConnect: () => console.log("[CONNECTED]"),
-    onError: (err) => console.log(`[ERROR] ${err.message}`),
-  });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
-  stream.l2Book("ETH", (data: any) => {
+  // Configure gRPC stream
+  sdk.grpc.onConnect = () => console.log("[CONNECTED]");
+  sdk.grpc.onError = (err) => console.log(`[ERROR] ${err.message}`);
+
+  sdk.grpc.l2Book("ETH", (data: any) => {
     tracker.update(data);
     tracker.display();
 
@@ -116,14 +117,14 @@ async function main() {
   console.log("\nSubscribing to ETH L2 order book...");
   console.log("-".repeat(60));
 
-  await stream.start();
+  await sdk.grpc.start();
 
   const start = Date.now();
   while (tracker.updateCount < 5 && Date.now() - start < 20000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  stream.stop();
+  sdk.grpc.stop();
 
   console.log("\n" + "=".repeat(60));
   console.log("Done!");

@@ -1,7 +1,7 @@
 syntax = "proto3";
 package hyperliquid;
 
-option go_package = "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid/proto";
+option go_package = "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto";
 
 service Streaming {
   // Bi-directional streaming

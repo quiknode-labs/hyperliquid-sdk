@@ -4,11 +4,11 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example stream_l4_book
 //! ```
 
-use hyperliquid_sdk::GRPCStream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if endpoint.is_none() {
         eprintln!("Usage:");
-        eprintln!("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+        eprintln!("  export ENDPOINT='https://your-endpoint/TOKEN'");
         eprintln!("  cargo run --example stream_l4_book");
         std::process::exit(1);
     }
@@ -33,13 +33,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - Higher bandwidth than L2");
     println!("   - Use for market making or detailed analysis");
 
-    // Create gRPC stream for L4 (more efficient for full book)
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
+    // Create gRPC stream via SDK for L4 (more efficient for full book)
     println!("\n2. Creating gRPC stream...");
 
     let update_count = Arc::new(AtomicUsize::new(0));
     let update_count_cb = update_count.clone();
 
-    let mut grpc = GRPCStream::new(endpoint)
+    let mut grpc = sdk.grpc()
         .on_connect(|| {
             println!("   [Connected]");
         })

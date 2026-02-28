@@ -1,6 +1,6 @@
 #!/usr/bin/env npx ts-node
 /**
- * L4 Order Book Streaming via gRPC — Individual Orders with Order IDs
+ * L4 Order Book Streaming via gRPC - Individual Orders with Order IDs
  *
  * L4 order book is CRITICAL for:
  * - Market making: Know your exact queue position
@@ -9,13 +9,13 @@
  * - HFT: Lower latency than WebSocket
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node stream_l4_book.ts
  */
 
-import { GRPCStream } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
   console.log("L4 Order Book Streaming Example");
@@ -25,7 +25,7 @@ if (!ENDPOINT) {
   console.log("This is essential for market making and order flow analysis.");
   console.log();
   console.log("Usage:");
-  console.log("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  npx ts-node stream_l4_book.ts");
   process.exit(1);
 }
@@ -41,13 +41,14 @@ async function main() {
 
   let updateCount = 0;
 
-  const stream = new GRPCStream(ENDPOINT!, {
-    reconnect: false,
-    onConnect: () => console.log("[CONNECTED]"),
-    onError: (err) => console.log(`[ERROR] ${err.message}`),
-  });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT!);
 
-  stream.l4Book("BTC", (data: any) => {
+  // Configure gRPC stream
+  sdk.grpc.onConnect = () => console.log("[CONNECTED]");
+  sdk.grpc.onError = (err) => console.log(`[ERROR] ${err.message}`);
+
+  sdk.grpc.l4Book("BTC", (data: any) => {
     updateCount++;
 
     if (data.type === "snapshot") {
@@ -79,14 +80,14 @@ async function main() {
   console.log("\nSubscribing to BTC L4 order book...");
   console.log("-".repeat(60));
 
-  await stream.start();
+  await sdk.grpc.start();
 
   const start = Date.now();
   while (updateCount < 5 && Date.now() - start < 30000) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
-  stream.stop();
+  sdk.grpc.stop();
 
   console.log("\n" + "=".repeat(60));
   console.log("Done!");

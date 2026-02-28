@@ -9,17 +9,15 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
 
 	if endpoint == "" {
 		fmt.Println("============================================================")
@@ -27,7 +25,7 @@ func main() {
 		fmt.Println("============================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
 		os.Exit(1)
 	}
@@ -42,11 +40,17 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
 	// Track update counts
 	updateCount := 0
 
-	// Create gRPC stream (L2 book is best via gRPC for low latency)
-	stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	// Create gRPC stream via SDK (L2 book is best via gRPC for low latency)
+	stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 		OnConnect: func() {

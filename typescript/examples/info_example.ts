@@ -8,18 +8,18 @@
  *     npm install hyperliquid-sdk
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node info_example.ts
  */
 
-import { Info } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from 'hyperliquid-sdk';
 
 // Get endpoint from environment
-const ENDPOINT = process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.env.ENDPOINT;
 
 if (!ENDPOINT) {
-  console.error("Error: Set QUICKNODE_ENDPOINT environment variable");
-  console.error("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+  console.error("Error: Set ENDPOINT environment variable");
+  console.error("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   process.exit(1);
 }
 
@@ -29,8 +29,8 @@ async function main() {
   console.log(`Endpoint: ${ENDPOINT.slice(0, 50)}...`);
   console.log();
 
-  // Create Info client
-  const info = new Info(ENDPOINT);
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT);
 
   // ==========================================================================
   // Market Data
@@ -39,7 +39,7 @@ async function main() {
   console.log("-".repeat(30));
 
   // Get all mid prices
-  const mids = await info.allMids();
+  const mids = await sdk.info.allMids();
   const btcMid = parseFloat(mids['BTC'] || '0');
   const ethMid = parseFloat(mids['ETH'] || '0');
   console.log(`BTC mid: $${btcMid.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
@@ -48,7 +48,7 @@ async function main() {
   console.log();
 
   // Get L2 order book
-  const book = await info.l2Book("BTC");
+  const book = await sdk.info.l2Book("BTC");
   const levels = book.levels || [[], []];
   const bids = levels[0] || [];
   const asks = levels[1] || [];
@@ -65,7 +65,7 @@ async function main() {
   console.log();
 
   // Get recent trades
-  const trades = await info.recentTrades("ETH");
+  const trades = await sdk.info.recentTrades("ETH");
   console.log(`Recent ETH trades: ${trades.length}`);
   if (trades.length) {
     const lastTrade = trades[0] as Record<string, unknown>;
@@ -79,7 +79,7 @@ async function main() {
   console.log("Exchange Metadata");
   console.log("-".repeat(30));
 
-  const meta = await info.meta();
+  const meta = await sdk.info.meta();
   const universe = meta.universe || [];
   console.log(`Total perp markets: ${universe.length}`);
 
@@ -102,7 +102,7 @@ async function main() {
 
   try {
     // Get clearinghouse state (positions, margin)
-    const state = await info.clearinghouseState(userAddress);
+    const state = await sdk.info.clearinghouseState(userAddress);
     const equity = parseFloat(state.marginSummary?.accountValue || "0");
     console.log(`Account equity: $${equity.toLocaleString()}`);
 
@@ -132,7 +132,7 @@ async function main() {
   console.log("-".repeat(30));
 
   try {
-    const fundings = await info.predictedFundings();
+    const fundings = await sdk.info.predictedFundings();
     console.log(`Predicted funding rates for ${fundings.length} assets:`);
     for (const f of fundings.slice(0, 5)) {
       const coin = (f as Record<string, unknown>).coin || "?";

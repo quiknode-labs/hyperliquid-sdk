@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.32.1
-// source: hyperliquid/proto/streaming.proto
+// source: streaming.proto
 
 package proto
 
@@ -152,7 +152,7 @@ var Streaming_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "hyperliquid/proto/streaming.proto",
+	Metadata: "streaming.proto",
 }
 
 const (
@@ -259,5 +259,5 @@ var BlockStreaming_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "hyperliquid/proto/streaming.proto",
+	Metadata: "streaming.proto",
 }

@@ -8,11 +8,11 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example websocket_streaming
 //! ```
 
-use hyperliquid_sdk::Stream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -29,27 +29,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if endpoint.is_none() {
         println!();
         println!("Usage:");
-        println!("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+        println!("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'");
         println!("  cargo run --example websocket_streaming");
-        println!();
-        println!("Or pass directly:");
-        println!("  ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN' cargo run --example websocket_streaming");
         std::process::exit(1);
     }
 
     if let Some(ref ep) = endpoint {
         let display_len = ep.len().min(60);
-        println!("Endpoint: {}{}",  &ep[..display_len], if ep.len() > 60 { "..." } else { "" });
+        println!("Endpoint: {}{}", &ep[..display_len], if ep.len() > 60 { "..." } else { "" });
     }
     println!();
 
-    // Create stream with all callbacks
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
+    // Create stream via SDK
     let trade_count = Arc::new(AtomicUsize::new(0));
     let book_count = Arc::new(AtomicUsize::new(0));
     let trade_count_cb = trade_count.clone();
     let book_count_cb = book_count.clone();
 
-    let mut stream = Stream::new(endpoint)
+    let mut stream = sdk.stream()
         .on_open(|| {
             println!("[CONNECTED] WebSocket stream ready");
         })
@@ -74,7 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _trade_sub = stream.trades(&["BTC", "ETH"], move |data| {
         trade_count_cb.fetch_add(1, Ordering::SeqCst);
 
-        // QuickNode format: { type: 'data', stream: 'hl.trades', block: { events: [...] } }
         if let Some(block) = data.get("block") {
             if let Some(events) = block.get("events").and_then(|e| e.as_array()) {
                 for event in events {
@@ -104,7 +106,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _book_sub = stream.book_updates(&["BTC"], move |data| {
         book_count_cb.fetch_add(1, Ordering::SeqCst);
 
-        // QuickNode format: { type: 'data', stream: 'hl.book_updates', block: { events: [...] } }
         if let Some(block) = data.get("block") {
             if let Some(events) = block.get("events").and_then(|e| e.as_array()) {
                 for event in events {

@@ -4,11 +4,11 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example stream_grpc
 //! ```
 
-use hyperliquid_sdk::GRPCStream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if endpoint.is_none() {
         eprintln!("Usage:");
-        eprintln!("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+        eprintln!("  export ENDPOINT='https://your-endpoint/TOKEN'");
         eprintln!("  cargo run --example stream_grpc");
         std::process::exit(1);
     }
@@ -27,7 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("gRPC Streaming Example");
     println!("{}", "=".repeat(50));
 
-    // Create gRPC stream
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
+    // Create gRPC stream via SDK
     println!("\n1. Creating gRPC stream...");
 
     let trade_count = Arc::new(AtomicUsize::new(0));
@@ -35,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let trade_count_cb = trade_count.clone();
     let book_count_cb = book_count.clone();
 
-    let mut grpc = GRPCStream::new(endpoint)
+    let mut grpc = sdk.grpc()
         .on_connect(|| {
             println!("   [Connected]");
         })

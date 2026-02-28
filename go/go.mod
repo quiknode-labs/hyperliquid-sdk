@@ -1,4 +1,4 @@
-module github.com/quiknode-labs/raptor/hyperliquid-sdk/go
+module github.com/quiknode-labs/hyperliquid-sdk/go
 
 go 1.22
 

@@ -9,31 +9,35 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
 	endpoint := os.Getenv("ENDPOINT")
-	if endpoint == "" {
-		endpoint = os.Getenv("QUICKNODE_ENDPOINT")
-	}
 
 	if endpoint == "" {
 		fmt.Println("Order Book Streaming Examples")
 		fmt.Println("============================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
 		os.Exit(1)
 	}
 
 	fmt.Println("Order Book Streaming Examples")
 	fmt.Println("============================================================")
+
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
 
 	// ========================================================================
 	// L2 ORDER BOOK (Aggregated Price Levels)
@@ -45,7 +49,7 @@ func main() {
 
 	l2Count := 0
 
-	l2Stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	l2Stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 	})
@@ -95,7 +99,7 @@ func main() {
 
 	l4Count := 0
 
-	l4Stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+	l4Stream := sdk.NewGRPCStream(&hyperliquid.GRPCStreamConfig{
 		Secure:    true,
 		Reconnect: false,
 	})

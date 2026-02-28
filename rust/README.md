@@ -27,12 +27,6 @@ hyperliquid-sdk = { git = "https://github.com/quiknode-labs/raptor", version = "
 tokio = { version = "1", features = ["full"] }
 ```
 
-For gRPC streaming support:
-
-```toml
-hyperliquid-sdk = { git = "https://github.com/quiknode-labs/raptor", version = "0.1", features = ["grpc"] }
-```
-
 That's it. Everything is included: trading, Info API, WebSocket streaming, gRPC streaming, HyperCore, and EVM.
 
 ## Quick Start
@@ -330,7 +324,7 @@ stream.run()?;
 
 ### gRPC Streaming (High Performance)
 
-Lower latency streaming via gRPC for high-frequency applications. gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
+Lower latency streaming via gRPC for high-frequency applications.
 
 ```rust
 use hyperliquid_sdk::GRPCStream;
@@ -718,7 +712,7 @@ match sdk.market_buy("BTC").await.notional(100.0).await {
 
 ```rust
 HyperliquidSDK::new()
-    .endpoint(endpoint)          // QuickNode endpoint URL
+    .endpoint(endpoint)          // Endpoint URL
     .private_key(key)            // Falls back to PRIVATE_KEY env var
     .auto_approve(true)          // Auto-approve builder fee (default: true)
     .max_fee("1%")               // Max fee for auto-approval
@@ -776,7 +770,7 @@ EVMStream::new(endpoint);
 | Variable | Description |
 |----------|-------------|
 | `PRIVATE_KEY` | Your Ethereum private key (hex, with or without 0x) |
-| `ENDPOINT` | QuickNode endpoint URL |
+| `ENDPOINT` | Endpoint URL |
 
 ---
 
@@ -853,100 +847,6 @@ See the `examples/` directory for complete, runnable examples:
 
 **Complete Demo:**
 - [full_demo.rs](examples/full_demo.rs) — All features in one file
-
----
-
-## Architecture Notes (For SDK Implementers)
-
-This section documents the routing logic for implementing SDKs in other languages.
-
-### URL Routing
-
-The SDK routes requests to different endpoints based on the operation:
-
-| Endpoint | Routes To | Notes |
-|----------|-----------|-------|
-| `/exchange` | Worker | ALL trading operations (orders, cancels, etc.) |
-| `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
-| `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
-| `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
-
-### QuickNode Supported Info Methods
-
-QuickNode nodes with `--serve-info-endpoint` support these methods:
-
-```
-meta, spotMeta, clearinghouseState, spotClearinghouseState,
-openOrders, exchangeStatus, frontendOpenOrders, liquidatable,
-activeAssetData, maxMarketOrderNtls, vaultSummaries, userVaultEquities,
-leadingVaults, extraAgents, subAccounts, userFees, userRateLimit,
-spotDeployState, perpDeployAuctionStatus, delegations, delegatorSummary,
-maxBuilderFee, userToMultiSigSigners, userRole, perpsAtOpenInterestCap,
-validatorL1Votes, marginTable, perpDexs, webData2
-```
-
-Methods NOT in this list (e.g., `allMids`, `l2Book`, `recentTrades`, `candleSnapshot`, `predictedFundings`) must route through the worker.
-
-### Endpoint Parsing
-
-The SDK extracts the token from any endpoint format:
-
-```
-https://x.quiknode.pro/TOKEN → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/info → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/evm → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/hypercore → base = https://x.quiknode.pro/TOKEN
-```
-
-Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `send`
-
-### Worker URL
-
-Public worker: `https://send.hyperliquidapi.com`
-
-The worker handles:
-- `/exchange` - ALL trading operations (orders, cancels, positions, etc.)
-- `/info` - Info API fallback for unsupported methods
-- `/approval` - Builder fee approval status
-- `/markets` - Market metadata
-- `/dexes` - DEX info
-- `/preflight` - Order preflight validation
-
-### Signature Chain IDs
-
-```rust
-const MAINNET_CHAIN_ID: &str = "0xa4b1";  // Arbitrum
-const TESTNET_CHAIN_ID: &str = "0x66eee"; // Arbitrum Sepolia
-```
-
----
-
-## API Parity with Python SDK
-
-This Rust SDK implements all features of the Python SDK:
-
-| Feature | Python | Rust |
-|---------|--------|------|
-| Order Placement | ✅ | ✅ |
-| Fluent Builders | ✅ | ✅ |
-| Trigger Orders | ✅ | ✅ |
-| TWAP Orders | ✅ | ✅ |
-| Order Management | ✅ | ✅ |
-| Info API (50+ methods) | ✅ | ✅ |
-| HyperCore API | ✅ | ✅ |
-| EVM JSON-RPC | ✅ | ✅ |
-| WebSocket Streaming (20+ types) | ✅ | ✅ |
-| EVM WebSocket (eth_subscribe) | ✅ | ✅ |
-| gRPC Streaming (L2/L4 book) | ✅ | ✅ (feature flag) |
-| Transfers | ✅ | ✅ |
-| Vaults | ✅ | ✅ |
-| Staking | ✅ | ✅ |
-| Builder Fee | ✅ | ✅ |
-| Agent Management | ✅ | ✅ |
-| Account Abstraction | ✅ | ✅ |
-| Advanced Transfers | ✅ | ✅ |
-| Auto-reconnect | ✅ | ✅ |
-| Error Translation | ✅ | ✅ |
 
 ---
 

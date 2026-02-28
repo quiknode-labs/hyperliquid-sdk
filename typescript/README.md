@@ -5,7 +5,7 @@
 ```typescript
 import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const sdk = new HyperliquidSDK();
+const sdk = new HyperliquidSDK(endpoint);
 const order = await sdk.marketBuy("BTC", { notional: 100 });  // Buy $100 of BTC
 ```
 
@@ -21,23 +21,9 @@ npm install hyperliquid-sdk
 yarn add hyperliquid-sdk
 ```
 
-Everything is included: trading, Info API, WebSocket streaming, gRPC streaming, HyperCore, and EVM.
+Everything is included: trading, market data, WebSocket streaming, gRPC streaming, HyperCore blocks, and EVM.
 
 ## Quick Start
-
-### Endpoint Flexibility
-
-The SDK automatically handles any endpoint format you provide:
-
-```typescript
-// All of these work - the SDK extracts the token and routes correctly
-const endpoint = "https://x.quiknode.pro/TOKEN";
-const endpoint = "https://x.quiknode.pro/TOKEN/";
-const endpoint = "https://x.quiknode.pro/TOKEN/info";
-const endpoint = "https://x.quiknode.pro/TOKEN/hypercore";
-```
-
-Just pass your endpoint - the SDK handles the rest.
 
 ### 1. Set your private key
 
@@ -50,7 +36,7 @@ export PRIVATE_KEY="0xYOUR_PRIVATE_KEY"
 ```typescript
 import { HyperliquidSDK } from 'hyperliquid-sdk';
 
-const sdk = new HyperliquidSDK();
+const sdk = new HyperliquidSDK(endpoint);
 
 // Market orders
 const order1 = await sdk.marketBuy("BTC", { size: 0.001 });
@@ -68,76 +54,74 @@ console.log(order3.oid);     // Order ID
 
 ## Data APIs
 
-Query Hyperliquid data with clean, simple interfaces.
+All data APIs are accessed through the SDK instance.
 
 ### Info API
 
 50+ methods for account state, positions, market data, and metadata.
 
 ```typescript
-import { Info } from 'hyperliquid-sdk';
-
-const info = new Info("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
+const sdk = new HyperliquidSDK(endpoint);
 
 // Market data
-await info.allMids();                          // All mid prices
-await info.l2Book("BTC");                      // Order book
-await info.recentTrades("BTC");                // Recent trades
-await info.candles("BTC", "1h", start, end);   // OHLCV candles
-await info.fundingHistory("BTC", start, end);  // Funding history
-await info.predictedFundings();                // Predicted funding rates
+await sdk.info.allMids();                          // All mid prices
+await sdk.info.l2Book("BTC");                      // Order book
+await sdk.info.recentTrades("BTC");                // Recent trades
+await sdk.info.candles("BTC", "1h", start, end);   // OHLCV candles
+await sdk.info.fundingHistory("BTC", start, end);  // Funding history
+await sdk.info.predictedFundings();                // Predicted funding rates
 
 // Metadata
-await info.meta();                             // Exchange metadata
-await info.spotMeta();                         // Spot metadata
-await info.exchangeStatus();                   // Exchange status
-await info.perpDexs();                         // Perpetual DEX info
-await info.maxMarketOrderNtls();               // Max market order notionals
+await sdk.info.meta();                             // Exchange metadata
+await sdk.info.spotMeta();                         // Spot metadata
+await sdk.info.exchangeStatus();                   // Exchange status
+await sdk.info.perpDexs();                         // Perpetual DEX info
+await sdk.info.maxMarketOrderNtls();               // Max market order notionals
 
 // User data
-await info.clearinghouseState("0x...");        // Positions & margin
-await info.spotClearinghouseState("0x...");    // Spot balances
-await info.openOrders("0x...");                // Open orders
-await info.frontendOpenOrders("0x...");        // Enhanced open orders
-await info.orderStatus("0x...", oid);          // Specific order status
-await info.historicalOrders("0x...");          // Order history
-await info.userFills("0x...");                 // Trade history
-await info.userFillsByTime("0x...", start);    // Fills by time range
-await info.userFunding("0x...");               // Funding payments
-await info.userFees("0x...");                  // Fee structure
-await info.userRateLimit("0x...");             // Rate limit status
-await info.userRole("0x...");                  // Account type
-await info.portfolio("0x...");                 // Portfolio history
-await info.subAccounts("0x...");               // Sub-accounts
-await info.extraAgents("0x...");               // API keys/agents
+await sdk.info.clearinghouseState("0x...");        // Positions & margin
+await sdk.info.spotClearinghouseState("0x...");    // Spot balances
+await sdk.info.openOrders("0x...");                // Open orders
+await sdk.info.frontendOpenOrders("0x...");        // Enhanced open orders
+await sdk.info.orderStatus("0x...", oid);          // Specific order status
+await sdk.info.historicalOrders("0x...");          // Order history
+await sdk.info.userFills("0x...");                 // Trade history
+await sdk.info.userFillsByTime("0x...", start);    // Fills by time range
+await sdk.info.userFunding("0x...");               // Funding payments
+await sdk.info.userFees("0x...");                  // Fee structure
+await sdk.info.userRateLimit("0x...");             // Rate limit status
+await sdk.info.userRole("0x...");                  // Account type
+await sdk.info.portfolio("0x...");                 // Portfolio history
+await sdk.info.subAccounts("0x...");               // Sub-accounts
+await sdk.info.extraAgents("0x...");               // API keys/agents
 
 // TWAP
-await info.userTwapSliceFills("0x...");        // TWAP slice fills
+await sdk.info.userTwapSliceFills("0x...");        // TWAP slice fills
 
 // Batch queries
-await info.batchClearinghouseStates(["0x...", "0x..."]);
+await sdk.info.batchClearinghouseStates(["0x...", "0x..."]);
 
 // Vaults
-await info.vaultSummaries();                   // All vault summaries
-await info.vaultDetails("0x...");              // Specific vault
-await info.userVaultEquities("0x...");         // User's vault equities
-await info.leadingVaults("0x...");             // Vaults user leads
+await sdk.info.vaultSummaries();                   // All vault summaries
+await sdk.info.vaultDetails("0x...");              // Specific vault
+await sdk.info.userVaultEquities("0x...");         // User's vault equities
+await sdk.info.leadingVaults("0x...");             // Vaults user leads
 
 // Delegation/Staking
-await info.delegations("0x...");               // Active delegations
-await info.delegatorSummary("0x...");          // Delegation summary
-await info.delegatorHistory("0x...");          // Delegation history
-await info.delegatorRewards("0x...");          // Delegation rewards
+await sdk.info.delegations("0x...");               // Active delegations
+await sdk.info.delegatorSummary("0x...");          // Delegation summary
+await sdk.info.delegatorHistory("0x...");          // Delegation history
+await sdk.info.delegatorRewards("0x...");          // Delegation rewards
 
 // Tokens
-await info.tokenDetails(tokenId);              // Token details
-await info.spotDeployState("0x...");           // Spot deployment state
+await sdk.info.tokenDetails(tokenId);              // Token details
+await sdk.info.spotDeployState("0x...");           // Spot deployment state
 
 // Other
-await info.referral("0x...");                  // Referral info
-await info.maxBuilderFee("0x...", "0x...");    // Builder fee limits
-await info.approvedBuilders("0x...");          // Approved builders
-await info.liquidatable();                     // Liquidatable positions
+await sdk.info.referral("0x...");                  // Referral info
+await sdk.info.maxBuilderFee("0x...", "0x...");    // Builder fee limits
+await sdk.info.approvedBuilders("0x...");          // Approved builders
+await sdk.info.liquidatable();                     // Liquidatable positions
 ```
 
 ### HyperCore API
@@ -145,52 +129,29 @@ await info.liquidatable();                     // Liquidatable positions
 Block data, trading operations, and real-time data via JSON-RPC.
 
 ```typescript
-import { HyperCore } from 'hyperliquid-sdk';
-
-const hc = new HyperCore("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
+const sdk = new HyperliquidSDK(endpoint);
 
 // Block data
-await hc.latestBlockNumber();                  // Latest block
-await hc.getBlock(12345);                      // Get specific block
-await hc.getBatchBlocks(100, 110);             // Get block range
-await hc.latestBlocks({ count: 10 });          // Latest blocks
+await sdk.core.latestBlockNumber();                  // Latest block
+await sdk.core.getBlock(12345);                      // Get specific block
+await sdk.core.getBatchBlocks(100, 110);             // Get block range
+await sdk.core.latestBlocks({ count: 10 });          // Latest blocks
 
 // Recent data
-await hc.latestTrades({ count: 10 });          // Recent trades (all coins)
-await hc.latestTrades({ count: 10, coin: "BTC" }); // Recent BTC trades
-await hc.latestOrders({ count: 10 });          // Recent order events
-await hc.latestBookUpdates({ count: 10 });     // Recent book updates
+await sdk.core.latestTrades({ count: 10 });          // Recent trades (all coins)
+await sdk.core.latestTrades({ count: 10, coin: "BTC" }); // Recent BTC trades
+await sdk.core.latestOrders({ count: 10 });          // Recent order events
+await sdk.core.latestBookUpdates({ count: 10 });     // Recent book updates
 
 // Discovery
-await hc.listDexes();                          // All DEXes
-await hc.listMarkets();                        // All markets
-await hc.listMarkets({ dex: "hyperliquidity" }); // Markets by DEX
+await sdk.core.listDexes();                          // All DEXes
+await sdk.core.listMarkets();                        // All markets
+await sdk.core.listMarkets({ dex: "hyperliquidity" }); // Markets by DEX
 
 // Order queries
-await hc.openOrders("0x...");                  // User's open orders
-await hc.orderStatus("0x...", oid);            // Specific order status
-await hc.preflight(...);                       // Validate order before signing
-
-// Order building (for manual signing)
-await hc.buildOrder({ coin, isBuy, limitPx, sz, user });
-await hc.buildCancel({ coin, oid, user });
-await hc.buildModify({ coin, oid, user, limitPx, sz });
-await hc.buildApproveBuilderFee({ user, builder, rate, nonce });
-await hc.buildRevokeBuilderFee({ user, builder, nonce });
-
-// Send signed actions
-await hc.sendOrder({ action, signature, nonce });
-await hc.sendCancel({ action, signature, nonce });
-await hc.sendModify({ action, signature, nonce });
-await hc.sendApproval({ action, signature });
-await hc.sendRevocation({ action, signature });
-
-// Builder fees
-await hc.getMaxBuilderFee("0x...", "0x...");
-
-// Subscriptions
-await hc.subscribe({ type: "trades", coin: "BTC" });
-await hc.unsubscribe({ type: "trades", coin: "BTC" });
+await sdk.core.openOrders("0x...");                  // User's open orders
+await sdk.core.orderStatus("0x...", oid);            // Specific order status
+await sdk.core.preflight(...);                       // Validate order before signing
 ```
 
 ### EVM (Ethereum JSON-RPC)
@@ -198,54 +159,48 @@ await hc.unsubscribe({ type: "trades", coin: "BTC" });
 50+ Ethereum JSON-RPC methods for Hyperliquid's EVM chain (chain ID 999 mainnet, 998 testnet).
 
 ```typescript
-import { EVM } from 'hyperliquid-sdk';
-
-const evm = new EVM("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
+const sdk = new HyperliquidSDK(endpoint);
 
 // Chain info
-await evm.blockNumber();                       // Latest block
-await evm.chainId();                           // 999 mainnet, 998 testnet
-await evm.gasPrice();                          // Current gas price
-await evm.maxPriorityFeePerGas();              // Priority fee
-await evm.netVersion();                        // Network version
-await evm.syncing();                           // Sync status
+await sdk.evm.blockNumber();                       // Latest block
+await sdk.evm.chainId();                           // 999 mainnet, 998 testnet
+await sdk.evm.gasPrice();                          // Current gas price
+await sdk.evm.maxPriorityFeePerGas();              // Priority fee
+await sdk.evm.netVersion();                        // Network version
+await sdk.evm.syncing();                           // Sync status
 
 // Accounts
-await evm.getBalance("0x...");                 // Account balance
-await evm.getTransactionCount("0x...");        // Nonce
-await evm.getCode("0x...");                    // Contract code
-await evm.getStorageAt("0x...", position);     // Storage value
+await sdk.evm.getBalance("0x...");                 // Account balance
+await sdk.evm.getTransactionCount("0x...");        // Nonce
+await sdk.evm.getCode("0x...");                    // Contract code
+await sdk.evm.getStorageAt("0x...", position);     // Storage value
 
 // Transactions
-await evm.call({ to: "0x...", data: "0x..." });
-await evm.estimateGas(tx);
-await evm.sendRawTransaction(signedTx);
-await evm.getTransactionByHash("0x...");
-await evm.getTransactionReceipt("0x...");
+await sdk.evm.call({ to: "0x...", data: "0x..." });
+await sdk.evm.estimateGas(tx);
+await sdk.evm.sendRawTransaction(signedTx);
+await sdk.evm.getTransactionByHash("0x...");
+await sdk.evm.getTransactionReceipt("0x...");
 
 // Blocks
-await evm.getBlockByNumber(12345);
-await evm.getBlockByHash("0x...");
-await evm.getBlockReceipts(12345);
-await evm.getBlockTransactionCountByNumber(12345);
+await sdk.evm.getBlockByNumber(12345);
+await sdk.evm.getBlockByHash("0x...");
+await sdk.evm.getBlockReceipts(12345);
+await sdk.evm.getBlockTransactionCountByNumber(12345);
 
 // Logs
-await evm.getLogs({ address: "0x...", topics: [...] });
+await sdk.evm.getLogs({ address: "0x...", topics: [...] });
 
 // HyperEVM-specific
-await evm.bigBlockGasPrice();                  // Big block gas price
-await evm.usingBigBlocks();                    // Is using big blocks?
-await evm.getSystemTxsByBlockNumber(12345);
+await sdk.evm.bigBlockGasPrice();                  // Big block gas price
+await sdk.evm.usingBigBlocks();                    // Is using big blocks?
+await sdk.evm.getSystemTxsByBlockNumber(12345);
 
-// Debug/Trace (use new EVM(endpoint, { debug: true }))
-const debugEvm = new EVM(endpoint, { debug: true });
-await debugEvm.debugTraceTransaction("0x...", { tracer: "callTracer" });
-await debugEvm.debugTraceBlockByNumber(12345);
-await debugEvm.traceTransaction("0x...");
-await debugEvm.traceBlock(12345);
-await debugEvm.traceCall(tx, ["trace", "vmTrace"]);
-await debugEvm.traceFilter({ fromBlock: "0x1", toBlock: "0x10" });
-await debugEvm.traceReplayTransaction("0x...", ["trace"]);
+// Debug/Trace
+await sdk.evm.debugTraceTransaction("0x...", { tracer: "callTracer" });
+await sdk.evm.debugTraceBlockByNumber(12345);
+await sdk.evm.traceTransaction("0x...");
+await sdk.evm.traceBlock(12345);
 ```
 
 ---
@@ -257,26 +212,24 @@ await debugEvm.traceReplayTransaction("0x...", ["trace"]);
 20+ subscription types for real-time data with automatic reconnection.
 
 ```typescript
-import { Stream } from 'hyperliquid-sdk';
-
-const stream = new Stream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
+const sdk = new HyperliquidSDK(endpoint);
 
 // Subscribe to trades
-stream.trades(["BTC", "ETH"], (t) => console.log(`Trade: ${JSON.stringify(t)}`));
+sdk.stream.trades(["BTC", "ETH"], (t) => console.log(`Trade: ${JSON.stringify(t)}`));
 
 // Subscribe to book updates
-stream.bookUpdates(["BTC"], (b) => console.log(`Book: ${JSON.stringify(b)}`));
+sdk.stream.bookUpdates(["BTC"], (b) => console.log(`Book: ${JSON.stringify(b)}`));
 
 // Subscribe to orders (your orders)
-stream.orders(["BTC"], (o) => console.log(`Order: ${JSON.stringify(o)}`), { users: ["0x..."] });
+sdk.stream.orders(["BTC"], (o) => console.log(`Order: ${JSON.stringify(o)}`), { users: ["0x..."] });
 
 // Start streaming
-stream.start();
+sdk.stream.start();
 
 // ... do other work ...
 
 // Stop streaming
-stream.stop();
+sdk.stream.stop();
 ```
 
 Available streams:
@@ -315,34 +268,30 @@ Available streams:
 
 ### gRPC Streaming (High Performance)
 
-Lower latency streaming via gRPC for high-frequency applications. gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
+Lower latency streaming via gRPC for high-frequency applications.
 
 ```typescript
-import { GRPCStream } from 'hyperliquid-sdk';
-
-const stream = new GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
+const sdk = new HyperliquidSDK(endpoint);
 
 // Subscribe to trades
-stream.trades(["BTC", "ETH"], (t) => console.log(`Trade: ${JSON.stringify(t)}`));
+sdk.grpc.trades(["BTC", "ETH"], (t) => console.log(`Trade: ${JSON.stringify(t)}`));
 
 // Subscribe to L2 order book (aggregated by price level)
-stream.l2Book("BTC", (b) => console.log(`Book: ${JSON.stringify(b)}`), { nSigFigs: 5 });
+sdk.grpc.l2Book("BTC", (b) => console.log(`Book: ${JSON.stringify(b)}`), { nSigFigs: 5 });
 
 // Subscribe to L4 order book (CRITICAL: individual orders with order IDs)
-stream.l4Book("BTC", (b) => console.log(`L4: ${JSON.stringify(b)}`));
+sdk.grpc.l4Book("BTC", (b) => console.log(`L4: ${JSON.stringify(b)}`));
 
 // Subscribe to blocks
-stream.blocks((b) => console.log(`Block: ${JSON.stringify(b)}`));
+sdk.grpc.blocks((b) => console.log(`Block: ${JSON.stringify(b)}`));
 
 // Start streaming
-await stream.start();
+await sdk.grpc.start();
 
 // ... do other work ...
 
-stream.stop();
+sdk.grpc.stop();
 ```
-
-The SDK automatically connects to port 10000 with your token.
 
 **Available gRPC Streams:**
 
@@ -368,11 +317,9 @@ L4 order book shows **every individual order** with its order ID. This is essent
 - **HFT**: Lower latency than WebSocket
 
 ```typescript
-import { GRPCStream } from 'hyperliquid-sdk';
+const sdk = new HyperliquidSDK(endpoint);
 
-const stream = new GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN");
-
-stream.l4Book("BTC", (data) => {
+sdk.grpc.l4Book("BTC", (data) => {
   // L4 book data structure:
   // {
   //   "coin": "BTC",
@@ -386,7 +333,7 @@ stream.l4Book("BTC", (data) => {
   }
 });
 
-await stream.start();
+await sdk.grpc.start();
 ```
 
 ### L2 vs L4 Comparison
@@ -592,11 +539,11 @@ Available error types:
 
 ## API Reference
 
-### HyperliquidSDK (Trading)
+### HyperliquidSDK
 
 ```typescript
 new HyperliquidSDK(
-  endpoint?: string,           // QuickNode endpoint URL
+  endpoint?: string,           // Endpoint URL
   options?: {
     privateKey?: string,       // Falls back to PRIVATE_KEY env var
     autoApprove?: boolean,     // Auto-approve builder fee (default: true)
@@ -606,238 +553,81 @@ new HyperliquidSDK(
     testnet?: boolean,         // Use testnet (default: false)
   }
 )
-```
 
-### Info (Account & Metadata)
-
-```typescript
-new Info(
-  endpoint: string,            // Endpoint URL
-  options?: {
-    timeout?: number,          // Request timeout in ms
-  }
-)
-```
-
-### HyperCore (Blocks & Trades)
-
-```typescript
-new HyperCore(
-  endpoint: string,            // Endpoint URL
-  options?: {
-    timeout?: number,          // Request timeout in ms
-  }
-)
-```
-
-### EVM (Ethereum JSON-RPC)
-
-```typescript
-new EVM(
-  endpoint: string,            // Endpoint URL
-  options?: {
-    timeout?: number,          // Request timeout in ms
-    debug?: boolean,           // Enable debug/trace APIs
-  }
-)
-```
-
-### Stream (WebSocket)
-
-```typescript
-new Stream(
-  endpoint: string,            // Endpoint URL
-  options?: {
-    onError?: (error: Error) => void,
-    onClose?: () => void,
-    onOpen?: () => void,
-    onStateChange?: (state: ConnectionState) => void,
-    onReconnect?: (attempt: number) => void,
-    reconnect?: boolean,       // Auto-reconnect (default: true)
-    pingInterval?: number,     // Heartbeat interval in ms
-  }
-)
-```
-
-### GRPCStream (gRPC)
-
-```typescript
-new GRPCStream(
-  endpoint: string,            // Endpoint URL (token extracted)
-  options?: {
-    onError?: (error: Error) => void,
-    onClose?: () => void,
-    onConnect?: () => void,
-    onStateChange?: (state: ConnectionState) => void,
-    onReconnect?: (attempt: number) => void,
-    secure?: boolean,          // Use TLS (default: true)
-    reconnect?: boolean,       // Auto-reconnect (default: true)
-  }
-)
+// Access sub-clients
+sdk.info      // Info API (market data, user data, metadata)
+sdk.core      // HyperCore (blocks, trades, orders)
+sdk.evm       // EVM (Ethereum JSON-RPC)
+sdk.stream    // WebSocket streaming
+sdk.grpc      // gRPC streaming
 ```
 
 ---
 
 ## Examples
 
-See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-examples) repository for complete, runnable examples:
+See the [examples](https://github.com/quiknode-labs/hyperliquid-sdk/tree/main/typescript/examples) directory for complete, runnable examples:
 
 **Trading:**
-- [market_order.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/market_order.ts) — Place market orders
-- [place_order.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/place_order.ts) — Place limit orders
-- [modify_order.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/modify_order.ts) — Modify existing orders
-- [cancel_order.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/cancel_order.ts) — Cancel orders
-- [cancel_by_cloid.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/cancel_by_cloid.ts) — Cancel by client order ID
-- [cancel_all.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/cancel_all.ts) — Cancel all orders
-- [close_position.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/close_position.ts) — Close positions
-- [fluent_builder.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/fluent_builder.ts) — Fluent order builder
-- [roundtrip.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/roundtrip.ts) — Buy and sell round trip
-- [hip3_order.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/hip3_order.ts) — HIP-3 DEX orders
+- `market_order.ts` — Place market orders
+- `place_order.ts` — Place limit orders
+- `modify_order.ts` — Modify existing orders
+- `cancel_order.ts` — Cancel orders
+- `cancel_by_cloid.ts` — Cancel by client order ID
+- `cancel_all.ts` — Cancel all orders
+- `close_position.ts` — Close positions
+- `fluent_builder.ts` — Fluent order builder
+- `roundtrip.ts` — Buy and sell round trip
+- `hip3_order.ts` — HIP-3 DEX orders
 
 **Trigger Orders:**
-- [trigger_orders.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/trigger_orders.ts) — Stop loss and take profit orders
+- `trigger_orders.ts` — Stop loss and take profit orders
 
 **TWAP:**
-- [twap.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/twap.ts) — Time-weighted average price orders
+- `twap.ts` — Time-weighted average price orders
 
 **Leverage & Margin:**
-- [leverage.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/leverage.ts) — Update leverage
-- [isolated_margin.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/isolated_margin.ts) — Isolated margin management
+- `leverage.ts` — Update leverage
+- `isolated_margin.ts` — Isolated margin management
 
 **Transfers & Withdrawals:**
-- [transfers.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/transfers.ts) — USD and spot transfers
-- [withdraw.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/withdraw.ts) — Withdraw to L1 (Arbitrum)
+- `transfers.ts` — USD and spot transfers
+- `withdraw.ts` — Withdraw to L1 (Arbitrum)
 
 **Vaults:**
-- [vaults.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/vaults.ts) — Vault deposits and withdrawals
+- `vaults.ts` — Vault deposits and withdrawals
 
 **Staking:**
-- [staking.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/staking.ts) — Stake, unstake, and delegate
+- `staking.ts` — Stake, unstake, and delegate
 
 **Approval:**
-- [approve.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/approve.ts) — Builder fee approval
-- [builder_fee.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/builder_fee.ts) — Check approval status
+- `approve.ts` — Builder fee approval
+- `builder_fee.ts` — Check approval status
 
 **Market Info:**
-- [markets.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/markets.ts) — List markets and mid prices
-- [open_orders.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/open_orders.ts) — Query open orders
-- [preflight.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/preflight.ts) — Validate orders before sending
+- `markets.ts` — List markets and mid prices
+- `open_orders.ts` — Query open orders
+- `preflight.ts` — Validate orders before sending
 
 **Data APIs:**
-- [info_market_data.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/info_market_data.ts) — Market data and order book
-- [info_user_data.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/info_user_data.ts) — User positions and orders
-- [info_candles.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/info_candles.ts) — Candlestick data
-- [info_vaults.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/info_vaults.ts) — Vault information
-- [info_batch_queries.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/info_batch_queries.ts) — Batch queries
-- [hypercore_blocks.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/hypercore_blocks.ts) — Block and trade data
-- [evm_basics.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/evm_basics.ts) — EVM chain interaction
+- `info_market_data.ts` — Market data and order book
+- `info_user_data.ts` — User positions and orders
+- `info_candles.ts` — Candlestick data
+- `info_vaults.ts` — Vault information
+- `info_batch_queries.ts` — Batch queries
+- `hypercore_blocks.ts` — Block and trade data
+- `evm_basics.ts` — EVM chain interaction
 
 **Streaming:**
-- [stream_trades.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_trades.ts) — WebSocket streaming basics
-- [stream_grpc.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_grpc.ts) — gRPC streaming basics
-- [stream_l4_book.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_l4_book.ts) — **L4 order book (individual orders) — CRITICAL**
-- [stream_l2_book.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_l2_book.ts) — L2 order book (gRPC vs WebSocket)
-- [stream_orderbook.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_orderbook.ts) — L2 vs L4 comparison
-- [stream_websocket_all.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/stream_websocket_all.ts) — Complete WebSocket reference (20+ types)
+- `stream_trades.ts` — WebSocket streaming basics
+- `stream_grpc.ts` — gRPC streaming basics
+- `stream_l4_book.ts` — L4 order book (individual orders)
+- `stream_l2_book.ts` — L2 order book
+- `stream_orderbook.ts` — L2 vs L4 comparison
+- `stream_websocket_all.ts` — Complete WebSocket reference (20+ types)
 
 **Complete Demo:**
-- [full_demo.ts](https://github.com/quiknode-labs/hyperliquid-examples/blob/main/typescript/full_demo.ts) — All features in one file
-
-**Learn More**
-- Learn more about [Hyperliquid API](https://hyperliquidapi.com) here
-
----
-
-## Architecture Notes (For SDK Implementers)
-
-This section documents the routing logic for implementing SDKs in other languages.
-
-### URL Routing
-
-The SDK routes requests to different endpoints based on the operation:
-
-| Endpoint | Routes To | Notes |
-|----------|-----------|-------|
-| `/exchange` | Worker | ALL trading operations (orders, cancels, etc.) |
-| `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
-| `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
-| `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
-
-### QuickNode Supported Info Methods
-
-QuickNode nodes with `--serve-info-endpoint` support these methods:
-
-```
-meta, spotMeta, clearinghouseState, spotClearinghouseState,
-openOrders, exchangeStatus, frontendOpenOrders, liquidatable,
-activeAssetData, maxMarketOrderNtls, vaultSummaries, userVaultEquities,
-leadingVaults, extraAgents, subAccounts, userFees, userRateLimit,
-spotDeployState, perpDeployAuctionStatus, delegations, delegatorSummary,
-maxBuilderFee, userToMultiSigSigners, userRole, perpsAtOpenInterestCap,
-validatorL1Votes, marginTable, perpDexs, webData2
-```
-
-Methods NOT in this list (e.g., `allMids`, `l2Book`, `recentTrades`, `candleSnapshot`, `predictedFundings`) must route through the worker.
-
-### Endpoint Parsing
-
-The SDK extracts the token from any endpoint format:
-
-```
-https://x.quiknode.pro/TOKEN → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/info → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/evm → base = https://x.quiknode.pro/TOKEN
-https://x.quiknode.pro/TOKEN/hypercore → base = https://x.quiknode.pro/TOKEN
-```
-
-Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `send`
-
-### Worker URL
-
-Public worker: `https://send.hyperliquidapi.com`
-
-The worker handles:
-- `/exchange` - ALL trading operations (orders, cancels, positions, etc.)
-- `/info` - Info API fallback for unsupported methods
-- `/approval` - Builder fee approval status
-- `/markets` - Market metadata
-- `/dexes` - DEX info
-- `/preflight` - Order preflight validation
-
-### Signature Chain IDs
-
-```typescript
-const MAINNET_CHAIN_ID = "0xa4b1";  // Arbitrum
-const TESTNET_CHAIN_ID = "0x66eee"; // Arbitrum Sepolia
-```
-
----
-
-## API Parity with Python SDK
-
-This TypeScript SDK implements all features of the Python SDK:
-
-| Feature | Python | TypeScript |
-|---------|--------|------------|
-| Order Placement | ✅ | ✅ |
-| Fluent Builders | ✅ | ✅ |
-| Trigger Orders | ✅ | ✅ |
-| TWAP Orders | ✅ | ✅ |
-| Order Management | ✅ | ✅ |
-| Info API (50+ methods) | ✅ | ✅ |
-| HyperCore API | ✅ | ✅ |
-| EVM JSON-RPC | ✅ | ✅ |
-| WebSocket Streaming (20+ types) | ✅ | ✅ |
-| gRPC Streaming (L2/L4 book) | ✅ | ✅ |
-| Transfers | ✅ | ✅ |
-| Vaults | ✅ | ✅ |
-| Staking | ✅ | ✅ |
-| Builder Fee | ✅ | ✅ |
-| Agent Management | ✅ | ✅ |
-| Account Abstraction | ✅ | ✅ |
-| Advanced Transfers | ✅ | ✅ |
-| Auto-reconnect | ✅ | ✅ |
-| Error Translation | ✅ | ✅ |
+- `full_demo.ts` — All features in one file
 
 ---
 

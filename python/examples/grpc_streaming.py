@@ -3,37 +3,25 @@
 gRPC Streaming Example — High-performance real-time market data via gRPC.
 
 This example demonstrates:
-- Connecting to Hyperliquid's gRPC streaming API
 - Subscribing to trades, orders, blocks, and L2/L4 order books
 - Automatic reconnection handling
 - Graceful shutdown
 
 gRPC offers lower latency than WebSocket for high-frequency data.
-gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
 
 Requirements:
     pip install hyperliquid-sdk[grpc]
 
 Usage:
-    # Set your endpoint (any path after the token works - SDK handles it)
     export ENDPOINT="https://YOUR-ENDPOINT.hype-mainnet.quiknode.pro/YOUR-TOKEN"
     python grpc_streaming.py
-
-    # Or pass directly
-    python grpc_streaming.py "https://YOUR-ENDPOINT.quiknode.pro/TOKEN"
-
-The SDK automatically:
-- Extracts the token from any endpoint path
-- Connects to port 10000 for gRPC
-- Passes the token via x-token header
-- Handles keepalive and reconnection
 """
 
 import os
 import signal
 import sys
 
-from hyperliquid_sdk import GRPCStream
+from hyperliquid_sdk import HyperliquidSDK
 
 # Get endpoint from args or environment
 if len(sys.argv) > 1:
@@ -48,11 +36,6 @@ if not ENDPOINT:
     print("Usage:")
     print("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
     print("  python grpc_streaming.py")
-    print()
-    print("Or:")
-    print("  python grpc_streaming.py 'https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
-    print()
-    print("gRPC is included with all QuickNode Hyperliquid endpoints.")
     sys.exit(1)
 
 
@@ -122,16 +105,16 @@ def main():
     print(f"Endpoint: {ENDPOINT[:60]}{'...' if len(ENDPOINT) > 60 else ''}")
     print()
 
-    # Create gRPC stream with all callbacks
-    stream = GRPCStream(
-        ENDPOINT,
-        on_error=on_error,
-        on_close=on_close,
-        on_connect=on_connect,
-        on_state_change=on_state_change,
-        on_reconnect=on_reconnect,
-        reconnect=True,  # Auto-reconnect on disconnect
-    )
+    # Create SDK and get gRPC stream
+    sdk = HyperliquidSDK(ENDPOINT)
+    stream = sdk.grpc()
+
+    # Configure callbacks
+    stream.on_error = on_error
+    stream.on_close = on_close
+    stream.on_connect = on_connect
+    stream.on_state_change = on_state_change
+    stream.on_reconnect = on_reconnect
 
     # Subscribe to BTC and ETH trades
     stream.trades(["BTC", "ETH"], on_trade)
@@ -158,7 +141,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     print()
-    print("Streaming via gRPC (port 10000)... Press Ctrl+C to stop")
+    print("Streaming... Press Ctrl+C to stop")
     print("-" * 50)
 
     # Run the stream (blocking)

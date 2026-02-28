@@ -4,11 +4,11 @@
 //!
 //! # Usage
 //! ```bash
-//! export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+//! export ENDPOINT="https://your-endpoint/TOKEN"
 //! cargo run --example stream_websocket_all
 //! ```
 
-use hyperliquid_sdk::Stream;
+use hyperliquid_sdk::HyperliquidSDK;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if endpoint.is_none() {
         eprintln!("Usage:");
-        eprintln!("  export ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+        eprintln!("  export ENDPOINT='https://your-endpoint/TOKEN'");
         eprintln!("  cargo run --example stream_websocket_all");
         std::process::exit(1);
     }
@@ -36,7 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - allMids: All mid prices");
     println!("   - candle: Candlestick data");
 
-    // Create stream
+    // Create SDK
+    let sdk = HyperliquidSDK::new()
+        .endpoint(endpoint.as_ref().unwrap())
+        .build()
+        .await?;
+
+    // Create stream via SDK
     println!("\n2. Creating WebSocket stream...");
 
     let channel_counts: Arc<Mutex<HashMap<String, usize>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -51,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let counts_mids = channel_counts.clone();
     let total_mids = total_count.clone();
 
-    let mut stream = Stream::new(endpoint)
+    let mut stream = sdk.stream()
         .on_open(|| {
             println!("   [Connected]");
         })

@@ -9,13 +9,12 @@
  * - Graceful shutdown
  *
  * gRPC offers lower latency than WebSocket for high-frequency data.
- * gRPC is included with all QuickNode Hyperliquid endpoints - no add-on needed.
  *
  * Requirements:
  *     npm install hyperliquid-sdk @grpc/grpc-js @grpc/proto-loader
  *
  * Usage:
- *     export ENDPOINT="https://YOUR-ENDPOINT.hype-mainnet.quiknode.pro/YOUR-TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     npx ts-node grpc_streaming.ts
  *
  * The SDK automatically:
@@ -25,23 +24,21 @@
  * - Handles keepalive and reconnection
  */
 
-import { GRPCStream, GRPCConnectionState } from 'hyperliquid-sdk';
+import { HyperliquidSDK, GRPCConnectionState } from 'hyperliquid-sdk';
 
 // Get endpoint from args or environment
-const ENDPOINT = process.argv[2] || process.env.ENDPOINT || process.env.QUICKNODE_ENDPOINT;
+const ENDPOINT = process.argv[2] || process.env.ENDPOINT;
 
 if (!ENDPOINT) {
   console.log("Hyperliquid gRPC Streaming Example");
   console.log("=".repeat(50));
   console.log();
   console.log("Usage:");
-  console.log("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
+  console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
   console.log("  npx ts-node grpc_streaming.ts");
   console.log();
   console.log("Or:");
-  console.log("  npx ts-node grpc_streaming.ts 'https://YOUR-ENDPOINT.quiknode.pro/TOKEN'");
-  console.log();
-  console.log("gRPC is included with all QuickNode Hyperliquid endpoints.");
+  console.log("  npx ts-node grpc_streaming.ts 'https://your-endpoint.example.com/TOKEN'");
   process.exit(1);
 }
 
@@ -107,36 +104,36 @@ async function main() {
   console.log(`Endpoint: ${ENDPOINT.slice(0, 60)}${ENDPOINT.length > 60 ? '...' : ''}`);
   console.log();
 
-  // Create gRPC stream with all callbacks
-  const stream = new GRPCStream(ENDPOINT, {
-    onError,
-    onClose,
-    onConnect,
-    onStateChange,
-    onReconnect,
-    reconnect: true,
-  });
+  // Create SDK client
+  const sdk = new HyperliquidSDK(ENDPOINT);
+
+  // Configure gRPC stream callbacks
+  sdk.grpc.onError = onError;
+  sdk.grpc.onClose = onClose;
+  sdk.grpc.onConnect = onConnect;
+  sdk.grpc.onStateChange = onStateChange;
+  sdk.grpc.onReconnect = onReconnect;
 
   // Subscribe to BTC and ETH trades
-  stream.trades(["BTC", "ETH"], onTrade);
+  sdk.grpc.trades(["BTC", "ETH"], onTrade);
   console.log("Subscribed to: BTC, ETH trades");
 
   // Subscribe to book updates
-  stream.bookUpdates(["BTC"], onBookUpdate);
+  sdk.grpc.bookUpdates(["BTC"], onBookUpdate);
   console.log("Subscribed to: BTC book updates");
 
   // Subscribe to L2 order book
-  stream.l2Book("ETH", onL2Book);
+  sdk.grpc.l2Book("ETH", onL2Book);
   console.log("Subscribed to: ETH L2 order book");
 
   // Subscribe to blocks
-  stream.blocks(onBlock);
+  sdk.grpc.blocks(onBlock);
   console.log("Subscribed to: blocks");
 
   // Handle Ctrl+C gracefully
   process.on('SIGINT', () => {
     console.log("\nShutting down gracefully...");
-    stream.stop();
+    sdk.grpc.stop();
     process.exit(0);
   });
 
@@ -145,7 +142,7 @@ async function main() {
   console.log("-".repeat(50));
 
   // Start the stream
-  await stream.start();
+  await sdk.grpc.start();
 }
 
 main().catch(console.error);

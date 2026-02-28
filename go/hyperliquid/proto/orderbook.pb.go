@@ -9,7 +9,7 @@
 // versions:
 // 	protoc-gen-go v1.36.8
 // 	protoc        v6.32.1
-// source: hyperliquid/proto/orderbook.proto
+// source: orderbook.proto
 
 package proto
 
@@ -41,7 +41,7 @@ type L2BookRequest struct {
 
 func (x *L2BookRequest) Reset() {
 	*x = L2BookRequest{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[0]
+	mi := &file_orderbook_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -53,7 +53,7 @@ func (x *L2BookRequest) String() string {
 func (*L2BookRequest) ProtoMessage() {}
 
 func (x *L2BookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[0]
+	mi := &file_orderbook_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66,7 +66,7 @@ func (x *L2BookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L2BookRequest.ProtoReflect.Descriptor instead.
 func (*L2BookRequest) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{0}
+	return file_orderbook_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *L2BookRequest) GetCoin() string {
@@ -111,7 +111,7 @@ type L2BookUpdate struct {
 
 func (x *L2BookUpdate) Reset() {
 	*x = L2BookUpdate{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[1]
+	mi := &file_orderbook_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -123,7 +123,7 @@ func (x *L2BookUpdate) String() string {
 func (*L2BookUpdate) ProtoMessage() {}
 
 func (x *L2BookUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[1]
+	mi := &file_orderbook_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -136,7 +136,7 @@ func (x *L2BookUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L2BookUpdate.ProtoReflect.Descriptor instead.
 func (*L2BookUpdate) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{1}
+	return file_orderbook_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *L2BookUpdate) GetCoin() string {
@@ -186,7 +186,7 @@ type L2Level struct {
 
 func (x *L2Level) Reset() {
 	*x = L2Level{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[2]
+	mi := &file_orderbook_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +198,7 @@ func (x *L2Level) String() string {
 func (*L2Level) ProtoMessage() {}
 
 func (x *L2Level) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[2]
+	mi := &file_orderbook_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +211,7 @@ func (x *L2Level) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L2Level.ProtoReflect.Descriptor instead.
 func (*L2Level) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{2}
+	return file_orderbook_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *L2Level) GetPx() string {
@@ -245,7 +245,7 @@ type L4BookRequest struct {
 
 func (x *L4BookRequest) Reset() {
 	*x = L4BookRequest{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[3]
+	mi := &file_orderbook_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -257,7 +257,7 @@ func (x *L4BookRequest) String() string {
 func (*L4BookRequest) ProtoMessage() {}
 
 func (x *L4BookRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[3]
+	mi := &file_orderbook_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -270,7 +270,7 @@ func (x *L4BookRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L4BookRequest.ProtoReflect.Descriptor instead.
 func (*L4BookRequest) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{3}
+	return file_orderbook_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *L4BookRequest) GetCoin() string {
@@ -294,7 +294,7 @@ type L4BookUpdate struct {
 
 func (x *L4BookUpdate) Reset() {
 	*x = L4BookUpdate{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[4]
+	mi := &file_orderbook_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -306,7 +306,7 @@ func (x *L4BookUpdate) String() string {
 func (*L4BookUpdate) ProtoMessage() {}
 
 func (x *L4BookUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[4]
+	mi := &file_orderbook_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -319,7 +319,7 @@ func (x *L4BookUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L4BookUpdate.ProtoReflect.Descriptor instead.
 func (*L4BookUpdate) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{4}
+	return file_orderbook_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *L4BookUpdate) GetUpdate() isL4BookUpdate_Update {
@@ -377,7 +377,7 @@ type L4BookSnapshot struct {
 
 func (x *L4BookSnapshot) Reset() {
 	*x = L4BookSnapshot{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[5]
+	mi := &file_orderbook_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -389,7 +389,7 @@ func (x *L4BookSnapshot) String() string {
 func (*L4BookSnapshot) ProtoMessage() {}
 
 func (x *L4BookSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[5]
+	mi := &file_orderbook_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -402,7 +402,7 @@ func (x *L4BookSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L4BookSnapshot.ProtoReflect.Descriptor instead.
 func (*L4BookSnapshot) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{5}
+	return file_orderbook_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *L4BookSnapshot) GetCoin() string {
@@ -452,7 +452,7 @@ type L4BookDiff struct {
 
 func (x *L4BookDiff) Reset() {
 	*x = L4BookDiff{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[6]
+	mi := &file_orderbook_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -464,7 +464,7 @@ func (x *L4BookDiff) String() string {
 func (*L4BookDiff) ProtoMessage() {}
 
 func (x *L4BookDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[6]
+	mi := &file_orderbook_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -477,7 +477,7 @@ func (x *L4BookDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L4BookDiff.ProtoReflect.Descriptor instead.
 func (*L4BookDiff) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{6}
+	return file_orderbook_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *L4BookDiff) GetTime() uint64 {
@@ -525,7 +525,7 @@ type L4Order struct {
 
 func (x *L4Order) Reset() {
 	*x = L4Order{}
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[7]
+	mi := &file_orderbook_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +537,7 @@ func (x *L4Order) String() string {
 func (*L4Order) ProtoMessage() {}
 
 func (x *L4Order) ProtoReflect() protoreflect.Message {
-	mi := &file_hyperliquid_proto_orderbook_proto_msgTypes[7]
+	mi := &file_orderbook_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +550,7 @@ func (x *L4Order) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use L4Order.ProtoReflect.Descriptor instead.
 func (*L4Order) Descriptor() ([]byte, []int) {
-	return file_hyperliquid_proto_orderbook_proto_rawDescGZIP(), []int{7}
+	return file_orderbook_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *L4Order) GetUser() string {
@@ -658,11 +658,11 @@ func (x *L4Order) GetCloid() string {
 	return ""
 }
 
-var File_hyperliquid_proto_orderbook_proto protoreflect.FileDescriptor
+var File_orderbook_proto protoreflect.FileDescriptor
 
-const file_hyperliquid_proto_orderbook_proto_rawDesc = "" +
+const file_orderbook_proto_rawDesc = "" +
 	"\n" +
-	"!hyperliquid/proto/orderbook.proto\x12\vhyperliquid\"\x9e\x01\n" +
+	"\x0forderbook.proto\x12\vhyperliquid\"\x9e\x01\n" +
 	"\rL2BookRequest\x12\x12\n" +
 	"\x04coin\x18\x01 \x01(\tR\x04coin\x12\x19\n" +
 	"\bn_levels\x18\x02 \x01(\rR\anLevels\x12!\n" +
@@ -723,22 +723,22 @@ const file_hyperliquid_proto_orderbook_proto_rawDesc = "" +
 	"\x06_cloid2\xa6\x01\n" +
 	"\x12OrderBookStreaming\x12G\n" +
 	"\fStreamL2Book\x12\x1a.hyperliquid.L2BookRequest\x1a\x19.hyperliquid.L2BookUpdate0\x01\x12G\n" +
-	"\fStreamL4Book\x12\x1a.hyperliquid.L4BookRequest\x1a\x19.hyperliquid.L4BookUpdate0\x01BFZDgithub.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid/protob\x06proto3"
+	"\fStreamL4Book\x12\x1a.hyperliquid.L4BookRequest\x1a\x19.hyperliquid.L4BookUpdate0\x01B?Z=github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/protob\x06proto3"
 
 var (
-	file_hyperliquid_proto_orderbook_proto_rawDescOnce sync.Once
-	file_hyperliquid_proto_orderbook_proto_rawDescData []byte
+	file_orderbook_proto_rawDescOnce sync.Once
+	file_orderbook_proto_rawDescData []byte
 )
 
-func file_hyperliquid_proto_orderbook_proto_rawDescGZIP() []byte {
-	file_hyperliquid_proto_orderbook_proto_rawDescOnce.Do(func() {
-		file_hyperliquid_proto_orderbook_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_hyperliquid_proto_orderbook_proto_rawDesc), len(file_hyperliquid_proto_orderbook_proto_rawDesc)))
+func file_orderbook_proto_rawDescGZIP() []byte {
+	file_orderbook_proto_rawDescOnce.Do(func() {
+		file_orderbook_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_orderbook_proto_rawDesc), len(file_orderbook_proto_rawDesc)))
 	})
-	return file_hyperliquid_proto_orderbook_proto_rawDescData
+	return file_orderbook_proto_rawDescData
 }
 
-var file_hyperliquid_proto_orderbook_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
-var file_hyperliquid_proto_orderbook_proto_goTypes = []any{
+var file_orderbook_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_orderbook_proto_goTypes = []any{
 	(*L2BookRequest)(nil),  // 0: hyperliquid.L2BookRequest
 	(*L2BookUpdate)(nil),   // 1: hyperliquid.L2BookUpdate
 	(*L2Level)(nil),        // 2: hyperliquid.L2Level
@@ -748,7 +748,7 @@ var file_hyperliquid_proto_orderbook_proto_goTypes = []any{
 	(*L4BookDiff)(nil),     // 6: hyperliquid.L4BookDiff
 	(*L4Order)(nil),        // 7: hyperliquid.L4Order
 }
-var file_hyperliquid_proto_orderbook_proto_depIdxs = []int32{
+var file_orderbook_proto_depIdxs = []int32{
 	2, // 0: hyperliquid.L2BookUpdate.bids:type_name -> hyperliquid.L2Level
 	2, // 1: hyperliquid.L2BookUpdate.asks:type_name -> hyperliquid.L2Level
 	5, // 2: hyperliquid.L4BookUpdate.snapshot:type_name -> hyperliquid.L4BookSnapshot
@@ -766,32 +766,32 @@ var file_hyperliquid_proto_orderbook_proto_depIdxs = []int32{
 	0, // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_hyperliquid_proto_orderbook_proto_init() }
-func file_hyperliquid_proto_orderbook_proto_init() {
-	if File_hyperliquid_proto_orderbook_proto != nil {
+func init() { file_orderbook_proto_init() }
+func file_orderbook_proto_init() {
+	if File_orderbook_proto != nil {
 		return
 	}
-	file_hyperliquid_proto_orderbook_proto_msgTypes[0].OneofWrappers = []any{}
-	file_hyperliquid_proto_orderbook_proto_msgTypes[4].OneofWrappers = []any{
+	file_orderbook_proto_msgTypes[0].OneofWrappers = []any{}
+	file_orderbook_proto_msgTypes[4].OneofWrappers = []any{
 		(*L4BookUpdate_Snapshot)(nil),
 		(*L4BookUpdate_Diff)(nil),
 	}
-	file_hyperliquid_proto_orderbook_proto_msgTypes[7].OneofWrappers = []any{}
+	file_orderbook_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_hyperliquid_proto_orderbook_proto_rawDesc), len(file_hyperliquid_proto_orderbook_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orderbook_proto_rawDesc), len(file_orderbook_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_hyperliquid_proto_orderbook_proto_goTypes,
-		DependencyIndexes: file_hyperliquid_proto_orderbook_proto_depIdxs,
-		MessageInfos:      file_hyperliquid_proto_orderbook_proto_msgTypes,
+		GoTypes:           file_orderbook_proto_goTypes,
+		DependencyIndexes: file_orderbook_proto_depIdxs,
+		MessageInfos:      file_orderbook_proto_msgTypes,
 	}.Build()
-	File_hyperliquid_proto_orderbook_proto = out.File
-	file_hyperliquid_proto_orderbook_proto_goTypes = nil
-	file_hyperliquid_proto_orderbook_proto_depIdxs = nil
+	File_orderbook_proto = out.File
+	file_orderbook_proto_goTypes = nil
+	file_orderbook_proto_depIdxs = nil
 }

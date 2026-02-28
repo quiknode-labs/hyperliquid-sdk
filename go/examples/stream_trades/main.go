@@ -1,9 +1,8 @@
 // WebSocket Streaming Example — Real-Time HyperCore Data
 //
 // Stream trades, orders, book updates, events, and TWAP via WebSocket.
-// These are the data streams available on QuickNode endpoints.
 //
-// Available QuickNode WebSocket streams:
+// Available WebSocket streams:
 // - trades: Executed trades with price, size, direction
 // - orders: Order lifecycle events (open, filled, cancelled)
 // - book_updates: Order book changes (incremental deltas)
@@ -15,16 +14,17 @@
 //
 // Usage:
 //
-//	export ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/YOUR_TOKEN"
+//	export ENDPOINT="https://your-endpoint/YOUR_TOKEN"
 //	go run main.go
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
-	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
+	"github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 		fmt.Println(string(repeat('=', 60)))
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
+		fmt.Println("  export ENDPOINT='https://YOUR-ENDPOINT/TOKEN'")
 		fmt.Println("  go run main.go")
 		os.Exit(1)
 	}
@@ -43,9 +43,15 @@ func main() {
 	fmt.Println("WebSocket Trade Streaming")
 	fmt.Println(string(repeat('=', 60)))
 
+	// Create SDK
+	sdk, err := hyperliquid.New(endpoint)
+	if err != nil {
+		log.Fatalf("Failed to create SDK: %v", err)
+	}
+
 	tradeCount := 0
 
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
+	stream := sdk.NewStream(&hyperliquid.StreamConfig{
 		Reconnect: false,
 		OnOpen: func() {
 			fmt.Println("[CONNECTED]")
@@ -56,8 +62,6 @@ func main() {
 	})
 
 	stream.Trades([]string{"BTC", "ETH"}, func(data map[string]any) {
-		// QuickNode format: {"type": "data", "stream": "hl.trades", "block": {"events": [...]}}
-		// Events are [[user, trade_data], ...]
 		block, ok := data["block"].(map[string]any)
 		if !ok {
 			return

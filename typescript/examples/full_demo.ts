@@ -14,20 +14,12 @@
  *     npm install hyperliquid-sdk ws @grpc/grpc-js @grpc/proto-loader
  *
  * Usage:
- *     export QUICKNODE_ENDPOINT="https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN"
+ *     export ENDPOINT="https://your-endpoint.example.com/TOKEN"
  *     export PRIVATE_KEY="0x..."  # Optional, for trading
  *     npx ts-node full_demo.ts
  */
 
-import {
-  Info,
-  HyperCore,
-  EVM,
-  HyperliquidSDK,
-  Stream,
-  GRPCStream,
-  HyperliquidError,
-} from 'hyperliquid-sdk';
+import { HyperliquidSDK, HyperliquidError } from 'hyperliquid-sdk';
 
 function separator(title: string) {
   console.log();
@@ -41,13 +33,11 @@ function subsection(title: string) {
   console.log(`--- ${title} ---`);
 }
 
-async function demoInfoApi(endpoint: string) {
+async function demoInfoApi(sdk: HyperliquidSDK) {
   separator("INFO API");
 
-  const info = new Info(endpoint);
-
   subsection("Market Prices");
-  const mids = await info.allMids();
+  const mids = await sdk.info.allMids();
   console.log(`Total markets: ${Object.keys(mids).length}`);
   for (const coin of ["BTC", "ETH", "SOL", "DOGE"]) {
     if (mids[coin]) {
@@ -56,7 +46,7 @@ async function demoInfoApi(endpoint: string) {
   }
 
   subsection("Order Book");
-  const book = await info.l2Book("BTC");
+  const book = await sdk.info.l2Book("BTC");
   const levels = book.levels || [[], []];
   const bids = levels[0] || [];
   const asks = levels[1] || [];
@@ -67,7 +57,7 @@ async function demoInfoApi(endpoint: string) {
   }
 
   subsection("Recent Trades");
-  const trades = await info.recentTrades("ETH");
+  const trades = await sdk.info.recentTrades("ETH");
   console.log("Last 3 ETH trades:");
   for (const t of trades.slice(0, 3)) {
     const trade = t as Record<string, unknown>;
@@ -75,12 +65,12 @@ async function demoInfoApi(endpoint: string) {
   }
 
   subsection("Exchange Metadata");
-  const meta = await info.meta();
+  const meta = await sdk.info.meta();
   const universe = meta.universe || [];
   console.log(`Total perp markets: ${universe.length}`);
 
   subsection("Predicted Funding");
-  const fundings = await info.predictedFundings();
+  const fundings = await sdk.info.predictedFundings();
   console.log("Top 3 funding rates:");
   const sortedFundings = [...fundings].sort((a, b) => {
     const aRate = Math.abs(parseFloat(String((a as Record<string, unknown>).fundingRate || 0)));
@@ -94,16 +84,14 @@ async function demoInfoApi(endpoint: string) {
   }
 }
 
-async function demoHypercoreApi(endpoint: string) {
+async function demoHypercoreApi(sdk: HyperliquidSDK) {
   separator("HYPERCORE API");
 
-  const hc = new HyperCore(endpoint);
-
   subsection("Latest Block");
-  const blockNum = await hc.latestBlockNumber();
+  const blockNum = await sdk.core.latestBlockNumber();
   console.log(`Latest block: ${blockNum.toLocaleString()}`);
 
-  const block = await hc.getBlock(blockNum);
+  const block = await sdk.core.getBlock(blockNum);
   if (block) {
     const b = block as Record<string, unknown>;
     const txs = (b.transactions as unknown[]) || [];
@@ -111,7 +99,7 @@ async function demoHypercoreApi(endpoint: string) {
   }
 
   subsection("Recent Trades");
-  const trades = await hc.latestTrades({ count: 5 });
+  const trades = await sdk.core.latestTrades({ count: 5 });
   console.log("Last 5 trades across all markets:");
   for (const t of trades) {
     const trade = t as Record<string, unknown>;
@@ -120,7 +108,7 @@ async function demoHypercoreApi(endpoint: string) {
   }
 
   subsection("Recent Orders");
-  const orders = await hc.latestOrders({ count: 5 });
+  const orders = await sdk.core.latestOrders({ count: 5 });
   console.log("Last 5 orders:");
   for (const o of orders) {
     const order = o as Record<string, unknown>;
@@ -131,22 +119,20 @@ async function demoHypercoreApi(endpoint: string) {
   }
 }
 
-async function demoEvmApi(endpoint: string) {
+async function demoEvmApi(sdk: HyperliquidSDK) {
   separator("EVM API");
 
-  const evm = new EVM(endpoint);
-
   subsection("Chain Info");
-  const chainId = await evm.chainId();
-  const blockNum = await evm.blockNumber();
-  const gasPrice = await evm.gasPrice();
+  const chainId = await sdk.evm.chainId();
+  const blockNum = await sdk.evm.blockNumber();
+  const gasPrice = await sdk.evm.gasPrice();
 
   console.log(`Chain ID: ${chainId} (${chainId === 999 ? 'Mainnet' : 'Testnet'})`);
   console.log(`Block: ${blockNum.toLocaleString()}`);
   console.log(`Gas: ${(Number(gasPrice) / 1e9).toFixed(2)} Gwei`);
 
   subsection("Latest Block");
-  const block = await evm.getBlockByNumber(blockNum);
+  const block = await sdk.evm.getBlockByNumber(blockNum);
   if (block) {
     const b = block as Record<string, unknown>;
     console.log(`Block ${blockNum}:`);
@@ -155,7 +141,7 @@ async function demoEvmApi(endpoint: string) {
   }
 }
 
-async function demoWebsocket(endpoint: string, duration: number = 5) {
+async function demoWebsocket(sdk: HyperliquidSDK, duration: number = 5) {
   separator("WEBSOCKET STREAMING");
 
   let tradeCount = 0;
@@ -177,24 +163,23 @@ async function demoWebsocket(endpoint: string, duration: number = 5) {
     }
   };
 
-  const onError = (e: Error) => {
+  sdk.stream.onError = (e: Error) => {
     console.log(`  [ERROR] ${e.message}`);
   };
 
-  const onOpen = () => {
+  sdk.stream.onOpen = () => {
     console.log("  [CONNECTED] WebSocket stream ready");
   };
 
   console.log(`Streaming for ${duration} seconds...`);
 
-  const stream = new Stream(endpoint, { onError, onOpen });
-  stream.trades(["BTC", "ETH"], onTrade);
-  stream.bookUpdates(["BTC"], onBook);
+  sdk.stream.trades(["BTC", "ETH"], onTrade);
+  sdk.stream.bookUpdates(["BTC"], onBook);
 
   // Run in background
-  await stream.start();
+  await sdk.stream.start();
   await new Promise(resolve => setTimeout(resolve, duration * 1000));
-  stream.stop();
+  sdk.stream.stop();
 
   console.log();
   console.log(`Received: ${tradeCount} trades, ${bookCount} book updates`);
@@ -205,6 +190,17 @@ async function demoGrpc(endpoint: string, duration: number = 5) {
 
   let tradeCount = 0;
 
+  // Create new SDK for gRPC demo
+  const sdk = new HyperliquidSDK(endpoint);
+
+  sdk.grpc.onError = (e: Error) => {
+    console.log(`  [ERROR] ${e.message}`);
+  };
+
+  sdk.grpc.onConnect = () => {
+    console.log("  [CONNECTED] gRPC stream ready");
+  };
+
   const onTrade = (data: Record<string, unknown>) => {
     tradeCount++;
     if (tradeCount <= 3) {
@@ -212,24 +208,15 @@ async function demoGrpc(endpoint: string, duration: number = 5) {
     }
   };
 
-  const onError = (e: Error) => {
-    console.log(`  [ERROR] ${e.message}`);
-  };
-
-  const onConnect = () => {
-    console.log("  [CONNECTED] gRPC stream ready");
-  };
-
   console.log(`Streaming for ${duration} seconds...`);
 
   try {
-    const stream = new GRPCStream(endpoint, { onError, onConnect });
-    stream.trades(["BTC", "ETH"], onTrade);
+    sdk.grpc.trades(["BTC", "ETH"], onTrade);
 
     // Run in background
-    await stream.start();
+    await sdk.grpc.start();
     await new Promise(resolve => setTimeout(resolve, duration * 1000));
-    stream.stop();
+    sdk.grpc.stop();
 
     console.log();
     console.log(`Received: ${tradeCount} trades`);
@@ -266,31 +253,34 @@ async function main() {
   console.log("  HYPERLIQUID SDK - FULL DEMO");
   console.log("*".repeat(60));
 
-  const endpoint = process.argv[2] || process.env.QUICKNODE_ENDPOINT;
+  const endpoint = process.argv[2] || process.env.ENDPOINT;
   const privateKey = process.env.PRIVATE_KEY;
 
   if (!endpoint) {
     console.log();
-    console.log("Error: QUICKNODE_ENDPOINT not set");
+    console.log("Error: ENDPOINT not set");
     console.log();
     console.log("Usage:");
-    console.log("  export QUICKNODE_ENDPOINT='https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+    console.log("  export ENDPOINT='https://your-endpoint.example.com/TOKEN'");
     console.log("  npx ts-node full_demo.ts");
     console.log();
     console.log("Or:");
-    console.log("  npx ts-node full_demo.ts 'https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN'");
+    console.log("  npx ts-node full_demo.ts 'https://your-endpoint.example.com/TOKEN'");
     process.exit(1);
   }
 
   console.log();
   console.log(`Endpoint: ${endpoint.slice(0, 50)}...`);
 
+  // Create single SDK instance for most demos
+  const sdk = new HyperliquidSDK(endpoint);
+
   // Run all demos
   try {
-    await demoInfoApi(endpoint);
-    await demoHypercoreApi(endpoint);
-    await demoEvmApi(endpoint);
-    await demoWebsocket(endpoint, 5);
+    await demoInfoApi(sdk);
+    await demoHypercoreApi(sdk);
+    await demoEvmApi(sdk);
+    await demoWebsocket(sdk, 5);
     await demoGrpc(endpoint, 5);
 
     if (privateKey) {
