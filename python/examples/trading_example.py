@@ -16,7 +16,7 @@ Usage:
 import os
 import sys
 
-from hyperliquid_sdk import HyperliquidSDK, Order, Side
+from hyperliquid_sdk import HyperliquidSDK, Order
 
 # Get endpoint and private key from environment
 ENDPOINT = os.environ.get("QUICKNODE_ENDPOINT")
@@ -69,17 +69,11 @@ def main():
     print("-" * 30)
 
     try:
-        # Build limit order
-        order = Order(
-            coin="ETH",
-            side=Side.BUY,
-            size=0.1,
-            limit_price=2000.0,  # Limit price
-            reduce_only=False,
-        )
+        # Build limit order using fluent API
+        order = Order.buy("ETH").size(0.1).price(2000.0).gtc()
 
         # Place order
-        result = sdk.place_order(order)
+        result = sdk.order(order)
         print(f"Order placed: {result}")
         print(f"  Order ID: {result.oid}")
         print(f"  Status: {result.status}")
@@ -95,16 +89,10 @@ def main():
     print("-" * 30)
 
     try:
-        order = Order(
-            coin="BTC",
-            side=Side.SELL,
-            size=0.01,
-            trigger_price=60000.0,  # Stop triggers at this price
-            limit_price=59900.0,    # Then executes as limit at this price
-            reduce_only=True,       # Only reduce existing position
-        )
+        # Build stop loss using fluent API
+        order = Order.sell("BTC").size(0.01).price(59900.0).reduce_only()
 
-        result = sdk.place_order(order)
+        result = sdk.order(order)
         print(f"Stop loss placed: {result}")
     except Exception as e:
         print(f"  Error: {e}")
@@ -119,7 +107,7 @@ def main():
 
     try:
         # Cancel all BTC orders
-        sdk.cancel_all_orders("BTC")
+        sdk.cancel_all("BTC")
         print("Cancelled all BTC orders")
     except Exception as e:
         print(f"  Error: {e}")
@@ -134,7 +122,7 @@ def main():
 
     try:
         # Market close BTC position
-        result = sdk.market_close("BTC")
+        result = sdk.close_position("BTC")
         print(f"Position closed: {result}")
     except Exception as e:
         print(f"  Error: {e}")

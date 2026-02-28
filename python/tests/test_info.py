@@ -52,9 +52,9 @@ class TestInfoMethods:
         result = info.all_mids()
 
         assert result == {"BTC": "67000.5", "ETH": "3500.25"}
-        # All requests go through QuickNode endpoint
+        # allMids is NOT in QN_SUPPORTED_INFO_METHODS, routes to worker
         call_args = info._session.post.call_args
-        assert "test.quiknode.pro" in call_args[0][0]
+        assert "send.hyperliquidapi.com" in call_args[0][0]
 
     def test_meta(self, info):
         """Test meta method."""
@@ -104,9 +104,9 @@ class TestInfoMethods:
         result = info.l2_book("BTC")
 
         assert result["coin"] == "BTC"
-        # All requests go through QuickNode endpoint
+        # l2Book is NOT in QN_SUPPORTED_INFO_METHODS, routes to worker
         call_args = info._session.post.call_args
-        assert "test.quiknode.pro" in call_args[0][0]
+        assert "send.hyperliquidapi.com" in call_args[0][0]
 
     def test_open_orders(self, info):
         """Test open_orders method."""

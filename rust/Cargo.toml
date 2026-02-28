@@ -1,0 +1,223 @@
+[package]
+name = "hyperliquid-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Hyperliquid SDK for Rust - Simple, performant trading client"
+repository = "https://github.com/quiknode-labs/raptor"
+keywords = ["hyperliquid", "trading", "defi", "crypto", "sdk"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
+
+# Keep this crate out of the workspace
+[workspace]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.47", features = ["full"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+rmp-serde = "1.3"
+
+# Crypto / Ethereum
+alloy = { version = "1.0", features = ["full", "signer-local"] }
+rust_decimal = { version = "1.36", features = ["serde-str"] }
+
+# gRPC
+tonic = { version = "0.12", features = ["tls", "zstd"] }
+prost = "0.13"
+
+# Utilities
+thiserror = "2.0"
+either = { version = "1.13", features = ["serde"] }
+url = "2.5"
+tracing = "0.1"
+parking_lot = "0.12"
+dashmap = "6.1"
+hex = "0.4"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "approve"
+path = "examples/approve.rs"
+
+[[example]]
+name = "builder_fee"
+path = "examples/builder_fee.rs"
+
+[[example]]
+name = "cancel_all"
+path = "examples/cancel_all.rs"
+
+[[example]]
+name = "cancel_by_cloid"
+path = "examples/cancel_by_cloid.rs"
+
+[[example]]
+name = "cancel_order"
+path = "examples/cancel_order.rs"
+
+[[example]]
+name = "close_position"
+path = "examples/close_position.rs"
+
+[[example]]
+name = "evm_basics"
+path = "examples/evm_basics.rs"
+
+[[example]]
+name = "evm_example"
+path = "examples/evm_example.rs"
+
+[[example]]
+name = "fluent_builder"
+path = "examples/fluent_builder.rs"
+
+[[example]]
+name = "full_demo"
+path = "examples/full_demo.rs"
+
+[[example]]
+name = "grpc_streaming"
+path = "examples/grpc_streaming.rs"
+
+[[example]]
+name = "hip3_order"
+path = "examples/hip3_order.rs"
+
+[[example]]
+name = "hypercore_blocks"
+path = "examples/hypercore_blocks.rs"
+
+[[example]]
+name = "hypercore_example"
+path = "examples/hypercore_example.rs"
+
+[[example]]
+name = "info_batch_queries"
+path = "examples/info_batch_queries.rs"
+
+[[example]]
+name = "info_candles"
+path = "examples/info_candles.rs"
+
+[[example]]
+name = "info_example"
+path = "examples/info_example.rs"
+
+[[example]]
+name = "info_market_data"
+path = "examples/info_market_data.rs"
+
+[[example]]
+name = "info_user_data"
+path = "examples/info_user_data.rs"
+
+[[example]]
+name = "info_vaults"
+path = "examples/info_vaults.rs"
+
+[[example]]
+name = "isolated_margin"
+path = "examples/isolated_margin.rs"
+
+[[example]]
+name = "leverage"
+path = "examples/leverage.rs"
+
+[[example]]
+name = "market_order"
+path = "examples/market_order.rs"
+
+[[example]]
+name = "markets"
+path = "examples/markets.rs"
+
+[[example]]
+name = "modify_order"
+path = "examples/modify_order.rs"
+
+[[example]]
+name = "open_orders"
+path = "examples/open_orders.rs"
+
+[[example]]
+name = "place_order"
+path = "examples/place_order.rs"
+
+[[example]]
+name = "preflight"
+path = "examples/preflight.rs"
+
+[[example]]
+name = "roundtrip"
+path = "examples/roundtrip.rs"
+
+[[example]]
+name = "schedule_cancel"
+path = "examples/schedule_cancel.rs"
+
+[[example]]
+name = "staking"
+path = "examples/staking.rs"
+
+[[example]]
+name = "stream_grpc"
+path = "examples/stream_grpc.rs"
+
+[[example]]
+name = "stream_l2_book"
+path = "examples/stream_l2_book.rs"
+
+[[example]]
+name = "stream_l4_book"
+path = "examples/stream_l4_book.rs"
+
+[[example]]
+name = "stream_orderbook"
+path = "examples/stream_orderbook.rs"
+
+[[example]]
+name = "stream_trades"
+path = "examples/stream_trades.rs"
+
+[[example]]
+name = "stream_websocket_all"
+path = "examples/stream_websocket_all.rs"
+
+[[example]]
+name = "trading_example"
+path = "examples/trading_example.rs"
+
+[[example]]
+name = "transfers"
+path = "examples/transfers.rs"
+
+[[example]]
+name = "trigger_orders"
+path = "examples/trigger_orders.rs"
+
+[[example]]
+name = "twap"
+path = "examples/twap.rs"
+
+[[example]]
+name = "vaults"
+path = "examples/vaults.rs"
+
+[[example]]
+name = "websocket_streaming"
+path = "examples/websocket_streaming.rs"
+
+[[example]]
+name = "withdraw"
+path = "examples/withdraw.rs"

@@ -1,0 +1,78 @@
+syntax = "proto3";
+package hyperliquid;
+
+service Streaming {
+  // Bi-directional streaming
+  rpc StreamData (stream SubscribeRequest) returns (stream SubscribeUpdate);
+  rpc Ping (PingRequest) returns (PingResponse);
+}
+
+service BlockStreaming {
+  // Stream replica_cmds (raw blocks)
+  rpc StreamBlocks (Timestamp) returns (stream Block);
+}
+
+// --- Requests ---
+message SubscribeRequest {
+  oneof request {
+    StreamSubscribe subscribe = 1;
+    Ping ping = 3;
+  }
+  reserved 2;
+}
+
+message StreamSubscribe {
+  StreamType stream_type = 1;
+
+  // Generic filters - field name to allowed values
+  // Recursively searches each event for matching field/value pairs
+  // Example: {"coin": ["ETH", "BTC"], "user": ["0x123..."], "type": ["deposit"]}
+  map<string, FilterValues> filters = 3;
+
+  // Optional name for this filter
+  // Allows multiple independent filters per stream (OR logic)
+  string filter_name = 4;
+}
+
+// Container for filter values
+message FilterValues {
+  repeated string values = 1;
+}
+
+message Ping { int64 timestamp = 1; }
+
+// --- Responses ---
+message SubscribeUpdate {
+  oneof update {
+    StreamResponse data = 1;
+    Pong pong = 2;
+  }
+}
+
+message StreamResponse {
+  uint64 block_number = 1;
+  uint64 timestamp = 2; // Server ingress timestamp
+  // Raw JSON data from the file (Exact replica of source)
+  string data = 3;
+}
+
+// --- Data Types ---
+enum StreamType {
+  UNKNOWN = 0;
+  TRADES = 1;
+  ORDERS = 2;
+  BOOK_UPDATES = 3;
+  TWAP = 4;
+  EVENTS = 5;
+  BLOCKS = 6;
+  WRITER_ACTIONS = 7;
+}
+
+message Block {
+    string data_json = 1;
+}
+
+message Pong { int64 timestamp = 1; }
+message Timestamp { int64 timestamp = 1; }
+message PingRequest { int32 count = 1; }
+message PingResponse { int32 count = 1; }

@@ -219,10 +219,16 @@ class HyperCore:
         orders = []
         for block in result.get("blocks", []):
             for event in block.get("events", []):
-                if len(event) >= 2:
-                    user, order = event[0], event[1]
-                    if coin is None or order.get("coin") == coin:
-                        orders.append({"user": user, **order})
+                # Orders stream returns dict events with 'user', 'order', 'status' fields
+                if isinstance(event, dict):
+                    order_data = event.get("order", {})
+                    order_coin = order_data.get("coin")
+                    if coin is None or order_coin == coin:
+                        orders.append({
+                            "user": event.get("user"),
+                            "status": event.get("status"),
+                            **order_data
+                        })
         return orders
 
     def latest_book_updates(self, *, count: int = 10, coin: Optional[str] = None) -> List[Dict[str, Any]]:

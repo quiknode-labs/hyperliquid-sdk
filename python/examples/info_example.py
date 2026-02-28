@@ -128,11 +128,29 @@ def main():
 
     try:
         fundings = info.predicted_fundings()
+        # API returns [[coin, [[venue, fundingInfo], ...]], ...]
         print(f"Predicted funding rates for {len(fundings)} assets:")
-        for f in fundings[:5]:
-            coin = f.get("coin", "?")
-            rate = float(f.get("fundingRate", 0)) * 100
-            print(f"  {coin}: {rate:.4f}%")
+        count = 0
+        for f in fundings:
+            if count >= 5:
+                break
+            if not isinstance(f, list) or len(f) < 2:
+                continue
+            coin = f[0]
+            venues = f[1]
+            if not venues:
+                continue
+            # Get first venue's funding rate
+            for v in venues:
+                if not isinstance(v, list) or len(v) < 2:
+                    continue
+                funding_info = v[1]
+                if not isinstance(funding_info, dict):
+                    continue
+                rate = float(funding_info.get("fundingRate", 0)) * 100
+                print(f"  {coin}: {rate:.4f}%")
+                count += 1
+                break
     except Exception as e:
         print(f"  Could not fetch funding: {e}")
 

@@ -95,11 +95,27 @@ def demo_info_api(endpoint: str):
 
     subsection("Predicted Funding")
     fundings = info.predicted_fundings()
+    # Extract funding rates - API returns [[coin, [[venue, fundingInfo], ...]], ...]
+    entries = []
+    for f in fundings:
+        if isinstance(f, list) and len(f) >= 2:
+            coin = f[0]
+            venues = f[1]
+            if isinstance(venues, list) and len(venues) > 0:
+                # Use first venue's funding rate
+                for v in venues:
+                    if isinstance(v, list) and len(v) >= 2:
+                        funding_info = v[1]
+                        if isinstance(funding_info, dict):
+                            rate = float(funding_info.get("fundingRate", 0))
+                            entries.append({"coin": coin, "rate": rate})
+                            break
+
+    sorted_entries = sorted(entries, key=lambda x: abs(x["rate"]), reverse=True)
     print(f"Top 3 funding rates:")
-    sorted_fundings = sorted(fundings, key=lambda x: abs(float(x.get("fundingRate", 0))), reverse=True)
-    for f in sorted_fundings[:3]:
-        rate = float(f.get("fundingRate", 0)) * 100
-        print(f"  {f['coin']}: {rate:+.4f}% (8h)")
+    for e in sorted_entries[:3]:
+        rate = e["rate"] * 100
+        print(f"  {e['coin']}: {rate:+.4f}% (8h)")
 
 
 def demo_hypercore_api(endpoint: str):
@@ -112,10 +128,10 @@ def demo_hypercore_api(endpoint: str):
     block_num = hc.latest_block_number()
     print(f"Latest block: {block_num:,}")
 
-    block = hc.block_by_number(block_num)
+    block = hc.get_block(block_num)
     if block:
-        txs = block.get("transactions", [])
-        print(f"Block {block_num}: {len(txs)} transactions")
+        events = block.get("events", [])
+        print(f"Block {block_num}: {len(events)} events")
 
     subsection("Recent Trades")
     trades = hc.latest_trades(count=5)

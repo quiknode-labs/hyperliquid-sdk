@@ -1,0 +1,73 @@
+{
+  "name": "hyperliquid-sdk",
+  "version": "0.1.0",
+  "description": "Community SDK for Hyperliquid. One line to place orders, zero ceremony. HyperCore, HyperEVM, WebSocket and gRPC streams. Not affiliated with Hyperliquid Foundation.",
+  "main": "dist/cjs/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "hyperliquid",
+    "trading",
+    "crypto",
+    "defi",
+    "perpetuals",
+    "spot",
+    "orderbook",
+    "websocket",
+    "grpc",
+    "evm",
+    "quicknode"
+  ],
+  "author": "QuickNode <support@quicknode.com>",
+  "license": "MIT",
+  "homepage": "https://hyperliquidapi.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quiknode-labs/hyperliquid-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/quiknode-labs/hyperliquid-sdk/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "ethers": "^6.11.0"
+  },
+  "optionalDependencies": {
+    "ws": "^8.16.0",
+    "@grpc/grpc-js": "^1.10.0",
+    "@grpc/proto-loader": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "ethers": "^6.0.0"
+  }
+}

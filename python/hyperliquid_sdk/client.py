@@ -168,12 +168,14 @@ class HyperliquidSDK:
             # QuickNode endpoint: extract token and build proper URLs
             # Handles: /TOKEN, /TOKEN/info, /TOKEN/evm, /TOKEN/hypercore, etc.
             base_url = self._build_base_url(endpoint)
-            self._exchange_url = f"{base_url}/send"  # Trading/exchange operations
             self._info_url = f"{base_url}/info"  # Info API (markets, prices, etc.)
         else:
-            # No endpoint: ALL requests go through the worker
-            self._exchange_url = f"{self.DEFAULT_WORKER_URL}/exchange"  # Trading/exchange operations
+            # No endpoint: info goes through the worker
             self._info_url = f"{self.DEFAULT_WORKER_URL}/info"  # Info API
+
+        # Trading/exchange ALWAYS goes through the worker
+        # QuickNode /send endpoint is not used for trading
+        self._exchange_url = f"{self.DEFAULT_WORKER_URL}/exchange"
         self._session = requests.Session()
 
         # Cache for market metadata with TTL (reduces API calls)

@@ -732,7 +732,7 @@ The SDK routes requests to different endpoints based on the operation:
 
 | Endpoint | Routes To | Notes |
 |----------|-----------|-------|
-| `/send` | QuickNode | Trading operations (orders, cancels, etc.) |
+| `/exchange` | Worker | ALL trading operations (orders, cancels, etc.) |
 | `/info` (supported methods) | QuickNode | Methods in `QN_SUPPORTED_INFO_METHODS` |
 | `/info` (unsupported methods) | Worker | allMids, l2Book, recentTrades, candleSnapshot, predictedFundings |
 | `/approval`, `/markets`, `/dexes`, `/preflight` | Worker | Always route to public worker |
@@ -771,7 +771,7 @@ Known path suffixes to strip: `info`, `hypercore`, `evm`, `nanoreth`, `ws`, `sen
 Public worker: `https://send.hyperliquidapi.com`
 
 The worker handles:
-- `/exchange` - Trading (when no QuickNode endpoint)
+- `/exchange` - ALL trading operations (orders, cancels, positions, etc.)
 - `/info` - Info API fallback for unsupported methods
 - `/approval` - Builder fee approval status
 - `/markets` - Market metadata
