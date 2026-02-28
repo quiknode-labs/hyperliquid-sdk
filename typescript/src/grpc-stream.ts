@@ -56,6 +56,17 @@ interface Subscription {
   nLevels?: number;
 }
 
+// Stream type enum values matching proto
+const STREAM_TYPE_MAP: Record<string, number> = {
+  TRADES: 1,
+  ORDERS: 2,
+  BOOK_UPDATES: 3,
+  TWAP: 4,
+  EVENTS: 5,
+  BLOCKS: 6,
+  WRITER_ACTIONS: 7,
+};
+
 /**
  * gRPC Stream Client — High-performance real-time data streams.
  *
@@ -83,6 +94,7 @@ export class GRPCStream {
   static readonly RECONNECT_BACKOFF_FACTOR = 2.0;
   static readonly KEEPALIVE_TIME_MS = 30000;
   static readonly KEEPALIVE_TIMEOUT_MS = 10000;
+  static readonly MAX_MSG_SIZE = 100 * 1024 * 1024; // 100MB
 
   private readonly _host: string;
   private readonly _token: string;
@@ -100,12 +112,20 @@ export class GRPCStream {
   private _reconnectAttempt = 0;
   private _reconnectDelay = GRPCStream.INITIAL_RECONNECT_DELAY;
   private _subscriptions: Subscription[] = [];
+  private _stopRequested = false;
 
-  // gRPC client will be initialized on start()
-  private _channel: unknown = null;
-  private _streamingStub: unknown = null;
-  private _blockStub: unknown = null;
-  private _orderbookStub: unknown = null;
+  // gRPC objects
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _channel: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _streamingClient: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _blockClient: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _orderbookClient: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _activeStreams: any[] = [];
+  private _pingIntervals: NodeJS.Timeout[] = [];
 
   constructor(endpoint: string, options: GRPCStreamOptions = {}) {
     const [host, token] = this._parseEndpoint(endpoint);
@@ -159,6 +179,15 @@ export class GRPCStream {
 
   private _getTarget(): string {
     return `${this._host}:${GRPCStream.GRPC_PORT}`;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _getMetadata(): any {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+    const grpc: any = require('@grpc/grpc-js');
+    const metadata = new grpc.Metadata();
+    metadata.set('x-token', this._token);
+    return metadata;
   }
 
   private _addSubscription(
@@ -264,82 +293,378 @@ export class GRPCStream {
   }
 
   /**
-   * Start the gRPC stream.
+   * Connect and create gRPC clients.
    */
-  async start(): Promise<void> {
+  private async _connect(): Promise<void> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
     const grpc: any = require('@grpc/grpc-js');
     // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
     const protoLoader: any = require('@grpc/proto-loader');
     const path = await import('path');
+    const fs = await import('fs');
 
-    this._running = true;
     this._setState(ConnectionState.CONNECTING);
 
+    const target = this._getTarget();
+
     // Load proto files
-    const protoPath = path.resolve(__dirname, 'proto', 'streaming.proto');
+    const streamingProtoPath = path.resolve(__dirname, 'proto', 'streaming.proto');
+    const orderbookProtoPath = path.resolve(__dirname, 'proto', 'orderbook.proto');
 
-    try {
-      const packageDefinition = protoLoader.loadSync(protoPath, {
-        keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
-        oneofs: true,
-      });
+    // Check if proto files exist
+    if (!fs.existsSync(streamingProtoPath)) {
+      throw new Error(`Proto file not found: ${streamingProtoPath}`);
+    }
+    if (!fs.existsSync(orderbookProtoPath)) {
+      throw new Error(`Proto file not found: ${orderbookProtoPath}`);
+    }
 
-      // Load package definition - reserved for full implementation
-      void grpc.loadPackageDefinition(packageDefinition);
-      const target = this._getTarget();
+    const packageDefinition = protoLoader.loadSync([streamingProtoPath, orderbookProtoPath], {
+      keepCase: true,
+      longs: String,
+      enums: Number,
+      defaults: true,
+      oneofs: true,
+    });
 
-      // Create channel with credentials
-      if (this._secure) {
-        this._channel = grpc.ChannelCredentials.createSsl();
-      } else {
-        this._channel = grpc.credentials.createInsecure();
-      }
+    const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
+    const hyperliquid = protoDescriptor.hyperliquid;
 
-      // Create channel - reserved for full implementation
-      void new grpc.Channel(
-        target,
-        this._channel,
-        {
-          'grpc.keepalive_time_ms': GRPCStream.KEEPALIVE_TIME_MS,
-          'grpc.keepalive_timeout_ms': GRPCStream.KEEPALIVE_TIMEOUT_MS,
-          'grpc.keepalive_permit_without_calls': 1,
-        }
-      );
+    // Create credentials
+    const channelOptions = {
+      'grpc.keepalive_time_ms': GRPCStream.KEEPALIVE_TIME_MS,
+      'grpc.keepalive_timeout_ms': GRPCStream.KEEPALIVE_TIMEOUT_MS,
+      'grpc.keepalive_permit_without_calls': 1,
+      'grpc.max_receive_message_length': GRPCStream.MAX_MSG_SIZE,
+      'grpc.max_send_message_length': GRPCStream.MAX_MSG_SIZE,
+    };
 
-      // Note: Actual gRPC streaming implementation would go here
-      // This is a simplified version - full implementation requires
-      // proper proto file loading and streaming
+    let credentials;
+    if (this._secure) {
+      credentials = grpc.credentials.createSsl();
+    } else {
+      credentials = grpc.credentials.createInsecure();
+    }
 
-      this._setState(ConnectionState.CONNECTED);
+    // Create clients
+    this._streamingClient = new hyperliquid.Streaming(target, credentials, channelOptions);
+    this._blockClient = new hyperliquid.BlockStreaming(target, credentials, channelOptions);
+    this._orderbookClient = new hyperliquid.OrderBookStreaming(target, credentials, channelOptions);
 
-      if (this._onConnect) {
-        try {
-          this._onConnect();
-        } catch {
-          // Ignore callback errors
-        }
-      }
-    } catch (error) {
-      this._setState(ConnectionState.DISCONNECTED);
-      if (this._onError && error instanceof Error) {
-        this._onError(error);
-      }
+    this._setState(ConnectionState.CONNECTED);
+    this._reconnectAttempt = 0;
+    this._reconnectDelay = GRPCStream.INITIAL_RECONNECT_DELAY;
 
-      if (this._reconnectEnabled && this._running) {
-        this._scheduleReconnect();
+    if (this._onConnect) {
+      try {
+        this._onConnect();
+      } catch {
+        // Ignore callback errors
       }
     }
   }
 
+  /**
+   * Start streaming for a data subscription (trades, orders, etc.).
+   */
+  private _streamData(sub: Subscription): void {
+    if (!this._streamingClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+
+    // Create bidirectional stream
+    const stream = this._streamingClient.StreamData(metadata);
+    this._activeStreams.push(stream);
+
+    // Send initial subscription request
+    const subscribeRequest = {
+      subscribe: {
+        stream_type: STREAM_TYPE_MAP[sub.streamType] || 0,
+        filters: {} as Record<string, { values: string[] }>,
+      },
+    };
+
+    if (sub.coins && sub.coins.length > 0) {
+      subscribeRequest.subscribe.filters['coin'] = { values: sub.coins };
+    }
+    if (sub.users && sub.users.length > 0) {
+      subscribeRequest.subscribe.filters['user'] = { values: sub.users };
+    }
+
+    stream.write(subscribeRequest);
+
+    // Set up ping interval
+    const pingInterval = setInterval(() => {
+      if (this._running && !this._stopRequested) {
+        try {
+          stream.write({ ping: { timestamp: Date.now() } });
+        } catch {
+          // Stream might be closed
+        }
+      }
+    }, 30000);
+    this._pingIntervals.push(pingInterval);
+
+    // Handle incoming data
+    stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: string }; pong?: { timestamp: number } }) => {
+      if (response.data) {
+        try {
+          const parsed = JSON.parse(response.data.data);
+          const blockNumber = response.data.block_number;
+          const timestamp = response.data.timestamp;
+
+          // Extract events if present
+          const events = parsed.events;
+          if (events && Array.isArray(events) && events.length > 0) {
+            for (const event of events) {
+              if (Array.isArray(event) && event.length >= 2) {
+                const [user, eventData] = event;
+                if (typeof eventData === 'object' && eventData !== null) {
+                  eventData._block_number = blockNumber;
+                  eventData._timestamp = timestamp;
+                  eventData._user = user;
+                  try {
+                    sub.callback(eventData);
+                  } catch {
+                    // Ignore callback errors
+                  }
+                }
+              }
+            }
+          } else {
+            // No events structure, return raw data
+            parsed._block_number = blockNumber;
+            parsed._timestamp = timestamp;
+            try {
+              sub.callback(parsed);
+            } catch {
+              // Ignore callback errors
+            }
+          }
+        } catch {
+          // JSON parse error
+        }
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      clearInterval(pingInterval);
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      clearInterval(pingInterval);
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Start streaming blocks.
+   */
+  private _streamBlocks(sub: Subscription): void {
+    if (!this._blockClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+    const request = { timestamp: Date.now() };
+
+    const stream = this._blockClient.StreamBlocks(request, metadata);
+    this._activeStreams.push(stream);
+
+    stream.on('data', (block: { data_json: string }) => {
+      try {
+        const data = JSON.parse(block.data_json);
+        sub.callback(data);
+      } catch {
+        // JSON parse error
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Start streaming L2 order book.
+   */
+  private _streamL2Book(sub: Subscription): void {
+    if (!this._orderbookClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+    const request: { coin: string; n_levels: number; n_sig_figs?: number } = {
+      coin: sub.coin || '',
+      n_levels: sub.nLevels || 20,
+    };
+    if (sub.nSigFigs !== undefined) {
+      request.n_sig_figs = sub.nSigFigs;
+    }
+
+    const stream = this._orderbookClient.StreamL2Book(request, metadata);
+    this._activeStreams.push(stream);
+
+    stream.on('data', (update: { coin: string; time: number; block_number: number; bids: Array<{ px: string; sz: string; n: number }>; asks: Array<{ px: string; sz: string; n: number }> }) => {
+      const data = {
+        coin: update.coin,
+        time: update.time,
+        block_number: update.block_number,
+        bids: update.bids.map((l) => [l.px, l.sz, l.n]),
+        asks: update.asks.map((l) => [l.px, l.sz, l.n]),
+      };
+      try {
+        sub.callback(data);
+      } catch {
+        // Ignore callback errors
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Start streaming L4 order book.
+   */
+  private _streamL4Book(sub: Subscription): void {
+    if (!this._orderbookClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+    const request = { coin: sub.coin || '' };
+
+    const stream = this._orderbookClient.StreamL4Book(request, metadata);
+    this._activeStreams.push(stream);
+
+    stream.on('data', (update: { snapshot?: { coin: string; time: number; height: number; bids: L4Order[]; asks: L4Order[] }; diff?: { time: number; height: number; data: string } }) => {
+      let data: Record<string, unknown>;
+
+      if (update.snapshot) {
+        data = {
+          type: 'snapshot',
+          coin: update.snapshot.coin,
+          time: update.snapshot.time,
+          height: update.snapshot.height,
+          bids: update.snapshot.bids.map(this._l4OrderToObject),
+          asks: update.snapshot.asks.map(this._l4OrderToObject),
+        };
+      } else if (update.diff) {
+        let diffData = {};
+        try {
+          diffData = JSON.parse(update.diff.data);
+        } catch {
+          // Ignore parse error
+        }
+        data = {
+          type: 'diff',
+          time: update.diff.time,
+          height: update.diff.height,
+          data: diffData,
+        };
+      } else {
+        return;
+      }
+
+      try {
+        sub.callback(data);
+      } catch {
+        // Ignore callback errors
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  private _l4OrderToObject(order: L4Order): Record<string, unknown> {
+    return {
+      user: order.user,
+      coin: order.coin,
+      side: order.side,
+      limit_px: order.limit_px,
+      sz: order.sz,
+      oid: order.oid,
+      timestamp: order.timestamp,
+      trigger_condition: order.trigger_condition,
+      is_trigger: order.is_trigger,
+      trigger_px: order.trigger_px,
+      is_position_tpsl: order.is_position_tpsl,
+      reduce_only: order.reduce_only,
+      order_type: order.order_type,
+      tif: order.tif,
+      cloid: order.cloid,
+    };
+  }
+
   private _scheduleReconnect(): void {
-    if (!this._running) return;
+    if (!this._running || this._stopRequested) return;
 
     if (this._maxReconnectAttempts !== null && this._reconnectAttempt >= this._maxReconnectAttempts) {
       this._running = false;
+      this._setState(ConnectionState.DISCONNECTED);
       if (this._onClose) {
         try {
           this._onClose();
@@ -361,16 +686,113 @@ export class GRPCStream {
       }
     }
 
-    setTimeout(() => {
+    setTimeout(async () => {
       this._reconnectDelay = Math.min(
         this._reconnectDelay * GRPCStream.RECONNECT_BACKOFF_FACTOR,
         GRPCStream.MAX_RECONNECT_DELAY
       );
 
-      if (this._running) {
-        this.start().catch(() => {});
+      if (this._running && !this._stopRequested) {
+        this._cleanup();
+        try {
+          await this._connect();
+          this._startStreams();
+        } catch (err) {
+          if (this._onError && err instanceof Error) {
+            this._onError(err);
+          }
+          if (this._reconnectEnabled && this._running) {
+            this._scheduleReconnect();
+          }
+        }
       }
     }, this._reconnectDelay);
+  }
+
+  private _startStreams(): void {
+    for (const sub of this._subscriptions) {
+      switch (sub.streamType) {
+        case 'L2_BOOK':
+          this._streamL2Book(sub);
+          break;
+        case 'L4_BOOK':
+          this._streamL4Book(sub);
+          break;
+        case 'BLOCKS':
+          this._streamBlocks(sub);
+          break;
+        default:
+          this._streamData(sub);
+          break;
+      }
+    }
+  }
+
+  private _cleanup(): void {
+    // Clear ping intervals
+    for (const interval of this._pingIntervals) {
+      clearInterval(interval);
+    }
+    this._pingIntervals = [];
+
+    // Cancel active streams
+    for (const stream of this._activeStreams) {
+      try {
+        if (stream.cancel) {
+          stream.cancel();
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    this._activeStreams = [];
+
+    // Close clients
+    this._streamingClient = null;
+    this._blockClient = null;
+    this._orderbookClient = null;
+    this._channel = null;
+  }
+
+  /**
+   * Start the gRPC stream.
+   */
+  async start(): Promise<void> {
+    this._running = true;
+    this._stopRequested = false;
+
+    try {
+      await this._connect();
+      this._startStreams();
+    } catch (error) {
+      this._setState(ConnectionState.DISCONNECTED);
+      if (this._onError && error instanceof Error) {
+        this._onError(error);
+      }
+
+      if (this._reconnectEnabled && this._running) {
+        this._scheduleReconnect();
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Run the gRPC stream (blocking).
+   */
+  async run(): Promise<void> {
+    await this.start();
+
+    // Keep running until stopped
+    return new Promise<void>((resolve) => {
+      const checkStop = setInterval(() => {
+        if (!this._running) {
+          clearInterval(checkStop);
+          resolve();
+        }
+      }, 500);
+    });
   }
 
   /**
@@ -378,6 +800,8 @@ export class GRPCStream {
    */
   stop(): void {
     this._running = false;
+    this._stopRequested = true;
+    this._cleanup();
     this._setState(ConnectionState.DISCONNECTED);
 
     if (this._onClose) {
@@ -394,17 +818,24 @@ export class GRPCStream {
    *
    * @returns True if ping successful, false otherwise
    */
-  ping(): boolean {
-    if (!this._streamingStub) {
-      return false;
-    }
-    try {
-      // Note: Full implementation would send PingRequest via gRPC
-      // For now, return connection state
-      return this._state === ConnectionState.CONNECTED;
-    } catch {
-      return false;
-    }
+  ping(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this._streamingClient) {
+        resolve(false);
+        return;
+      }
+
+      const metadata = this._getMetadata();
+      const request = { count: 1 };
+
+      this._streamingClient.Ping(request, metadata, (err: Error | null, response: { count: number }) => {
+        if (err) {
+          resolve(false);
+        } else {
+          resolve(response.count === 1);
+        }
+      });
+    });
   }
 
   /** Check if stream is connected. */
@@ -421,4 +852,23 @@ export class GRPCStream {
   get reconnectAttempts(): number {
     return this._reconnectAttempt;
   }
+}
+
+// Type for L4 order
+interface L4Order {
+  user: string;
+  coin: string;
+  side: string;
+  limit_px: string;
+  sz: string;
+  oid: number;
+  timestamp: number;
+  trigger_condition: string;
+  is_trigger: boolean;
+  trigger_px: string;
+  is_position_tpsl: boolean;
+  reduce_only: boolean;
+  order_type: string;
+  tif?: string;
+  cloid?: string;
 }

@@ -179,7 +179,11 @@ export class HyperCore {
     toBlock: number,
     stream: string = 'trades'
   ): Promise<Array<Record<string, unknown>>> {
-    return this._rpc('hl_getBatchBlocks', { stream, from: fromBlock, to: toBlock });
+    const result = await this._rpc<{ blocks?: Array<Record<string, unknown>> }>(
+      'hl_getBatchBlocks',
+      { stream, from: fromBlock, to: toBlock }
+    );
+    return result.blocks || [];
   }
 
   /**

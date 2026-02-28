@@ -39,6 +39,7 @@ type Stream struct {
 
 	conn          *websocket.Conn
 	connMu        sync.RWMutex
+	writeMu       sync.Mutex // Protects all writes to conn
 	state         atomic.Int32
 	running       atomic.Bool
 	reconnectNum  atomic.Int32
@@ -403,7 +404,9 @@ func (s *Stream) sendSubscribe(params map[string]any) {
 		return
 	}
 
+	s.writeMu.Lock()
 	conn.WriteMessage(websocket.TextMessage, msg)
+	s.writeMu.Unlock()
 }
 
 func (s *Stream) sendUnsubscribe(params map[string]any) {
@@ -438,7 +441,9 @@ func (s *Stream) sendUnsubscribe(params map[string]any) {
 		return
 	}
 
+	s.writeMu.Lock()
 	conn.WriteMessage(websocket.TextMessage, msg)
+	s.writeMu.Unlock()
 }
 
 func (s *Stream) connect() error {
@@ -584,7 +589,9 @@ func (s *Stream) pingLoop() {
 
 			if conn != nil {
 				msg, _ := json.Marshal(map[string]any{"method": "ping"})
+				s.writeMu.Lock()
 				conn.WriteMessage(websocket.TextMessage, msg)
+				s.writeMu.Unlock()
 			}
 		}
 	}

@@ -42,37 +42,43 @@ if (!ENDPOINT) {
 }
 
 function onTrade(data: Record<string, unknown>) {
-  const trades = data.data as Record<string, unknown>[] | Record<string, unknown>;
+  // QuickNode format: { type: 'data', stream: 'hl.trades', block: { events: [...] } }
+  const block = data.block as Record<string, unknown> | undefined;
+  const events = block?.events as [string, Record<string, unknown>][] | undefined;
 
-  if (Array.isArray(trades)) {
-    for (const trade of trades) {
+  if (events && Array.isArray(events)) {
+    for (const [, trade] of events) {
       const coin = trade.coin || "?";
       const px = parseFloat(String(trade.px || 0));
       const sz = trade.sz || "?";
       const side = trade.side === "B" ? "BUY" : "SELL";
       console.log(`[TRADE] ${coin}: ${side} ${sz} @ $${px.toLocaleString()}`);
     }
-  } else if (trades) {
-    const coin = trades.coin || "?";
-    const px = parseFloat(String(trades.px || 0));
-    const sz = trades.sz || "?";
-    const side = trades.side === "B" ? "BUY" : "SELL";
-    console.log(`[TRADE] ${coin}: ${side} ${sz} @ $${px.toLocaleString()}`);
   }
 }
 
 function onBookUpdate(data: Record<string, unknown>) {
-  const bookData = data.data as Record<string, unknown> || {};
-  const coin = bookData.coin || "?";
-  const levels = bookData.levels as [unknown[], unknown[]] || [[], []];
-  const bids = (levels[0] || []) as Record<string, unknown>[];
-  const asks = (levels[1] || []) as Record<string, unknown>[];
+  // QuickNode format: { type: 'data', stream: 'hl.book_updates', block: { events: [...] } }
+  const block = data.block as Record<string, unknown> | undefined;
+  const events = block?.events as [string, Record<string, unknown>][] | undefined;
 
-  if (bids.length && asks.length) {
-    const bestBid = bids[0];
-    const bestAsk = asks[0];
-    const spread = parseFloat(String(bestAsk.px || 0)) - parseFloat(String(bestBid.px || 0));
-    console.log(`[BOOK] ${coin}: Bid $${parseFloat(String(bestBid.px || 0)).toLocaleString()} | Ask $${parseFloat(String(bestAsk.px || 0)).toLocaleString()} | Spread $${spread.toLocaleString()}`);
+  if (events && Array.isArray(events)) {
+    for (const [, update] of events) {
+      const coin = update.coin || "?";
+      const levels = update.levels as { px: string; sz: string; n: number }[][] | undefined;
+      if (levels && levels.length >= 2) {
+        const bids = levels[0] || [];
+        const asks = levels[1] || [];
+        if (bids.length && asks.length) {
+          const bestBid = bids[0];
+          const bestAsk = asks[0];
+          const bidPx = parseFloat(bestBid.px || "0");
+          const askPx = parseFloat(bestAsk.px || "0");
+          const spread = askPx - bidPx;
+          console.log(`[BOOK] ${coin}: Bid $${bidPx.toLocaleString()} | Ask $${askPx.toLocaleString()} | Spread $${spread.toLocaleString()}`);
+        }
+      }
+    }
   }
 }
 

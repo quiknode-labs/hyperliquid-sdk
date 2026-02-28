@@ -74,16 +74,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _trade_sub = stream.trades(&["BTC", "ETH"], move |data| {
         trade_count_cb.fetch_add(1, Ordering::SeqCst);
 
-        // Parse trade data
-        if let Some(trades) = data.get("data").and_then(|d| d.as_array()) {
-            for trade in trades {
-                let coin = trade.get("coin").and_then(|c| c.as_str()).unwrap_or("?");
-                let px = trade.get("px").and_then(|p| p.as_str()).unwrap_or("?");
-                let sz = trade.get("sz").and_then(|s| s.as_str()).unwrap_or("?");
-                let side = trade.get("side").and_then(|s| s.as_str()).unwrap_or("?");
-                let side_name = if side == "B" { "BUY" } else { "SELL" };
-                let price: f64 = px.parse().unwrap_or(0.0);
-                println!("[TRADE] {}: {} {} @ ${:.2}", coin, side_name, sz, price);
+        // QuickNode format: { type: 'data', stream: 'hl.trades', block: { events: [...] } }
+        if let Some(block) = data.get("block") {
+            if let Some(events) = block.get("events").and_then(|e| e.as_array()) {
+                for event in events {
+                    if let Some(event_arr) = event.as_array() {
+                        if event_arr.len() >= 2 {
+                            if let Some(trade) = event_arr.get(1) {
+                                let coin = trade.get("coin").and_then(|c| c.as_str()).unwrap_or("?");
+                                let px = trade.get("px").and_then(|p| p.as_str()).unwrap_or("?");
+                                let sz = trade.get("sz").and_then(|s| s.as_str()).unwrap_or("?");
+                                let side = trade.get("side").and_then(|s| s.as_str()).unwrap_or("?");
+                                let side_name = if side == "B" { "BUY" } else { "SELL" };
+                                let price: f64 = px.parse().unwrap_or(0.0);
+                                println!("[TRADE] {}: {} {} @ ${:.2}", coin, side_name, sz, price);
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -96,31 +104,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _book_sub = stream.book_updates(&["BTC"], move |data| {
         book_count_cb.fetch_add(1, Ordering::SeqCst);
 
-        if let Some(book_data) = data.get("data") {
-            let coin = book_data.get("coin").and_then(|c| c.as_str()).unwrap_or("?");
-            if let Some(levels) = book_data.get("levels").and_then(|l| l.as_array()) {
-                let bids = levels.get(0).and_then(|b| b.as_array());
-                let asks = levels.get(1).and_then(|a| a.as_array());
+        // QuickNode format: { type: 'data', stream: 'hl.book_updates', block: { events: [...] } }
+        if let Some(block) = data.get("block") {
+            if let Some(events) = block.get("events").and_then(|e| e.as_array()) {
+                for event in events {
+                    if let Some(event_arr) = event.as_array() {
+                        if event_arr.len() >= 2 {
+                            if let Some(book_data) = event_arr.get(1) {
+                                let coin = book_data.get("coin").and_then(|c| c.as_str()).unwrap_or("?");
+                                if let Some(levels) = book_data.get("levels").and_then(|l| l.as_array()) {
+                                    let bids = levels.get(0).and_then(|b| b.as_array());
+                                    let asks = levels.get(1).and_then(|a| a.as_array());
 
-                if let (Some(bids), Some(asks)) = (bids, asks) {
-                    if let (Some(best_bid), Some(best_ask)) = (bids.first(), asks.first()) {
-                        let bid_px = best_bid
-                            .get("px")
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("0")
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                        let ask_px = best_ask
-                            .get("px")
-                            .and_then(|p| p.as_str())
-                            .unwrap_or("0")
-                            .parse::<f64>()
-                            .unwrap_or(0.0);
-                        let spread = ask_px - bid_px;
-                        println!(
-                            "[BOOK] {}: Bid ${:.2} | Ask ${:.2} | Spread ${:.2}",
-                            coin, bid_px, ask_px, spread
-                        );
+                                    if let (Some(bids), Some(asks)) = (bids, asks) {
+                                        if let (Some(best_bid), Some(best_ask)) = (bids.first(), asks.first()) {
+                                            let bid_px = best_bid
+                                                .get("px")
+                                                .and_then(|p| p.as_str())
+                                                .unwrap_or("0")
+                                                .parse::<f64>()
+                                                .unwrap_or(0.0);
+                                            let ask_px = best_ask
+                                                .get("px")
+                                                .and_then(|p| p.as_str())
+                                                .unwrap_or("0")
+                                                .parse::<f64>()
+                                                .unwrap_or(0.0);
+                                            let spread = ask_px - bid_px;
+                                            println!(
+                                                "[BOOK] {}: Bid ${:.2} | Ask ${:.2} | Spread ${:.2}",
+                                                coin, bid_px, ask_px, spread
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

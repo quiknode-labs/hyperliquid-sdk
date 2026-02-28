@@ -157,12 +157,14 @@ export class HyperliquidSDK {
 
     if (endpoint) {
       const baseUrl = this._buildBaseUrl(endpoint);
-      this._exchangeUrl = `${baseUrl}/send`;
       this._infoUrl = `${baseUrl}/info`;
     } else {
-      this._exchangeUrl = `${HyperliquidSDK.DEFAULT_WORKER_URL}/exchange`;
       this._infoUrl = `${HyperliquidSDK.DEFAULT_WORKER_URL}/info`;
     }
+
+    // Trading/exchange ALWAYS goes through the public worker
+    // QuickNode /send endpoint is not used for trading
+    this._exchangeUrl = `${HyperliquidSDK.DEFAULT_WORKER_URL}/exchange`;
 
     // Auto-approve will be called on first trade if needed
   }

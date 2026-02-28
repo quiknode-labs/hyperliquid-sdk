@@ -67,24 +67,24 @@ func main() {
 
 	// Subscribe to BTC and ETH trades
 	stream.Trades([]string{"BTC", "ETH"}, func(data map[string]any) {
-		// Handle incoming trade data
-		trades, ok := data["data"].([]any)
-		if ok {
-			for _, trade := range trades {
-				t := trade.(map[string]any)
-				coin, _ := t["coin"].(string)
-				px, _ := t["px"].(string)
-				sz, _ := t["sz"].(string)
-				side, _ := t["side"].(string)
-				pxFloat, _ := strconv.ParseFloat(px, 64)
-
-				sideStr := "SELL"
-				if side == "B" {
-					sideStr = "BUY"
-				}
-				fmt.Printf("[TRADE] %s: %s %s @ $%.2f\n", coin, sideStr, sz, pxFloat)
+		// QuickNode format: { type: 'data', stream: 'hl.trades', block: { events: [...] } }
+		block, ok := data["block"].(map[string]any)
+		if !ok {
+			return
+		}
+		events, ok := block["events"].([]any)
+		if !ok {
+			return
+		}
+		for _, event := range events {
+			eventArr, ok := event.([]any)
+			if !ok || len(eventArr) < 2 {
+				continue
 			}
-		} else if trade, ok := data["data"].(map[string]any); ok {
+			trade, ok := eventArr[1].(map[string]any)
+			if !ok {
+				continue
+			}
 			coin, _ := trade["coin"].(string)
 			px, _ := trade["px"].(string)
 			sz, _ := trade["sz"].(string)
@@ -102,32 +102,46 @@ func main() {
 
 	// Subscribe to BTC book updates
 	stream.BookUpdates([]string{"BTC"}, func(data map[string]any) {
-		// Handle incoming book update
-		bookData, ok := data["data"].(map[string]any)
+		// QuickNode format: { type: 'data', stream: 'hl.book_updates', block: { events: [...] } }
+		block, ok := data["block"].(map[string]any)
 		if !ok {
 			return
 		}
-
-		coin, _ := bookData["coin"].(string)
-		levels, ok := bookData["levels"].([]any)
-		if !ok || len(levels) < 2 {
+		events, ok := block["events"].([]any)
+		if !ok {
 			return
 		}
+		for _, event := range events {
+			eventArr, ok := event.([]any)
+			if !ok || len(eventArr) < 2 {
+				continue
+			}
+			update, ok := eventArr[1].(map[string]any)
+			if !ok {
+				continue
+			}
 
-		bids, _ := levels[0].([]any)
-		asks, _ := levels[1].([]any)
+			coin, _ := update["coin"].(string)
+			levels, ok := update["levels"].([]any)
+			if !ok || len(levels) < 2 {
+				continue
+			}
 
-		if len(bids) > 0 && len(asks) > 0 {
-			bestBid := bids[0].(map[string]any)
-			bestAsk := asks[0].(map[string]any)
+			bids, _ := levels[0].([]any)
+			asks, _ := levels[1].([]any)
 
-			bidPx, _ := bestBid["px"].(string)
-			askPx, _ := bestAsk["px"].(string)
-			bidPxFloat, _ := strconv.ParseFloat(bidPx, 64)
-			askPxFloat, _ := strconv.ParseFloat(askPx, 64)
-			spread := askPxFloat - bidPxFloat
+			if len(bids) > 0 && len(asks) > 0 {
+				bestBid := bids[0].(map[string]any)
+				bestAsk := asks[0].(map[string]any)
 
-			fmt.Printf("[BOOK] %s: Bid $%.2f | Ask $%.2f | Spread $%.2f\n", coin, bidPxFloat, askPxFloat, spread)
+				bidPx, _ := bestBid["px"].(string)
+				askPx, _ := bestAsk["px"].(string)
+				bidPxFloat, _ := strconv.ParseFloat(bidPx, 64)
+				askPxFloat, _ := strconv.ParseFloat(askPx, 64)
+				spread := askPxFloat - bidPxFloat
+
+				fmt.Printf("[BOOK] %s: Bid $%.2f | Ask $%.2f | Spread $%.2f\n", coin, bidPxFloat, askPxFloat, spread)
+			}
 		}
 	})
 	fmt.Println("Subscribed to: BTC book updates")

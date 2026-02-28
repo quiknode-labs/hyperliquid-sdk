@@ -14,6 +14,7 @@ import (
 	pb "github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
@@ -87,8 +88,25 @@ const (
 
 // NewGRPCStream creates a new gRPC stream client.
 func NewGRPCStream(endpoint string, config *GRPCStreamConfig) *GRPCStream {
+	// Start with defaults and merge user config
+	defaults := DefaultGRPCStreamConfig()
 	if config == nil {
-		config = DefaultGRPCStreamConfig()
+		config = defaults
+	} else {
+		// User can only explicitly disable Secure by setting it to false
+		// Since we can't distinguish "not set" from "set to false", we default to secure (true)
+		// This is the safe default - users must explicitly use insecure connections
+		merged := &GRPCStreamConfig{
+			OnError:       config.OnError,
+			OnClose:       config.OnClose,
+			OnConnect:     config.OnConnect,
+			OnReconnect:   config.OnReconnect,
+			OnStateChange: config.OnStateChange,
+			Secure:        true, // Default to secure
+			Reconnect:     config.Reconnect,
+			MaxReconnect:  config.MaxReconnect,
+		}
+		config = merged
 	}
 
 	host, token := parseGRPCEndpoint(endpoint)
@@ -163,6 +181,7 @@ func (s *GRPCStream) getState() ConnectionState {
 	}
 }
 
+// getMetadata returns metadata with x-token header for authentication.
 func (s *GRPCStream) getMetadata() metadata.MD {
 	return metadata.Pairs("x-token", s.token)
 }
@@ -185,12 +204,21 @@ func (s *GRPCStream) connect() error {
 	}
 
 	if s.config.Secure {
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
+		// Use TLS with proper server name for SNI (Server Name Indication)
+		// This matches Python's grpc.ssl_channel_credentials() behavior
+		tlsConfig := &tls.Config{
+			ServerName: s.host,
+		}
+		creds := credentials.NewTLS(tlsConfig)
+		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
-		opts = append(opts, grpc.WithInsecure())
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.DialContext(s.ctx, target, opts...)
+	// Use DialContext with a timeout to ensure connection is established
+	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, target, opts...)
 	if err != nil {
 		return err
 	}
@@ -354,6 +382,8 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 		"WRITER_ACTIONS": pb.StreamType_WRITER_ACTIONS,
 	}
 
+	retryDelay := time.Second
+
 	for s.running.Load() {
 		s.connMu.RLock()
 		stub := s.streamingStub
@@ -375,10 +405,14 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			if s.running.Load() && s.config.OnError != nil {
 				s.config.OnError(err)
 			}
-			if s.running.Load() && s.config.Reconnect {
-				s.handleReconnect()
+			// Just retry with backoff, don't reconnect the whole connection
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
 			}
-			continue
 		}
 
 		// Send initial subscription request
@@ -402,8 +436,17 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			if s.running.Load() && s.config.OnError != nil {
 				s.config.OnError(err)
 			}
-			continue
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
+			}
 		}
+
+		// Reset retry delay on successful connection
+		retryDelay = time.Second
 
 		// Start ping goroutine
 		pingDone := make(chan struct{})
@@ -435,9 +478,7 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 				if s.running.Load() && s.config.OnError != nil {
 					s.config.OnError(err)
 				}
-				if s.running.Load() && s.config.Reconnect {
-					s.handleReconnect()
-				}
+				// Just break and retry, don't reconnect
 				break
 			}
 
@@ -474,6 +515,8 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 func (s *GRPCStream) streamBlocks(sub grpcSubscription) {
 	defer s.wg.Done()
 
+	retryDelay := time.Second
+
 	for s.running.Load() {
 		s.connMu.RLock()
 		stub := s.blockStub
@@ -496,20 +539,23 @@ func (s *GRPCStream) streamBlocks(sub grpcSubscription) {
 			if s.running.Load() && s.config.OnError != nil {
 				s.config.OnError(err)
 			}
-			if s.running.Load() && s.config.Reconnect {
-				s.handleReconnect()
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
 			}
-			continue
 		}
+
+		// Reset retry delay on successful connection
+		retryDelay = time.Second
 
 		for s.running.Load() {
 			block, err := stream.Recv()
 			if err != nil {
 				if s.running.Load() && s.config.OnError != nil {
 					s.config.OnError(err)
-				}
-				if s.running.Load() && s.config.Reconnect {
-					s.handleReconnect()
 				}
 				break
 			}
@@ -525,6 +571,8 @@ func (s *GRPCStream) streamBlocks(sub grpcSubscription) {
 
 func (s *GRPCStream) streamL2Book(sub grpcSubscription) {
 	defer s.wg.Done()
+
+	retryDelay := time.Second
 
 	for s.running.Load() {
 		s.connMu.RLock()
@@ -555,20 +603,23 @@ func (s *GRPCStream) streamL2Book(sub grpcSubscription) {
 			if s.running.Load() && s.config.OnError != nil {
 				s.config.OnError(err)
 			}
-			if s.running.Load() && s.config.Reconnect {
-				s.handleReconnect()
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
 			}
-			continue
 		}
+
+		// Reset retry delay on successful connection
+		retryDelay = time.Second
 
 		for s.running.Load() {
 			update, err := stream.Recv()
 			if err != nil {
 				if s.running.Load() && s.config.OnError != nil {
 					s.config.OnError(err)
-				}
-				if s.running.Load() && s.config.Reconnect {
-					s.handleReconnect()
 				}
 				break
 			}
@@ -597,6 +648,8 @@ func (s *GRPCStream) streamL2Book(sub grpcSubscription) {
 func (s *GRPCStream) streamL4Book(sub grpcSubscription) {
 	defer s.wg.Done()
 
+	retryDelay := time.Second
+
 	for s.running.Load() {
 		s.connMu.RLock()
 		stub := s.orderbookStub
@@ -619,20 +672,23 @@ func (s *GRPCStream) streamL4Book(sub grpcSubscription) {
 			if s.running.Load() && s.config.OnError != nil {
 				s.config.OnError(err)
 			}
-			if s.running.Load() && s.config.Reconnect {
-				s.handleReconnect()
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
 			}
-			continue
 		}
+
+		// Reset retry delay on successful connection
+		retryDelay = time.Second
 
 		for s.running.Load() {
 			update, err := stream.Recv()
 			if err != nil {
 				if s.running.Load() && s.config.OnError != nil {
 					s.config.OnError(err)
-				}
-				if s.running.Load() && s.config.Reconnect {
-					s.handleReconnect()
 				}
 				break
 			}

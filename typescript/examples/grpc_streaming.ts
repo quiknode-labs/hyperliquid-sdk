@@ -98,6 +98,10 @@ function onConnect() {
 }
 
 async function main() {
+  if (!ENDPOINT) {
+    throw new Error("ENDPOINT not set");
+  }
+
   console.log("Hyperliquid gRPC Streaming Example");
   console.log("=".repeat(50));
   console.log(`Endpoint: ${ENDPOINT.slice(0, 60)}${ENDPOINT.length > 60 ? '...' : ''}`);

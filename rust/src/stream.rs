@@ -72,6 +72,8 @@ impl Default for StreamConfig {
 /// WebSocket stream client
 pub struct Stream {
     config: StreamConfig,
+    is_quicknode: bool,
+    jsonrpc_id: Arc<AtomicU32>,
     state: Arc<RwLock<ConnectionState>>,
     running: Arc<AtomicBool>,
     reconnect_attempts: Arc<AtomicU32>,
@@ -101,11 +103,16 @@ enum StreamCommand {
 impl Stream {
     /// Create a new stream client
     pub fn new(endpoint: Option<String>) -> Self {
+        let is_quicknode = endpoint.as_ref()
+            .map(|e| e.contains("quiknode.pro"))
+            .unwrap_or(false);
         Self {
             config: StreamConfig {
                 endpoint,
                 ..Default::default()
             },
+            is_quicknode,
+            jsonrpc_id: Arc::new(AtomicU32::new(0)),
             state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
             running: Arc::new(AtomicBool::new(false)),
             reconnect_attempts: Arc::new(AtomicU32::new(0)),
@@ -821,6 +828,8 @@ impl Stream {
         self.command_tx = Some(tx);
 
         let ws_url = self.get_ws_url();
+        let is_quicknode = self.is_quicknode;
+        let jsonrpc_id = self.jsonrpc_id.clone();
         let state = self.state.clone();
         let running = self.running.clone();
         let reconnect_attempts = self.reconnect_attempts.clone();
@@ -836,6 +845,8 @@ impl Stream {
         tokio::spawn(async move {
             Self::run_loop(
                 ws_url,
+                is_quicknode,
+                jsonrpc_id,
                 state,
                 running,
                 reconnect_attempts,
@@ -884,6 +895,8 @@ impl Stream {
 
     async fn run_loop(
         ws_url: String,
+        is_quicknode: bool,
+        jsonrpc_id: Arc<AtomicU32>,
         state: Arc<RwLock<ConnectionState>>,
         running: Arc<AtomicBool>,
         reconnect_attempts: Arc<AtomicU32>,
@@ -941,13 +954,37 @@ impl Stream {
                         let subs = subscriptions.read();
                         subs.iter()
                             .filter_map(|(_, info)| {
-                                let msg = json!({
-                                    "method": "subscribe",
-                                    "subscription": {
-                                        "type": info.channel,
-                                        "params": info.params,
+                                let msg = if is_quicknode {
+                                    // QuickNode JSON-RPC format
+                                    let mut qn_params = json!({
+                                        "streamType": info.channel
+                                    });
+                                    // Add filters if specified
+                                    let mut filters = serde_json::Map::new();
+                                    if let Some(coins) = info.params.get("coins") {
+                                        filters.insert("coin".to_string(), coins.clone());
                                     }
-                                });
+                                    if let Some(users) = info.params.get("users") {
+                                        filters.insert("user".to_string(), users.clone());
+                                    }
+                                    if !filters.is_empty() {
+                                        qn_params["filters"] = Value::Object(filters);
+                                    }
+                                    json!({
+                                        "jsonrpc": "2.0",
+                                        "method": "hl_subscribe",
+                                        "params": qn_params,
+                                        "id": jsonrpc_id.fetch_add(1, Ordering::SeqCst)
+                                    })
+                                } else {
+                                    json!({
+                                        "method": "subscribe",
+                                        "subscription": {
+                                            "type": info.channel,
+                                            "params": info.params,
+                                        }
+                                    })
+                                };
                                 serde_json::to_string(&msg).ok()
                             })
                             .collect()
@@ -988,22 +1025,56 @@ impl Stream {
                             cmd = command_rx.recv() => {
                                 match cmd {
                                     Some(StreamCommand::Subscribe { id: _, channel, params }) => {
-                                        let msg = json!({
-                                            "method": "subscribe",
-                                            "subscription": {
-                                                "type": channel,
-                                                "params": params,
+                                        let msg = if is_quicknode {
+                                            // QuickNode JSON-RPC format
+                                            let mut qn_params = json!({
+                                                "streamType": channel
+                                            });
+                                            // Add filters if specified
+                                            let mut filters = serde_json::Map::new();
+                                            if let Some(coins) = params.get("coins") {
+                                                filters.insert("coin".to_string(), coins.clone());
                                             }
-                                        });
+                                            if let Some(users) = params.get("users") {
+                                                filters.insert("user".to_string(), users.clone());
+                                            }
+                                            if !filters.is_empty() {
+                                                qn_params["filters"] = Value::Object(filters);
+                                            }
+                                            json!({
+                                                "jsonrpc": "2.0",
+                                                "method": "hl_subscribe",
+                                                "params": qn_params,
+                                                "id": jsonrpc_id.fetch_add(1, Ordering::SeqCst)
+                                            })
+                                        } else {
+                                            // Public API format
+                                            json!({
+                                                "method": "subscribe",
+                                                "subscription": {
+                                                    "type": channel,
+                                                    "params": params,
+                                                }
+                                            })
+                                        };
                                         if let Ok(text) = serde_json::to_string(&msg) {
                                             let _ = ws_write.send(Message::Text(text.into())).await;
                                         }
                                     }
                                     Some(StreamCommand::Unsubscribe { id }) => {
-                                        let msg = json!({
-                                            "method": "unsubscribe",
-                                            "subscription": id,
-                                        });
+                                        let msg = if is_quicknode {
+                                            json!({
+                                                "jsonrpc": "2.0",
+                                                "method": "hl_unsubscribe",
+                                                "params": { "id": id },
+                                                "id": jsonrpc_id.fetch_add(1, Ordering::SeqCst)
+                                            })
+                                        } else {
+                                            json!({
+                                                "method": "unsubscribe",
+                                                "subscription": id,
+                                            })
+                                        };
                                         if let Ok(text) = serde_json::to_string(&msg) {
                                             let _ = ws_write.send(Message::Text(text.into())).await;
                                         }

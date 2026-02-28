@@ -256,12 +256,6 @@ func buildEVMURL(endpoint string) string {
 	return base + "/evm"
 }
 
-// buildSendURL builds the /send endpoint URL.
-func buildSendURL(endpoint string) string {
-	base := buildBaseURL(endpoint)
-	return base + "/send"
-}
-
 // buildWebSocketURL builds the WebSocket URL from an endpoint.
 // Handles:
 //   - QuickNode: https://x.quiknode.pro/TOKEN → wss://x.quiknode.pro/TOKEN/hypercore/ws

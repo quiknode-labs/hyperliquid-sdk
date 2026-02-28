@@ -173,13 +173,14 @@ func New(endpoint string, opts ...Option) (*SDK, error) {
 
 	// Build URLs
 	if endpoint != "" {
-		baseURL := buildBaseURL(endpoint)
-		sdk.exchangeURL = baseURL + "/send"
 		sdk.infoURL = buildInfoURL(endpoint)
 	} else {
-		sdk.exchangeURL = DefaultWorkerURL + "/exchange"
 		sdk.infoURL = DefaultWorkerURL + "/info"
 	}
+
+	// Trading/exchange ALWAYS goes through the public worker
+	// QuickNode /send endpoint is not used for trading
+	sdk.exchangeURL = DefaultWorkerURL + "/exchange"
 
 	// Initialize wallet if private key provided
 	if config.PrivateKey != "" {

@@ -1,17 +1,16 @@
-// Stream L2 Book Example — Real-time L2 orderbook updates via WebSocket.
+// Stream L2 Book Example — Real-time L2 orderbook updates via gRPC.
 //
 // This example demonstrates subscribing to L2 orderbook data with
 // aggregated bid/ask levels for efficient streaming.
 //
-// This example matches the Python streaming patterns exactly.
+// L2 order book provides aggregated price levels (total size at each price).
+// Use gRPC for L2 book streaming for lower latency.
 package main
 
 import (
 	"fmt"
 	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
+	"time"
 
 	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
 )
@@ -23,8 +22,9 @@ func main() {
 	}
 
 	if endpoint == "" {
-		fmt.Println("Stream L2 Book Example")
-		fmt.Println("==================================================")
+		fmt.Println("============================================================")
+		fmt.Println("L2 Order Book Streaming")
+		fmt.Println("============================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
 		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
@@ -32,8 +32,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Stream L2 Book Example")
-	fmt.Println("==================================================")
+	fmt.Println("============================================================")
+	fmt.Println("L2 Order Book Streaming")
+	fmt.Println("============================================================")
 	displayEndpoint := endpoint
 	if len(displayEndpoint) > 60 {
 		displayEndpoint = displayEndpoint[:60] + "..."
@@ -41,107 +42,86 @@ func main() {
 	fmt.Printf("Endpoint: %s\n", displayEndpoint)
 	fmt.Println()
 
-	// Create stream
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
-		Reconnect:    true,
-		PingInterval: 30,
+	// Track update counts
+	updateCount := 0
+
+	// Create gRPC stream (L2 book is best via gRPC for low latency)
+	stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+		Secure:    true,
+		Reconnect: false,
+		OnConnect: func() {
+			fmt.Println("[CONNECTED]")
+		},
 		OnError: func(err error) {
 			fmt.Printf("[ERROR] %v\n", err)
 		},
-		OnClose: func() {
-			fmt.Println("[CLOSED] Stream stopped")
-		},
-		OnStateChange: func(state hyperliquid.ConnectionState) {
-			fmt.Printf("[STATE] %s\n", state)
-		},
 	})
 
-	// Subscribe to L2 book updates for BTC (single coin per subscription)
-	stream.L2Book("BTC", func(data map[string]any) {
-		bookData, ok := data["data"].(map[string]any)
-		if !ok {
-			return
-		}
-
-		coin, _ := bookData["coin"].(string)
-		levels, ok := bookData["levels"].([]any)
-		if !ok || len(levels) < 2 {
-			return
-		}
-
-		bids, _ := levels[0].([]any)
-		asks, _ := levels[1].([]any)
-
-		if len(bids) > 0 && len(asks) > 0 {
-			bestBid := bids[0].(map[string]any)
-			bestAsk := asks[0].(map[string]any)
-
-			bidPx, _ := bestBid["px"].(string)
-			askPx, _ := bestAsk["px"].(string)
-			bidSz, _ := bestBid["sz"].(string)
-			askSz, _ := bestAsk["sz"].(string)
-			bidPxFloat, _ := strconv.ParseFloat(bidPx, 64)
-			askPxFloat, _ := strconv.ParseFloat(askPx, 64)
-			spread := askPxFloat - bidPxFloat
-
-			fmt.Printf("[L2] %s: Bid %s @ $%.2f | Ask %s @ $%.2f | Spread $%.2f | Depth: %d/%d\n",
-				coin, bidSz, bidPxFloat, askSz, askPxFloat, spread, len(bids), len(asks))
-		}
-	})
-
-	// Also subscribe to ETH
+	// Subscribe to ETH L2 book with 20 levels
 	stream.L2Book("ETH", func(data map[string]any) {
-		bookData, ok := data["data"].(map[string]any)
-		if !ok {
-			return
-		}
-
-		coin, _ := bookData["coin"].(string)
-		levels, ok := bookData["levels"].([]any)
-		if !ok || len(levels) < 2 {
-			return
-		}
-
-		bids, _ := levels[0].([]any)
-		asks, _ := levels[1].([]any)
+		updateCount++
+		bids, _ := data["bids"].([][]any)
+		asks, _ := data["asks"].([][]any)
 
 		if len(bids) > 0 && len(asks) > 0 {
-			bestBid := bids[0].(map[string]any)
-			bestAsk := asks[0].(map[string]any)
+			bidPx := bids[0][0]
+			bidSz := bids[0][1]
+			askPx := asks[0][0]
+			askSz := asks[0][1]
 
-			bidPx, _ := bestBid["px"].(string)
-			askPx, _ := bestAsk["px"].(string)
-			bidPxFloat, _ := strconv.ParseFloat(bidPx, 64)
-			askPxFloat, _ := strconv.ParseFloat(askPx, 64)
-			spread := askPxFloat - bidPxFloat
-
-			fmt.Printf("[L2] %s: Bid $%.2f | Ask $%.2f | Spread $%.2f | Depth: %d/%d\n",
-				coin, bidPxFloat, askPxFloat, spread, len(bids), len(asks))
+			fmt.Printf("[%s] ETH\n", timestamp())
+			fmt.Printf("  Bid: %v @ $%v\n", bidSz, bidPx)
+			fmt.Printf("  Ask: %v @ $%v\n", askSz, askPx)
+			fmt.Printf("  Spread: $%.2f (%.2f bps)\n", spread(bids, asks), spreadBps(bids, asks))
+			fmt.Printf("  Levels: %d bids, %d asks\n", len(bids), len(asks))
 		}
-	})
-	fmt.Println("Subscribed to: BTC, ETH L2 book")
 
-	// Handle Ctrl+C gracefully
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		if updateCount >= 5 {
+			fmt.Printf("\nReceived %d L2 updates.\n", updateCount)
+		}
+	}, hyperliquid.L2BookNLevels(20))
 
-	go func() {
-		<-sigChan
-		fmt.Println("\nShutting down gracefully...")
-		stream.Stop()
-		os.Exit(0)
-	}()
+	fmt.Println("Subscribing to ETH L2 order book...")
+	fmt.Println("------------------------------------------------------------")
 
-	fmt.Println()
-	fmt.Println("Streaming L2 book updates... Press Ctrl+C to stop")
-	fmt.Println("--------------------------------------------------")
-
-	// Start the stream
 	if err := stream.Start(); err != nil {
-		fmt.Printf("Failed to start stream: %v\n", err)
+		fmt.Printf("Start error: %v\n", err)
 		return
 	}
 
-	// Keep running until signal
-	select {}
+	start := time.Now()
+	for updateCount < 5 && time.Since(start) < 15*time.Second {
+		time.Sleep(100 * time.Millisecond)
+	}
+	stream.Stop()
+
+	fmt.Println()
+	fmt.Println("============================================================")
+	fmt.Println("Done!")
+}
+
+func timestamp() string {
+	return time.Now().Format("15:04:05.000")
+}
+
+func spread(bids, asks [][]any) float64 {
+	if len(bids) == 0 || len(asks) == 0 {
+		return 0
+	}
+	bidPx, _ := bids[0][0].(float64)
+	askPx, _ := asks[0][0].(float64)
+	return askPx - bidPx
+}
+
+func spreadBps(bids, asks [][]any) float64 {
+	if len(bids) == 0 || len(asks) == 0 {
+		return 0
+	}
+	bidPx, _ := bids[0][0].(float64)
+	askPx, _ := asks[0][0].(float64)
+	mid := (bidPx + askPx) / 2
+	if mid == 0 {
+		return 0
+	}
+	return (askPx - bidPx) / mid * 10000
 }

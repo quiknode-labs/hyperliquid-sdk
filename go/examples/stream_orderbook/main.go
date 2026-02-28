@@ -1,17 +1,17 @@
-// Stream Orderbook Example — Real-time orderbook snapshots via WebSocket.
+// Stream Orderbook Example — L2 and L4 orderbook streaming.
 //
-// This example demonstrates receiving full orderbook snapshots
-// which can be used to maintain a local orderbook state.
+// Demonstrates both L2 (aggregated price levels) and L4 (individual orders)
+// orderbook streaming via gRPC.
 //
-// This example matches the Python streaming patterns exactly.
+// L2: Aggregated - shows total size at each price level
+// L4: Individual - shows each order with its own ID and size
 package main
 
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
+	"time"
 
 	"github.com/quiknode-labs/raptor/hyperliquid-sdk/go/hyperliquid"
 )
@@ -23,8 +23,8 @@ func main() {
 	}
 
 	if endpoint == "" {
-		fmt.Println("Stream Orderbook Example")
-		fmt.Println("==================================================")
+		fmt.Println("Order Book Streaming Examples")
+		fmt.Println("============================================================")
 		fmt.Println()
 		fmt.Println("Usage:")
 		fmt.Println("  export QUICKNODE_ENDPOINT='https://YOUR-ENDPOINT.quiknode.pro/TOKEN'")
@@ -32,88 +32,126 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("Stream Orderbook Example")
-	fmt.Println("==================================================")
-	displayEndpoint := endpoint
-	if len(displayEndpoint) > 60 {
-		displayEndpoint = displayEndpoint[:60] + "..."
-	}
-	fmt.Printf("Endpoint: %s\n", displayEndpoint)
+	fmt.Println("Order Book Streaming Examples")
+	fmt.Println("============================================================")
+
+	// ========================================================================
+	// L2 ORDER BOOK (Aggregated Price Levels)
+	// ========================================================================
 	fmt.Println()
+	fmt.Println("============================================================")
+	fmt.Println("L2 ORDER BOOK (Aggregated Price Levels)")
+	fmt.Println("============================================================")
 
-	// Track update counts
-	updateCount := 0
+	l2Count := 0
 
-	// Create stream
-	stream := hyperliquid.NewStream(endpoint, &hyperliquid.StreamConfig{
-		Reconnect:    true,
-		PingInterval: 30,
-		OnError: func(err error) {
-			fmt.Printf("[ERROR] %v\n", err)
-		},
-		OnClose: func() {
-			fmt.Println("[CLOSED] Stream stopped")
-		},
-		OnStateChange: func(state hyperliquid.ConnectionState) {
-			fmt.Printf("[STATE] %s\n", state)
-		},
+	l2Stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+		Secure:    true,
+		Reconnect: false,
 	})
 
-	// Subscribe to book updates (snapshots)
-	stream.BookUpdates([]string{"BTC", "ETH", "SOL"}, func(data map[string]any) {
-		bookData, ok := data["data"].(map[string]any)
-		if !ok {
-			return
-		}
-
-		updateCount++
-		coin, _ := bookData["coin"].(string)
-		levels, ok := bookData["levels"].([]any)
-		if !ok || len(levels) < 2 {
-			return
-		}
-
-		bids, _ := levels[0].([]any)
-		asks, _ := levels[1].([]any)
+	l2Stream.L2Book("BTC", func(data map[string]any) {
+		l2Count++
+		bids, _ := data["bids"].([][]any)
+		asks, _ := data["asks"].([][]any)
 
 		if len(bids) > 0 && len(asks) > 0 {
-			bestBid := bids[0].(map[string]any)
-			bestAsk := asks[0].(map[string]any)
+			bidPx := parseFloat(bids[0][0])
+			askPx := parseFloat(asks[0][0])
+			spread := askPx - bidPx
+			mid := (bidPx + askPx) / 2
+			spreadBps := spread / mid * 10000
 
-			bidPx, _ := bestBid["px"].(string)
-			askPx, _ := bestAsk["px"].(string)
-			bidPxFloat, _ := strconv.ParseFloat(bidPx, 64)
-			askPxFloat, _ := strconv.ParseFloat(askPx, 64)
-			midPrice := (bidPxFloat + askPxFloat) / 2
-
-			fmt.Printf("[BOOK #%d] %s: Mid $%.2f | Bid $%.2f | Ask $%.2f | Levels: %d/%d\n",
-				updateCount, coin, midPrice, bidPxFloat, askPxFloat, len(bids), len(asks))
+			fmt.Printf("[%s] BTC L2 Update #%d\n", timestamp(), l2Count)
+			fmt.Printf("  Best Bid: $%.0f\n", bidPx)
+			fmt.Printf("  Best Ask: $%.0f\n", askPx)
+			fmt.Printf("  Spread: $%.2f (%.2f bps)\n", spread, spreadBps)
+			fmt.Printf("  Depth: %d bid levels, %d ask levels\n", len(bids), len(asks))
 		}
-	})
-	fmt.Println("Subscribed to: BTC, ETH, SOL orderbook")
 
-	// Handle Ctrl+C gracefully
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		if l2Count >= 3 {
+			fmt.Printf("\nReceived %d L2 updates.\n", l2Count)
+		}
+	}, hyperliquid.L2BookNLevels(10))
 
-	go func() {
-		<-sigChan
-		fmt.Println("\nShutting down gracefully...")
-		fmt.Printf("Total updates received: %d\n", updateCount)
-		stream.Stop()
-		os.Exit(0)
-	}()
-
-	fmt.Println()
-	fmt.Println("Streaming orderbook snapshots... Press Ctrl+C to stop")
-	fmt.Println("--------------------------------------------------")
-
-	// Start the stream
-	if err := stream.Start(); err != nil {
-		fmt.Printf("Failed to start stream: %v\n", err)
+	if err := l2Stream.Start(); err != nil {
+		fmt.Printf("Start error: %v\n", err)
 		return
 	}
 
-	// Keep running until signal
-	select {}
+	start := time.Now()
+	for l2Count < 3 && time.Since(start) < 15*time.Second {
+		time.Sleep(100 * time.Millisecond)
+	}
+	l2Stream.Stop()
+
+	// ========================================================================
+	// L4 ORDER BOOK (Individual Orders)
+	// ========================================================================
+	fmt.Println()
+	fmt.Println("============================================================")
+	fmt.Println("L4 ORDER BOOK (Individual Orders)")
+	fmt.Println("============================================================")
+
+	l4Count := 0
+
+	l4Stream := hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
+		Secure:    true,
+		Reconnect: false,
+	})
+
+	l4Stream.L4Book("ETH", func(data map[string]any) {
+		l4Count++
+		isSnapshot, _ := data["snapshot"].(bool)
+
+		if isSnapshot {
+			bids, _ := data["bids"].([]any)
+			asks, _ := data["asks"].([]any)
+			fmt.Printf("[%s] ETH L4 Snapshot\n", timestamp())
+			fmt.Printf("  %d individual bid orders\n", len(bids))
+			fmt.Printf("  %d individual ask orders\n", len(asks))
+		} else {
+			height, _ := data["height"].(int64)
+			fmt.Printf("[%s] ETH L4 Diff (height: %d)\n", timestamp(), height)
+		}
+
+		if l4Count >= 3 {
+			fmt.Printf("\nReceived %d L4 updates.\n", l4Count)
+		}
+	})
+
+	if err := l4Stream.Start(); err != nil {
+		fmt.Printf("Start error: %v\n", err)
+		return
+	}
+
+	start = time.Now()
+	for l4Count < 3 && time.Since(start) < 15*time.Second {
+		time.Sleep(100 * time.Millisecond)
+	}
+	l4Stream.Stop()
+
+	fmt.Println()
+	fmt.Println("============================================================")
+	fmt.Println("Done!")
+}
+
+func timestamp() string {
+	return time.Now().Format("15:04:05.000")
+}
+
+func parseFloat(v any) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	default:
+		return 0
+	}
 }

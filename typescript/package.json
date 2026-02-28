@@ -1,19 +1,19 @@
 {
-  "name": "hyperliquid-sdk",
+  "name": "@quicknode/hyperliquid-sdk",
   "version": "0.1.0",
   "description": "Community SDK for Hyperliquid. One line to place orders, zero ceremony. HyperCore, HyperEVM, WebSocket and gRPC streams. Not affiliated with Hyperliquid Foundation.",
-  "main": "dist/cjs/index.js",
-  "module": "dist/esm/index.js",
-  "types": "dist/esm/index.d.ts",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/esm/index.d.ts",
-        "default": "./dist/esm/index.js"
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
       },
       "require": {
-        "types": "./dist/cjs/index.d.ts",
-        "default": "./dist/cjs/index.js"
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
       }
     }
   },
@@ -25,6 +25,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
+    "example": "tsx --tsconfig tsconfig.examples.json",
+    "test:examples": "for f in examples/*.ts; do echo \"Testing $(basename $f)...\"; tsx --tsconfig tsconfig.examples.json \"$f\" --help 2>/dev/null || timeout 2 tsx --tsconfig tsconfig.examples.json \"$f\" 2>&1 | head -5; done",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -65,6 +67,7 @@
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",
     "tsup": "^8.0.1",
+    "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
