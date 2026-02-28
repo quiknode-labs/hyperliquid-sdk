@@ -22,6 +22,9 @@ wheels/
 .venv/
 venv/
 ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # TypeScript/Node
 node_modules/

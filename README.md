@@ -6,11 +6,12 @@
 
 ## Available SDKs
 
-| Language | Package | Status |
-|----------|---------|--------|
-| [Python](./python/) | `pip install hyperliquid-sdk` | Available |
-| [TypeScript](./typescript/) | `npm install hyperliquid-sdk` | Coming soon |
-| [Rust](./rust/) | `cargo add hyperliquid-sdk` | Coming soon |
+| Language | Package | Registry |
+|----------|---------|----------|
+| [Python](./python/) | `pip install hyperliquid-sdk` | [PyPI](https://pypi.org/project/hyperliquid-sdk/) |
+| [TypeScript](./typescript/) | `npm install @quicknode/hyperliquid-sdk` | [npm](https://www.npmjs.com/package/@quicknode/hyperliquid-sdk) |
+| [Rust](./rust/) | `cargo add quicknode-hyperliquid-sdk` | [crates.io](https://crates.io/crates/quicknode-hyperliquid-sdk) |
+| [Go](./go/) | `go get github.com/quiknode-labs/hyperliquid-sdk/go` | [GitHub](https://github.com/quiknode-labs/hyperliquid-sdk) |
 
 ## Quick Example
 
@@ -18,24 +19,32 @@
 ```python
 from hyperliquid_sdk import HyperliquidSDK
 
-sdk = HyperliquidSDK()
+sdk = HyperliquidSDK(endpoint)
 order = sdk.market_buy("BTC", notional=100)  # Buy $100 of BTC
 ```
 
-### TypeScript (Coming Soon)
+### TypeScript
 ```typescript
-import { HyperliquidSDK } from 'hyperliquid-sdk';
+import { HyperliquidSDK } from '@quicknode/hyperliquid-sdk';
 
-const sdk = new HyperliquidSDK();
+const sdk = new HyperliquidSDK(endpoint);
 const order = await sdk.marketBuy("BTC", { notional: 100 });
 ```
 
-### Rust (Coming Soon)
+### Rust
 ```rust
 use hyperliquid_sdk::HyperliquidSDK;
 
-let sdk = HyperliquidSDK::new()?;
-let order = sdk.market_buy("BTC").notional(100.0).send().await?;
+let sdk = HyperliquidSDK::new().endpoint(endpoint).build().await?;
+let order = sdk.market_buy("BTC").await.notional(100.0).await?;
+```
+
+### Go
+```go
+import "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid"
+
+sdk, _ := hyperliquid.New(endpoint, hyperliquid.WithPrivateKey(privateKey))
+order, _ := sdk.MarketBuy("BTC", hyperliquid.WithNotional(100))
 ```
 
 ## Features
