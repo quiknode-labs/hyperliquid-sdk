@@ -559,65 +559,69 @@ sdk.evm_stream() # EVM WebSocket (eth_subscribe)
 
 ## Examples
 
-See the [examples](https://github.com/quiknode-labs/hyperliquid-sdk/tree/main/python/examples) directory for complete, runnable examples:
+See the `examples/` directory for complete, runnable examples:
 
 **Trading:**
-- `market_order.py` — Place market orders
-- `place_order.py` — Place limit orders
-- `modify_order.py` — Modify existing orders
-- `cancel_order.py` — Cancel orders
-- `cancel_by_cloid.py` — Cancel by client order ID
-- `cancel_all.py` — Cancel all orders
-- `close_position.py` — Close positions
-- `fluent_builder.py` — Fluent order builder
-- `roundtrip.py` — Buy and sell round trip
-- `hip3_order.py` — HIP-3 DEX orders
+- [market_order.py](examples/market_order.py) — Place market orders
+- [place_order.py](examples/place_order.py) — Place limit orders
+- [modify_order.py](examples/modify_order.py) — Modify existing orders
+- [cancel_order.py](examples/cancel_order.py) — Cancel orders
+- [cancel_by_cloid.py](examples/cancel_by_cloid.py) — Cancel by client order ID
+- [cancel_all.py](examples/cancel_all.py) — Cancel all orders
+- [close_position.py](examples/close_position.py) — Close positions
+- [fluent_builder.py](examples/fluent_builder.py) — Fluent order builder
+- [roundtrip.py](examples/roundtrip.py) — Buy and sell round trip
+- [hip3_order.py](examples/hip3_order.py) — HIP-3 DEX orders
+- [schedule_cancel.py](examples/schedule_cancel.py) — Dead-man's switch / scheduled cancel
 
 **Trigger Orders:**
-- `trigger_orders.py` — Stop loss and take profit orders
+- [trigger_orders.py](examples/trigger_orders.py) — Stop loss and take profit orders
 
 **TWAP:**
-- `twap.py` — Time-weighted average price orders
+- [twap.py](examples/twap.py) — Time-weighted average price orders
 
 **Leverage & Margin:**
-- `leverage.py` — Update leverage
-- `isolated_margin.py` — Isolated margin management
+- [leverage.py](examples/leverage.py) — Update leverage
+- [isolated_margin.py](examples/isolated_margin.py) — Isolated margin management
 
 **Transfers & Withdrawals:**
-- `transfers.py` — USD and spot transfers
-- `withdraw.py` — Withdraw to L1 (Arbitrum)
+- [transfers.py](examples/transfers.py) — USD and spot transfers
+- [withdraw.py](examples/withdraw.py) — Withdraw to L1 (Arbitrum)
 
 **Vaults:**
-- `vaults.py` — Vault deposits and withdrawals
+- [vaults.py](examples/vaults.py) — Vault deposits and withdrawals
 
 **Staking:**
-- `staking.py` — Stake, unstake, and delegate
+- [staking.py](examples/staking.py) — Stake, unstake, and delegate
 
 **Approval:**
-- `approve.py` — Builder fee approval
-- `builder_fee.py` — Check approval status
+- [approve.py](examples/approve.py) — Builder fee approval
+- [builder_fee.py](examples/builder_fee.py) — Check approval status
 
 **Market Info:**
-- `markets.py` — List markets and mid prices
-- `open_orders.py` — Query open orders
-- `preflight.py` — Validate orders before sending
+- [markets.py](examples/markets.py) — List markets and mid prices
+- [open_orders.py](examples/open_orders.py) — Query open orders
+- [preflight.py](examples/preflight.py) — Validate orders before sending
 
 **Data APIs:**
-- `info_market_data.py` — Market data and order book
-- `info_user_data.py` — User positions and orders
-- `hypercore_blocks.py` — Block and trade data
-- `evm_basics.py` — EVM chain interaction
+- [info_market_data.py](examples/info_market_data.py) — Market data and order book
+- [info_user_data.py](examples/info_user_data.py) — User positions and orders
+- [info_candles.py](examples/info_candles.py) — Candlestick data
+- [info_vaults.py](examples/info_vaults.py) — Vault information
+- [info_batch_queries.py](examples/info_batch_queries.py) — Batch queries
+- [hypercore_blocks.py](examples/hypercore_blocks.py) — Block and trade data
+- [evm_basics.py](examples/evm_basics.py) — EVM chain interaction
 
 **Streaming:**
-- `stream_trades.py` — WebSocket streaming basics
-- `stream_grpc.py` — gRPC streaming basics
-- `stream_l4_book.py` — L4 order book (individual orders)
-- `stream_l2_book.py` — L2 order book
-- `stream_orderbook.py` — L2 vs L4 comparison
-- `stream_websocket_all.py` — Complete WebSocket reference (20+ types)
+- [stream_trades.py](examples/stream_trades.py) — WebSocket streaming basics
+- [stream_grpc.py](examples/stream_grpc.py) — gRPC streaming basics
+- [stream_l4_book.py](examples/stream_l4_book.py) — **L4 order book (individual orders) — CRITICAL**
+- [stream_l2_book.py](examples/stream_l2_book.py) — L2 order book
+- [stream_orderbook.py](examples/stream_orderbook.py) — L2 vs L4 comparison
+- [stream_websocket_all.py](examples/stream_websocket_all.py) — Complete WebSocket reference (20+ types)
 
 **Complete Demo:**
-- `full_demo.py` — All features in one file
+- [full_demo.py](examples/full_demo.py) — All features in one file
 
 ---
 

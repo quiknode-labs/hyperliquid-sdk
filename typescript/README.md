@@ -566,68 +566,69 @@ sdk.grpc      // gRPC streaming
 
 ## Examples
 
-See the [examples](https://github.com/quiknode-labs/hyperliquid-sdk/tree/main/typescript/examples) directory for complete, runnable examples:
+See the `examples/` directory for complete, runnable examples:
 
 **Trading:**
-- `market_order.ts` — Place market orders
-- `place_order.ts` — Place limit orders
-- `modify_order.ts` — Modify existing orders
-- `cancel_order.ts` — Cancel orders
-- `cancel_by_cloid.ts` — Cancel by client order ID
-- `cancel_all.ts` — Cancel all orders
-- `close_position.ts` — Close positions
-- `fluent_builder.ts` — Fluent order builder
-- `roundtrip.ts` — Buy and sell round trip
-- `hip3_order.ts` — HIP-3 DEX orders
+- [market_order.ts](examples/market_order.ts) — Place market orders
+- [place_order.ts](examples/place_order.ts) — Place limit orders
+- [modify_order.ts](examples/modify_order.ts) — Modify existing orders
+- [cancel_order.ts](examples/cancel_order.ts) — Cancel orders
+- [cancel_by_cloid.ts](examples/cancel_by_cloid.ts) — Cancel by client order ID
+- [cancel_all.ts](examples/cancel_all.ts) — Cancel all orders
+- [close_position.ts](examples/close_position.ts) — Close positions
+- [fluent_builder.ts](examples/fluent_builder.ts) — Fluent order builder
+- [roundtrip.ts](examples/roundtrip.ts) — Buy and sell round trip
+- [hip3_order.ts](examples/hip3_order.ts) — HIP-3 DEX orders
+- [schedule_cancel.ts](examples/schedule_cancel.ts) — Dead-man's switch / scheduled cancel
 
 **Trigger Orders:**
-- `trigger_orders.ts` — Stop loss and take profit orders
+- [trigger_orders.ts](examples/trigger_orders.ts) — Stop loss and take profit orders
 
 **TWAP:**
-- `twap.ts` — Time-weighted average price orders
+- [twap.ts](examples/twap.ts) — Time-weighted average price orders
 
 **Leverage & Margin:**
-- `leverage.ts` — Update leverage
-- `isolated_margin.ts` — Isolated margin management
+- [leverage.ts](examples/leverage.ts) — Update leverage
+- [isolated_margin.ts](examples/isolated_margin.ts) — Isolated margin management
 
 **Transfers & Withdrawals:**
-- `transfers.ts` — USD and spot transfers
-- `withdraw.ts` — Withdraw to L1 (Arbitrum)
+- [transfers.ts](examples/transfers.ts) — USD and spot transfers
+- [withdraw.ts](examples/withdraw.ts) — Withdraw to L1 (Arbitrum)
 
 **Vaults:**
-- `vaults.ts` — Vault deposits and withdrawals
+- [vaults.ts](examples/vaults.ts) — Vault deposits and withdrawals
 
 **Staking:**
-- `staking.ts` — Stake, unstake, and delegate
+- [staking.ts](examples/staking.ts) — Stake, unstake, and delegate
 
 **Approval:**
-- `approve.ts` — Builder fee approval
-- `builder_fee.ts` — Check approval status
+- [approve.ts](examples/approve.ts) — Builder fee approval
+- [builder_fee.ts](examples/builder_fee.ts) — Check approval status
 
 **Market Info:**
-- `markets.ts` — List markets and mid prices
-- `open_orders.ts` — Query open orders
-- `preflight.ts` — Validate orders before sending
+- [markets.ts](examples/markets.ts) — List markets and mid prices
+- [open_orders.ts](examples/open_orders.ts) — Query open orders
+- [preflight.ts](examples/preflight.ts) — Validate orders before sending
 
 **Data APIs:**
-- `info_market_data.ts` — Market data and order book
-- `info_user_data.ts` — User positions and orders
-- `info_candles.ts` — Candlestick data
-- `info_vaults.ts` — Vault information
-- `info_batch_queries.ts` — Batch queries
-- `hypercore_blocks.ts` — Block and trade data
-- `evm_basics.ts` — EVM chain interaction
+- [info_market_data.ts](examples/info_market_data.ts) — Market data and order book
+- [info_user_data.ts](examples/info_user_data.ts) — User positions and orders
+- [info_candles.ts](examples/info_candles.ts) — Candlestick data
+- [info_vaults.ts](examples/info_vaults.ts) — Vault information
+- [info_batch_queries.ts](examples/info_batch_queries.ts) — Batch queries
+- [hypercore_blocks.ts](examples/hypercore_blocks.ts) — Block and trade data
+- [evm_basics.ts](examples/evm_basics.ts) — EVM chain interaction
 
 **Streaming:**
-- `stream_trades.ts` — WebSocket streaming basics
-- `stream_grpc.ts` — gRPC streaming basics
-- `stream_l4_book.ts` — L4 order book (individual orders)
-- `stream_l2_book.ts` — L2 order book
-- `stream_orderbook.ts` — L2 vs L4 comparison
-- `stream_websocket_all.ts` — Complete WebSocket reference (20+ types)
+- [stream_trades.ts](examples/stream_trades.ts) — WebSocket streaming basics
+- [stream_grpc.ts](examples/stream_grpc.ts) — gRPC streaming basics
+- [stream_l4_book.ts](examples/stream_l4_book.ts) — **L4 order book (individual orders) — CRITICAL**
+- [stream_l2_book.ts](examples/stream_l2_book.ts) — L2 order book
+- [stream_orderbook.ts](examples/stream_orderbook.ts) — L2 vs L4 comparison
+- [stream_websocket_all.ts](examples/stream_websocket_all.ts) — Complete WebSocket reference (20+ types)
 
 **Complete Demo:**
-- `full_demo.ts` — All features in one file
+- [full_demo.ts](examples/full_demo.ts) — All features in one file
 
 ---
 

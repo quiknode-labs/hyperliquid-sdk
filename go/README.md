@@ -768,6 +768,7 @@ See the `examples/` directory for complete, runnable examples:
 - [fluent_builder](examples/fluent_builder/) — Fluent order builder
 - [roundtrip](examples/roundtrip/) — Buy and sell round trip
 - [hip3_order](examples/hip3_order/) — HIP-3 DEX orders
+- [schedule_cancel](examples/schedule_cancel/) — Dead-man's switch / scheduled cancel
 
 **Trigger Orders:**
 - [trigger_orders](examples/trigger_orders/) — Stop loss and take profit orders
@@ -801,6 +802,9 @@ See the `examples/` directory for complete, runnable examples:
 **Data APIs:**
 - [info_market_data](examples/info_market_data/) — Market data and order book
 - [info_user_data](examples/info_user_data/) — User positions and orders
+- [info_candles](examples/info_candles/) — Candlestick data
+- [info_vaults](examples/info_vaults/) — Vault information
+- [info_batch_queries](examples/info_batch_queries/) — Batch queries
 - [hypercore_blocks](examples/hypercore_blocks/) — Block and trade data
 - [evm_basics](examples/evm_basics/) — EVM chain interaction
 

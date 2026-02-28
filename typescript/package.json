@@ -1,6 +1,6 @@
 {
   "name": "@quicknode/hyperliquid-sdk",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Community SDK for Hyperliquid. One line to place orders, zero ceremony. HyperCore, HyperEVM, WebSocket and gRPC streams. Not affiliated with Hyperliquid Foundation.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
