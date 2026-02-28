@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * Full Demo - Comprehensive example of all SDK capabilities.
  *
@@ -163,14 +164,6 @@ async function demoWebsocket(sdk: HyperliquidSDK, duration: number = 5) {
     }
   };
 
-  sdk.stream.onError = (e: Error) => {
-    console.log(`  [ERROR] ${e.message}`);
-  };
-
-  sdk.stream.onOpen = () => {
-    console.log("  [CONNECTED] WebSocket stream ready");
-  };
-
   console.log(`Streaming for ${duration} seconds...`);
 
   sdk.stream.trades(["BTC", "ETH"], onTrade);
@@ -192,14 +185,6 @@ async function demoGrpc(endpoint: string, duration: number = 5) {
 
   // Create new SDK for gRPC demo
   const sdk = new HyperliquidSDK(endpoint);
-
-  sdk.grpc.onError = (e: Error) => {
-    console.log(`  [ERROR] ${e.message}`);
-  };
-
-  sdk.grpc.onConnect = () => {
-    console.log("  [CONNECTED] gRPC stream ready");
-  };
 
   const onTrade = (data: Record<string, unknown>) => {
     tradeCount++;

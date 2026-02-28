@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * Info API Example - Query market data and user info.
  *

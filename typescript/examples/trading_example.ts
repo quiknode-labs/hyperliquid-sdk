@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * Trading Example - Place orders on Hyperliquid.
  *

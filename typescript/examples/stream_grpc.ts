@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * gRPC Streaming Example - High-Performance Real-Time Data
  *

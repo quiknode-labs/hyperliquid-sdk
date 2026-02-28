@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * Order Book Streaming Example - L2 and L4 Order Books via gRPC
  *

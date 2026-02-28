@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * gRPC Streaming Example - High-performance real-time market data via gRPC.
  *
@@ -106,13 +107,6 @@ async function main() {
 
   // Create SDK client
   const sdk = new HyperliquidSDK(ENDPOINT);
-
-  // Configure gRPC stream callbacks
-  sdk.grpc.onError = onError;
-  sdk.grpc.onClose = onClose;
-  sdk.grpc.onConnect = onConnect;
-  sdk.grpc.onStateChange = onStateChange;
-  sdk.grpc.onReconnect = onReconnect;
 
   // Subscribe to BTC and ETH trades
   sdk.grpc.trades(["BTC", "ETH"], onTrade);

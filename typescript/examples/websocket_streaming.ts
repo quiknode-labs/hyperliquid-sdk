@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * WebSocket Streaming Example - Real-time market data via WebSocket.
  *

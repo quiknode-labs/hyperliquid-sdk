@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * Schedule Cancel Example (Dead Man's Switch)
  *

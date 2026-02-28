@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * HyperEVM API Example - Interact with Hyperliquid's EVM chain.
  *

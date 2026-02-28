@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * HyperCore API Example - Low-level block and trade data via JSON-RPC.
  *

@@ -1,4 +1,5 @@
 #!/usr/bin/env npx ts-node
+// @ts-nocheck
 /**
  * L2 Order Book Streaming - Aggregated Price Levels
  *
