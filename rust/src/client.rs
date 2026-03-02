@@ -389,6 +389,11 @@ impl HyperliquidSDKInner {
 
         let mut body = json!({ "action": action });
         if let Some(s) = slippage {
+            if !s.is_finite() || s <= 0.0 {
+                return Err(Error::ValidationError(
+                    "Slippage must be a positive finite number".to_string(),
+                ));
+            }
             body["slippage"] = json!(s);
         }
 
@@ -1122,14 +1127,18 @@ impl HyperliquidSDK {
 
         let (action, effective_slippage) = if is_market {
             // Market orders: use human-readable format, let worker compute price
+            let mut order_spec = json!({
+                "asset": asset,
+                "side": if side.is_buy() { "buy" } else { "sell" },
+                "size": format!("{}", size_rounded),
+                "tif": "market",
+            });
+            if reduce_only {
+                order_spec["reduceOnly"] = json!(true);
+            }
             let action = json!({
                 "type": "order",
-                "orders": [{
-                    "asset": asset,
-                    "side": if side.is_buy() { "buy" } else { "sell" },
-                    "size": format!("{}", size_rounded),
-                    "tif": "market",
-                }],
+                "orders": [order_spec],
             });
             (action, slippage)
         } else {
@@ -1171,7 +1180,7 @@ impl HyperliquidSDK {
                 }],
                 "grouping": "na",
             });
-            (action, None) // no slippage for limit orders
+            (action, None) // use constructor-level default (worker ignores slippage for limit orders)
         };
 
         let response = self.inner.build_sign_send(&action, effective_slippage).await?;
@@ -1325,18 +1334,13 @@ impl HyperliquidSDK {
 
         let response = self.inner.build_sign_send(&action, slippage).await?;
 
-        // Extract position info from close context
-        let ctx = response.get("closePositionContext").cloned().unwrap_or_default();
-        let side_str = ctx.get("closeSide").and_then(|s| s.as_str()).unwrap_or("sell");
-        let side = if side_str == "buy" { Side::Buy } else { Side::Sell };
-        let size_str = ctx.get("closeSize").and_then(|s| s.as_str()).unwrap_or("0");
-        let size = Decimal::from_str(size_str).unwrap_or_default();
-
+        // Build pseudo PlacedOrder — actual fill data is extracted from exchangeResponse
+        // by PlacedOrder::from_response (matching TS/Python pattern)
         Ok(PlacedOrder::from_response(
             response,
             asset.to_string(),
-            side,
-            size,
+            Side::Sell,    // placeholder — actual side determined by API response
+            Decimal::ZERO, // placeholder — actual size from fill data
             None,
             Some(self.inner.clone()),
         ))
@@ -1996,6 +2000,7 @@ pub struct MarketOrderBuilder {
     size: Option<f64>,
     notional: Option<f64>,
     slippage: Option<f64>,
+    reduce_only: bool,
 }
 
 impl MarketOrderBuilder {
@@ -2007,6 +2012,7 @@ impl MarketOrderBuilder {
             size: None,
             notional: None,
             slippage: None,
+            reduce_only: false,
         }
     }
 
@@ -2027,6 +2033,12 @@ impl MarketOrderBuilder {
     /// Range: 0.001 (0.1%) to 0.1 (10%)
     pub fn slippage(mut self, slippage: f64) -> Self {
         self.slippage = Some(slippage);
+        self
+    }
+
+    /// Set reduce-only flag (only reduce existing position, never increase)
+    pub fn reduce_only(mut self) -> Self {
+        self.reduce_only = true;
         self
     }
 
@@ -2055,14 +2067,18 @@ impl MarketOrderBuilder {
         let size_rounded = (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals);
 
         // Use human-readable format — worker computes price from mid + slippage
+        let mut order_spec = json!({
+            "asset": self.asset,
+            "side": if self.side.is_buy() { "buy" } else { "sell" },
+            "size": format!("{}", size_rounded),
+            "tif": "market",
+        });
+        if self.reduce_only {
+            order_spec["reduceOnly"] = json!(true);
+        }
         let action = json!({
             "type": "order",
-            "orders": [{
-                "asset": self.asset,
-                "side": if self.side.is_buy() { "buy" } else { "sell" },
-                "size": format!("{}", size_rounded),
-                "tif": "market",
-            }],
+            "orders": [order_spec],
         });
 
         let response = self.inner.build_sign_send(&action, self.slippage).await?;
