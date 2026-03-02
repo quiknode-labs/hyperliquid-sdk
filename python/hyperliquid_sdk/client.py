@@ -384,6 +384,7 @@ class HyperliquidSDK:
         tif: Union[str, TIF] = TIF.IOC,
         reduce_only: bool = False,
         grouping: OrderGrouping = OrderGrouping.NA,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """
         Place a buy order.
@@ -396,6 +397,8 @@ class HyperliquidSDK:
             tif: Time in force ("ioc", "gtc", "alo", "market")
             reduce_only: Close position only, no new exposure
             grouping: Order grouping for TP/SL attachment
+            slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
+                      Overrides the SDK default for this call only.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -403,6 +406,7 @@ class HyperliquidSDK:
         Examples:
             sdk.buy("BTC", size=0.001, price=67000)
             sdk.buy("ETH", notional=100, tif="market")
+            sdk.buy("ETH", notional=100, tif="market", slippage=0.05)
         """
         return self._place_order(
             asset=asset,
@@ -413,6 +417,7 @@ class HyperliquidSDK:
             tif=tif,
             reduce_only=reduce_only,
             grouping=grouping,
+            slippage=slippage,
         )
 
     def sell(
@@ -425,6 +430,7 @@ class HyperliquidSDK:
         tif: Union[str, TIF] = TIF.IOC,
         reduce_only: bool = False,
         grouping: OrderGrouping = OrderGrouping.NA,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """
         Place a sell order.
@@ -437,6 +443,8 @@ class HyperliquidSDK:
             tif: Time in force ("ioc", "gtc", "alo", "market")
             reduce_only: Close position only, no new exposure
             grouping: Order grouping for TP/SL attachment
+            slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
+                      Overrides the SDK default for this call only.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -450,6 +458,7 @@ class HyperliquidSDK:
             tif=tif,
             reduce_only=reduce_only,
             grouping=grouping,
+            slippage=slippage,
         )
 
     # Aliases for perp traders
@@ -462,6 +471,7 @@ class HyperliquidSDK:
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """
         Market buy — executes immediately at best available price.
@@ -470,12 +480,15 @@ class HyperliquidSDK:
             asset: Asset to buy
             size: Size in asset units
             notional: Size in USD (alternative to size)
+            slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
+                      Default: SDK-level setting (3%). Range: 0.1%-10%.
 
         Example:
             sdk.market_buy("BTC", size=0.001)
             sdk.market_buy("ETH", notional=100)  # $100 worth
+            sdk.market_buy("BTC", size=0.001, slippage=0.05)  # 5% slippage
         """
-        return self.buy(asset, size=size, notional=notional, tif="market")
+        return self.buy(asset, size=size, notional=notional, tif="market", slippage=slippage)
 
     def market_sell(
         self,
@@ -483,6 +496,7 @@ class HyperliquidSDK:
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """
         Market sell — executes immediately at best available price.
@@ -491,8 +505,10 @@ class HyperliquidSDK:
             asset: Asset to sell
             size: Size in asset units
             notional: Size in USD (alternative to size)
+            slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
+                      Default: SDK-level setting (3%). Range: 0.1%-10%.
         """
-        return self.sell(asset, size=size, notional=notional, tif="market")
+        return self.sell(asset, size=size, notional=notional, tif="market", slippage=slippage)
 
     def order(self, order: Order) -> PlacedOrder:
         """
@@ -1518,7 +1534,11 @@ class HyperliquidSDK:
     # POSITION MANAGEMENT
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def close_position(self, asset: str) -> PlacedOrder:
+    def close_position(
+        self,
+        asset: str,
+        slippage: Optional[float] = None,
+    ) -> PlacedOrder:
         """
         Close an open position completely.
 
@@ -1526,12 +1546,15 @@ class HyperliquidSDK:
 
         Args:
             asset: Asset to close ("BTC", "ETH")
+            slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
+                      Default: SDK-level setting (3%). Range: 0.1%-10%.
 
         Returns:
             PlacedOrder for the closing trade
 
         Example:
             sdk.close_position("BTC")
+            sdk.close_position("BTC", slippage=0.05)  # 5% slippage
         """
         action = {
             "type": "closePosition",
@@ -1539,7 +1562,7 @@ class HyperliquidSDK:
             "user": self.address,
         }
 
-        result = self._build_sign_send(action)
+        result = self._build_sign_send(action, slippage=slippage)
 
         # Build a pseudo PlacedOrder from the response
         order = Order.sell(asset)  # Direction determined by API
@@ -2043,6 +2066,7 @@ class HyperliquidSDK:
         tif: Union[str, TIF],
         reduce_only: bool,
         grouping: OrderGrouping = OrderGrouping.NA,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """Internal order placement logic."""
         # Build order
@@ -2080,19 +2104,20 @@ class HyperliquidSDK:
         if reduce_only:
             order._reduce_only = True
 
-        return self._execute_order(order, grouping)
+        return self._execute_order(order, grouping, slippage=slippage)
 
     def _execute_order(
         self,
         order: Order,
         grouping: OrderGrouping = OrderGrouping.NA,
+        slippage: Optional[float] = None,
     ) -> PlacedOrder:
         """Execute an order through build→sign→send."""
         action = order.to_action()
         # Add grouping if specified
         if grouping != OrderGrouping.NA:
             action["grouping"] = grouping.value
-        result = self._build_sign_send(action)
+        result = self._build_sign_send(action, slippage=slippage)
         return PlacedOrder.from_response(
             result.get("exchangeResponse", {}),
             order,
@@ -2107,18 +2132,19 @@ class HyperliquidSDK:
                 "Pass private_key to HyperliquidSDK() or set PRIVATE_KEY env var."
             )
 
-    def _build_sign_send(self, action: dict) -> dict:
+    def _build_sign_send(self, action: dict, slippage: Optional[float] = None) -> dict:
         """
         The magic ceremony — build, sign, send in one call.
 
-        1. Build: POST action to get hash
+        1. Build: POST action to get hash (with slippage for market orders)
         2. Sign: Sign the hash locally
         3. Send: POST action + nonce + signature
         """
         self._require_wallet()
 
         # Step 1: Build
-        build_result = self._exchange({"action": action})
+        effective_slippage = slippage if slippage is not None else self._slippage
+        build_result = self._exchange({"action": action, "slippage": effective_slippage})
 
         if "hash" not in build_result:
             raise BuildError(

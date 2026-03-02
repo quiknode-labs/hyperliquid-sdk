@@ -315,6 +315,7 @@ type orderParams struct {
 	tif        TIF
 	reduceOnly bool
 	grouping   OrderGrouping
+	slippage   *float64
 }
 
 // WithSize sets the order size in asset units.
@@ -356,6 +357,15 @@ func WithReduceOnly() OrderOption {
 func WithGrouping(grouping OrderGrouping) OrderOption {
 	return func(p *orderParams) {
 		p.grouping = grouping
+	}
+}
+
+// WithOrderSlippage overrides the default slippage for this order.
+// Slippage is expressed as a fraction (e.g. 0.05 = 5%).
+// Only applies to market orders; ignored for limit orders.
+func WithOrderSlippage(slippage float64) OrderOption {
+	return func(p *orderParams) {
+		p.slippage = &slippage
 	}
 }
 
@@ -409,7 +419,7 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		order.SetSize(NewDecimal(size).String())
 	}
 
-	return s.executeOrder(order, OrderGroupingNA)
+	return s.executeOrder(order, OrderGroupingNA, nil)
 }
 
 func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedOrder, error) {
@@ -450,16 +460,16 @@ func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedO
 	}
 	order.reduceOnly = params.reduceOnly
 
-	return s.executeOrder(order, params.grouping)
+	return s.executeOrder(order, params.grouping, params.slippage)
 }
 
-func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping) (*PlacedOrder, error) {
+func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage *float64) (*PlacedOrder, error) {
 	action := order.ToAction()
 	if grouping != OrderGroupingNA {
 		action["grouping"] = string(grouping)
 	}
 
-	result, err := s.buildSignSend(action)
+	result, err := s.buildSignSend(action, slippage)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +545,7 @@ func (s *SDK) executeTriggerOrder(order *TriggerOrderBuilder, grouping OrderGrou
 	}
 
 	action := order.ToAction(grouping)
-	result, err := s.buildSignSend(action)
+	result, err := s.buildSignSend(action, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -569,7 +579,7 @@ func (s *SDK) Cancel(oid int64, asset string) (map[string]any, error) {
 		},
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // CancelAll cancels all open orders, optionally filtered by asset.
@@ -606,7 +616,7 @@ func (s *SDK) CancelAll(asset string) (map[string]any, error) {
 		}
 	}
 
-	return s.buildSignSend(cancelAction)
+	return s.buildSignSend(cancelAction, nil)
 }
 
 // CancelByCloid cancels an order by client order ID.
@@ -623,7 +633,7 @@ func (s *SDK) CancelByCloid(cloid string, asset string) (map[string]any, error) 
 		},
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ScheduleCancel schedules cancellation of all orders after a delay.
@@ -633,7 +643,7 @@ func (s *SDK) ScheduleCancel(timeMs int64) (map[string]any, error) {
 	if timeMs > 0 {
 		action["time"] = timeMs
 	}
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // Modify modifies an existing order.
@@ -679,7 +689,7 @@ func (s *SDK) Modify(oid int64, asset, side, price, size string, opts ...ModifyO
 		},
 	}
 
-	result, err := s.buildSignSend(action)
+	result, err := s.buildSignSend(action, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -714,9 +724,29 @@ func ModifyWithReduceOnly() ModifyOption {
 	}
 }
 
+// CloseOption is an option for closing a position.
+type CloseOption func(*closeParams)
+
+type closeParams struct {
+	slippage *float64
+}
+
+// CloseWithSlippage overrides the default slippage for this close.
+// Slippage is expressed as a fraction (e.g. 0.05 = 5%).
+func CloseWithSlippage(slippage float64) CloseOption {
+	return func(p *closeParams) {
+		p.slippage = &slippage
+	}
+}
+
 // ClosePosition closes an open position completely.
-func (s *SDK) ClosePosition(asset string) (*PlacedOrder, error) {
+func (s *SDK) ClosePosition(asset string, opts ...CloseOption) (*PlacedOrder, error) {
 	s.requireWallet()
+
+	params := &closeParams{}
+	for _, opt := range opts {
+		opt(params)
+	}
 
 	action := map[string]any{
 		"type":  "closePosition",
@@ -724,7 +754,7 @@ func (s *SDK) ClosePosition(asset string) (*PlacedOrder, error) {
 		"user":  s.Address(),
 	}
 
-	result, err := s.buildSignSend(action)
+	result, err := s.buildSignSend(action, params.slippage)
 	if err != nil {
 		return nil, err
 	}
@@ -959,12 +989,20 @@ func (s *SDK) requireWallet() {
 	}
 }
 
-func (s *SDK) buildSignSend(action map[string]any) (map[string]any, error) {
+func (s *SDK) buildSignSend(action map[string]any, slippage *float64) (map[string]any, error) {
 	s.requireWallet()
 	ctx := context.Background()
 
 	// Step 1: Build
-	buildResult, err := s.http.Post(ctx, s.exchangeURL, map[string]any{"action": action})
+	buildPayload := map[string]any{"action": action}
+	effectiveSlippage := s.config.Slippage
+	if slippage != nil {
+		effectiveSlippage = *slippage
+	}
+	if effectiveSlippage > 0 {
+		buildPayload["slippage"] = effectiveSlippage
+	}
+	buildResult, err := s.http.Post(ctx, s.exchangeURL, buildPayload)
 	if err != nil {
 		return nil, err
 	}

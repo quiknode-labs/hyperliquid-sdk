@@ -34,7 +34,7 @@ func (s *SDK) TWAPOrder(asset string, size any, isBuy bool, durationMinutes int,
 		},
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // TWAPCancel cancels an active TWAP order.
@@ -50,7 +50,7 @@ func (s *SDK) TWAPCancel(asset string, twapID int) (map[string]any, error) {
 		"t":    twapID,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 type twapParams struct {
@@ -100,7 +100,7 @@ func (s *SDK) UpdateLeverage(asset string, leverage int, opts ...LeverageOption)
 		"leverage": leverage,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 type leverageParams struct {
@@ -134,7 +134,7 @@ func (s *SDK) UpdateIsolatedMargin(asset string, isBuy bool, amount float64) (ma
 		"ntli":  ntli,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // TopUpIsolatedOnlyMargin tops up isolated margin to target leverage.
@@ -150,7 +150,7 @@ func (s *SDK) TopUpIsolatedOnlyMargin(asset string, leverage float64) (map[strin
 		"leverage": NewDecimal(leverage).String(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -168,7 +168,7 @@ func (s *SDK) TransferUSD(destination string, amount any) (map[string]any, error
 		"time":             time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // TransferSpot transfers spot tokens to another Hyperliquid address.
@@ -183,7 +183,7 @@ func (s *SDK) TransferSpot(token, destination string, amount any) (map[string]an
 		"time":             time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // Withdraw initiates a withdrawal to Arbitrum.
@@ -202,7 +202,7 @@ func (s *SDK) Withdraw(amount any, destination string) (map[string]any, error) {
 		"time":             time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // TransferSpotToPerp transfers USDC from spot balance to perp balance.
@@ -216,7 +216,7 @@ func (s *SDK) TransferSpotToPerp(amount any) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // TransferPerpToSpot transfers USDC from perp balance to spot balance.
@@ -230,7 +230,7 @@ func (s *SDK) TransferPerpToSpot(amount any) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -246,7 +246,7 @@ func (s *SDK) VaultDeposit(vaultAddress string, amount float64) (map[string]any,
 		"usd":          amount,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // VaultWithdraw withdraws USDC from a vault.
@@ -258,7 +258,7 @@ func (s *SDK) VaultWithdraw(vaultAddress string, amount float64) (map[string]any
 		"usd":          amount,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -276,7 +276,7 @@ func (s *SDK) ApproveAgent(agentAddress, name string) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -296,7 +296,7 @@ func (s *SDK) Stake(amount float64) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // Unstake unstakes tokens (7-day queue).
@@ -311,7 +311,7 @@ func (s *SDK) Unstake(amount float64) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // Delegate delegates staked tokens to a validator.
@@ -328,7 +328,7 @@ func (s *SDK) Delegate(validator string, amount float64) (map[string]any, error)
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // Undelegate undelegates staked tokens from a validator.
@@ -345,7 +345,7 @@ func (s *SDK) Undelegate(validator string, amount float64) (map[string]any, erro
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -368,7 +368,7 @@ func (s *SDK) SetAbstraction(mode string, user string) (map[string]any, error) {
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // AgentSetAbstraction sets account abstraction mode as an agent.
@@ -393,7 +393,7 @@ func (s *SDK) AgentSetAbstraction(mode string) (map[string]any, error) {
 		"abstraction": shortMode,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -420,7 +420,7 @@ func (s *SDK) SendAsset(token string, amount any, destination string, opts ...Se
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 type sendAssetParams struct {
@@ -470,7 +470,7 @@ func (s *SDK) SendToEVMWithData(token string, amount any, destination, data, sou
 		"nonce":                time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -484,7 +484,7 @@ func (s *SDK) ReserveRequestWeight(weight int) (map[string]any, error) {
 		"weight": weight,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -497,7 +497,7 @@ func (s *SDK) Noop() (map[string]any, error) {
 		"type": "noop",
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ValidatorL1Stream submits a validator vote for the risk-free rate.
@@ -507,7 +507,7 @@ func (s *SDK) ValidatorL1Stream(riskFreeRate string) (map[string]any, error) {
 		"riskFreeRate": riskFreeRate,
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -529,7 +529,7 @@ func (s *SDK) ApproveBuilderFee(maxFee, builder string) (map[string]any, error) 
 		"nonce":            time.Now().UnixMilli(),
 	}
 
-	return s.buildSignSend(action)
+	return s.buildSignSend(action, nil)
 }
 
 // RevokeBuilderFee revokes builder fee approval.
