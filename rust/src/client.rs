@@ -384,10 +384,13 @@ impl HyperliquidSDKInner {
     }
 
     /// Build an action (get hash without sending)
-    pub async fn build_action(&self, action: &Value) -> Result<BuildResponse> {
+    pub async fn build_action(&self, action: &Value, slippage: Option<f64>) -> Result<BuildResponse> {
         let url = self.exchange_url();
 
-        let body = json!({ "action": action });
+        let mut body = json!({ "action": action });
+        if let Some(s) = slippage {
+            body["slippage"] = json!(s);
+        }
 
         let response = self
             .http_client
@@ -476,14 +479,27 @@ impl HyperliquidSDKInner {
     }
 
     /// Build, sign, and send an action
-    pub async fn build_sign_send(&self, action: &Value) -> Result<Value> {
+    ///
+    /// If `slippage` is `Some`, it is included in the build payload for the worker
+    /// to apply when computing market order prices. When `None`, the constructor-level
+    /// default slippage is used (if > 0).
+    pub async fn build_sign_send(&self, action: &Value, slippage: Option<f64>) -> Result<Value> {
         let signer = self
             .signer
             .as_ref()
             .ok_or_else(|| Error::ConfigError("No private key configured".to_string()))?;
 
+        // Resolve effective slippage: per-call override > constructor default > omit
+        let effective_slippage = slippage.or_else(|| {
+            if self.slippage > 0.0 {
+                Some(self.slippage)
+            } else {
+                None
+            }
+        });
+
         // Step 1: Build
-        let build_result = self.build_action(action).await?;
+        let build_result = self.build_action(action, effective_slippage).await?;
 
         // Step 2: Sign
         let hash_bytes = hex::decode(build_result.hash.trim_start_matches("0x"))
@@ -587,7 +603,7 @@ impl HyperliquidSDKInner {
             }]
         });
 
-        self.build_sign_send(&action).await
+        self.build_sign_send(&action, None).await
     }
 
     /// Modify an order by OID
@@ -619,7 +635,7 @@ impl HyperliquidSDKInner {
             }]
         });
 
-        let response = self.build_sign_send(&action).await?;
+        let response = self.build_sign_send(&action, None).await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -902,7 +918,7 @@ impl HyperliquidSDK {
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Buy, size, Some(price), tif, false)
+        self.place_order(asset, Side::Buy, size, Some(price), tif, false, false, None)
             .await
     }
 
@@ -914,7 +930,7 @@ impl HyperliquidSDK {
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Sell, size, Some(price), tif, false)
+        self.place_order(asset, Side::Sell, size, Some(price), tif, false, false, None)
             .await
     }
 
@@ -939,16 +955,11 @@ impl HyperliquidSDK {
             ));
         };
 
-        // Resolve price
-        let price = if order.is_market() {
-            let mid = self.inner.get_mid_price(asset).await?;
-            let slippage = self.inner.slippage;
-            let price = if side.is_buy() {
-                mid * (1.0 + slippage)
-            } else {
-                mid * (1.0 - slippage)
-            };
-            Some(price)
+        // For market orders, delegate price computation to the worker.
+        // For limit orders, use the user-specified price.
+        let is_market = order.is_market();
+        let price = if is_market {
+            None // worker computes price from mid + slippage
         } else {
             order
                 .get_price()
@@ -960,8 +971,10 @@ impl HyperliquidSDK {
             side,
             size.to_string().parse::<f64>().unwrap_or(0.0),
             price,
-            if order.is_market() { TIF::Ioc } else { tif },
+            if is_market { TIF::Market } else { tif },
             order.is_reduce_only(),
+            is_market,
+            None, // use constructor-level default slippage
         )
         .await
     }
@@ -1039,7 +1052,7 @@ impl HyperliquidSDK {
             "grouping": "na",
         });
 
-        let response = self.inner.build_sign_send(&action).await?;
+        let response = self.inner.build_sign_send(&action, None).await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1084,6 +1097,10 @@ impl HyperliquidSDK {
     }
 
     /// Internal order placement
+    ///
+    /// For market orders (`is_market = true`), uses the human-readable format
+    /// (`asset`, `side`, `size`, `tif: "market"`) and delegates price computation
+    /// to the worker. For limit orders, uses the wire format (`a`, `b`, `p`, `s`).
     async fn place_order(
         &self,
         asset: &str,
@@ -1092,12 +1109,9 @@ impl HyperliquidSDK {
         price: Option<f64>,
         tif: TIF,
         reduce_only: bool,
+        is_market: bool,
+        slippage: Option<f64>,
     ) -> Result<PlacedOrder> {
-        let asset_index = self
-            .inner
-            .resolve_asset(asset)
-            .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
-
         // Get size decimals for rounding
         let sz_decimals = self.inner.metadata.get_asset(asset)
             .map(|a| a.sz_decimals)
@@ -1106,41 +1120,61 @@ impl HyperliquidSDK {
         // Round size to allowed decimals
         let size_rounded = (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals);
 
-        // Round price to valid tick (integer for most markets)
-        let resolved_price = price.map(|p| p.round()).unwrap_or(0.0);
+        let (action, effective_slippage) = if is_market {
+            // Market orders: use human-readable format, let worker compute price
+            let action = json!({
+                "type": "order",
+                "orders": [{
+                    "asset": asset,
+                    "side": if side.is_buy() { "buy" } else { "sell" },
+                    "size": format!("{}", size_rounded),
+                    "tif": "market",
+                }],
+            });
+            (action, slippage)
+        } else {
+            // Limit orders: use wire format with asset index
+            let asset_index = self
+                .inner
+                .resolve_asset(asset)
+                .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
 
-        let tif_wire = match tif {
-            TIF::Ioc => "Ioc",
-            TIF::Gtc => "Gtc",
-            TIF::Alo => "Alo",
-            TIF::Market => "Ioc",
+            let resolved_price = price.map(|p| p.round()).unwrap_or(0.0);
+
+            let tif_wire = match tif {
+                TIF::Ioc => "Ioc",
+                TIF::Gtc => "Gtc",
+                TIF::Alo => "Alo",
+                TIF::Market => "Ioc",
+            };
+
+            // Generate random cloid (Hyperliquid requires nonzero cloid)
+            let cloid = {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let nanos = now.as_nanos() as u64;
+                let hi = nanos.wrapping_mul(0x517cc1b727220a95);
+                format!("0x{:016x}{:016x}", nanos, hi)
+            };
+
+            let action = json!({
+                "type": "order",
+                "orders": [{
+                    "a": asset_index,
+                    "b": side.is_buy(),
+                    "p": format!("{}", resolved_price),
+                    "s": format!("{}", size_rounded),
+                    "r": reduce_only,
+                    "t": {"limit": {"tif": tif_wire}},
+                    "c": cloid,
+                }],
+                "grouping": "na",
+            });
+            (action, None) // no slippage for limit orders
         };
 
-        // Generate random cloid (Hyperliquid requires nonzero cloid)
-        let cloid = {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let nanos = now.as_nanos() as u64;
-            let hi = nanos.wrapping_mul(0x517cc1b727220a95);
-            format!("0x{:016x}{:016x}", nanos, hi)
-        };
-
-        let action = json!({
-            "type": "order",
-            "orders": [{
-                "a": asset_index,
-                "b": side.is_buy(),
-                "p": format!("{}", resolved_price),
-                "s": format!("{}", size_rounded),
-                "r": reduce_only,
-                "t": {"limit": {"tif": tif_wire}},
-                "c": cloid,
-            }],
-            "grouping": "na",
-        });
-
-        let response = self.inner.build_sign_send(&action).await?;
+        let response = self.inner.build_sign_send(&action, effective_slippage).await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1214,7 +1248,7 @@ impl HyperliquidSDK {
             }]
         });
 
-        let response = self.inner.build_sign_send(&action).await?;
+        let response = self.inner.build_sign_send(&action, None).await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1269,73 +1303,43 @@ impl HyperliquidSDK {
             "cancels": cancels,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Close position for an asset
-    pub async fn close_position(&self, asset: &str) -> Result<PlacedOrder> {
+    ///
+    /// Delegates position lookup and counter-order building to the worker using
+    /// the `closePosition` action type. Optionally accepts a per-call slippage
+    /// override.
+    pub async fn close_position(&self, asset: &str, slippage: Option<f64>) -> Result<PlacedOrder> {
         let address = self
             .inner
             .address
             .ok_or_else(|| Error::ConfigError("No address configured".to_string()))?;
 
-        // Get position
-        let state = self
-            .inner
-            .query_info(&json!({
-                "type": "clearinghouseState",
-                "user": format!("{:?}", address),
-            }))
-            .await?;
+        let action = json!({
+            "type": "closePosition",
+            "asset": asset,
+            "user": format!("{:?}", address),
+        });
 
-        // Find position for asset
-        let positions = state
-            .get("assetPositions")
-            .and_then(|p| p.as_array())
-            .ok_or_else(|| Error::NoPosition {
-                asset: asset.to_string(),
-            })?;
+        let response = self.inner.build_sign_send(&action, slippage).await?;
 
-        let position = positions
-            .iter()
-            .find(|p| {
-                p.get("position")
-                    .and_then(|pos| pos.get("coin"))
-                    .and_then(|c| c.as_str())
-                    == Some(asset)
-            })
-            .ok_or_else(|| Error::NoPosition {
-                asset: asset.to_string(),
-            })?;
+        // Extract position info from close context
+        let ctx = response.get("closePositionContext").cloned().unwrap_or_default();
+        let side_str = ctx.get("closeSide").and_then(|s| s.as_str()).unwrap_or("sell");
+        let side = if side_str == "buy" { Side::Buy } else { Side::Sell };
+        let size_str = ctx.get("closeSize").and_then(|s| s.as_str()).unwrap_or("0");
+        let size = Decimal::from_str(size_str).unwrap_or_default();
 
-        let szi = position
-            .get("position")
-            .and_then(|p| p.get("szi"))
-            .and_then(|s| s.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .ok_or_else(|| Error::NoPosition {
-                asset: asset.to_string(),
-            })?;
-
-        if szi.abs() < 1e-10 {
-            return Err(Error::NoPosition {
-                asset: asset.to_string(),
-            });
-        }
-
-        // Place opposite order
-        let side = if szi > 0.0 { Side::Sell } else { Side::Buy };
-
-        // Get market price with slippage
-        let mid = self.inner.get_mid_price(asset).await?;
-        let price = if side.is_buy() {
-            mid * (1.0 + self.inner.slippage)
-        } else {
-            mid * (1.0 - self.inner.slippage)
-        };
-
-        self.place_order(asset, side, szi.abs(), Some(price), TIF::Ioc, true)
-            .await
+        Ok(PlacedOrder::from_response(
+            response,
+            asset.to_string(),
+            side,
+            size,
+            None,
+            Some(self.inner.clone()),
+        ))
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1361,7 +1365,7 @@ impl HyperliquidSDK {
             "leverage": leverage,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Update isolated margin
@@ -1383,7 +1387,7 @@ impl HyperliquidSDK {
             "ntli": (amount_usd * 1_000_000.0) as i64, // Convert to USDC with 6 decimals
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1412,7 +1416,7 @@ impl HyperliquidSDK {
             }
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Cancel a TWAP order
@@ -1423,7 +1427,7 @@ impl HyperliquidSDK {
             "t": twap_id,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1446,7 +1450,7 @@ impl HyperliquidSDK {
             "time": time,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Transfer spot token to another address
@@ -1471,7 +1475,7 @@ impl HyperliquidSDK {
             "time": time,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Withdraw to Arbitrum
@@ -1495,7 +1499,7 @@ impl HyperliquidSDK {
             "time": time,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Transfer spot balance to perp balance
@@ -1514,7 +1518,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Transfer perp balance to spot balance
@@ -1533,7 +1537,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1549,7 +1553,7 @@ impl HyperliquidSDK {
             "usd": amount,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Withdraw from a vault
@@ -1561,7 +1565,7 @@ impl HyperliquidSDK {
             "usd": amount,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1585,7 +1589,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Unstake tokens
@@ -1605,7 +1609,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Delegate tokens to a validator
@@ -1627,7 +1631,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Undelegate tokens from a validator
@@ -1649,7 +1653,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1665,7 +1669,7 @@ impl HyperliquidSDK {
             "maxFeeRate": fee,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Revoke builder fee approval
@@ -1706,13 +1710,13 @@ impl HyperliquidSDK {
             "weight": weight,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// No-op (consume nonce)
     pub async fn noop(&self) -> Result<Value> {
         let action = json!({"type": "noop"});
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Preflight validation
@@ -1768,7 +1772,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1800,7 +1804,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Set account abstraction mode as an agent
@@ -1823,7 +1827,7 @@ impl HyperliquidSDK {
             "abstraction": short_mode,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1858,7 +1862,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Transfer tokens to HyperEVM with custom data payload
@@ -1892,7 +1896,7 @@ impl HyperliquidSDK {
             "nonce": nonce,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1917,7 +1921,7 @@ impl HyperliquidSDK {
             "leverage": leverage.to_string(),
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1931,7 +1935,7 @@ impl HyperliquidSDK {
             "riskFreeRate": risk_free_rate,
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1951,7 +1955,7 @@ impl HyperliquidSDK {
             "cancels": [{"asset": asset_idx, "cloid": cloid}],
         });
 
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     /// Schedule cancellation of all orders after a delay (dead-man's switch)
@@ -1960,7 +1964,7 @@ impl HyperliquidSDK {
         if let Some(t) = time_ms {
             action["time"] = json!(t);
         }
-        self.inner.build_sign_send(&action).await
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1991,6 +1995,7 @@ pub struct MarketOrderBuilder {
     side: Side,
     size: Option<f64>,
     notional: Option<f64>,
+    slippage: Option<f64>,
 }
 
 impl MarketOrderBuilder {
@@ -2001,6 +2006,7 @@ impl MarketOrderBuilder {
             side,
             size: None,
             notional: None,
+            slippage: None,
         }
     }
 
@@ -2016,7 +2022,18 @@ impl MarketOrderBuilder {
         self
     }
 
+    /// Set per-call slippage override (default uses constructor-level slippage)
+    ///
+    /// Range: 0.001 (0.1%) to 0.1 (10%)
+    pub fn slippage(mut self, slippage: f64) -> Self {
+        self.slippage = Some(slippage);
+        self
+    }
+
     /// Execute the market order
+    ///
+    /// Uses the human-readable format (`asset`, `side`, `size`, `tif: "market"`)
+    /// and delegates price computation to the worker.
     pub async fn execute(self) -> Result<PlacedOrder> {
         // Get size decimals for rounding
         let sz_decimals = self.inner.metadata.get_asset(&self.asset)
@@ -2037,51 +2054,25 @@ impl MarketOrderBuilder {
         // Round size to allowed decimals
         let size_rounded = (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals);
 
-        // Get market price with slippage, rounded to valid tick
-        let mid = self.inner.get_mid_price(&self.asset).await?;
-        let price = if self.side.is_buy() {
-            (mid * (1.0 + self.inner.slippage)).round()
-        } else {
-            (mid * (1.0 - self.inner.slippage)).round()
-        };
-
-        let asset_index = self
-            .inner
-            .resolve_asset(&self.asset)
-            .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", self.asset)))?;
-
-        // Generate random cloid (Hyperliquid requires nonzero cloid)
-        let cloid = {
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            let nanos = now.as_nanos() as u64;
-            let hi = nanos.wrapping_mul(0x517cc1b727220a95);
-            format!("0x{:016x}{:016x}", nanos, hi)
-        };
-
+        // Use human-readable format — worker computes price from mid + slippage
         let action = json!({
             "type": "order",
             "orders": [{
-                "a": asset_index,
-                "b": self.side.is_buy(),
-                "p": format!("{}", price),
-                "s": format!("{}", size_rounded),
-                "r": false,
-                "t": {"limit": {"tif": "Ioc"}},
-                "c": cloid,
+                "asset": self.asset,
+                "side": if self.side.is_buy() { "buy" } else { "sell" },
+                "size": format!("{}", size_rounded),
+                "tif": "market",
             }],
-            "grouping": "na",
         });
 
-        let response = self.inner.build_sign_send(&action).await?;
+        let response = self.inner.build_sign_send(&action, self.slippage).await?;
 
         Ok(PlacedOrder::from_response(
             response,
             self.asset,
             self.side,
             Decimal::from_f64_retain(size_rounded).unwrap_or_default(),
-            Some(Decimal::from_f64_retain(price).unwrap_or_default()),
+            None,
             Some(self.inner),
         ))
     }
