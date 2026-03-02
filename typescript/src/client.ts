@@ -364,6 +364,8 @@ export class HyperliquidSDK {
       tif?: TIF | string;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
+      slippage?: number;
     } = {}
   ): Promise<PlacedOrder> {
     return this._placeOrder({
@@ -375,6 +377,7 @@ export class HyperliquidSDK {
       tif: options.tif ?? TIF.IOC,
       reduceOnly: options.reduceOnly ?? false,
       grouping: options.grouping ?? OrderGrouping.NA,
+      slippage: options.slippage,
     });
   }
 
@@ -390,6 +393,8 @@ export class HyperliquidSDK {
       tif?: TIF | string;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
+      slippage?: number;
     } = {}
   ): Promise<PlacedOrder> {
     return this._placeOrder({
@@ -401,6 +406,7 @@ export class HyperliquidSDK {
       tif: options.tif ?? TIF.IOC,
       reduceOnly: options.reduceOnly ?? false,
       grouping: options.grouping ?? OrderGrouping.NA,
+      slippage: options.slippage,
     });
   }
 
@@ -410,20 +416,22 @@ export class HyperliquidSDK {
 
   /**
    * Market buy — executes immediately at best available price.
+   * @param options.slippage - Slippage tolerance (e.g. 0.05 = 5%). Default: SDK setting (3%).
    */
   async marketBuy(
     asset: string,
-    options: { size?: number | string; notional?: number } = {}
+    options: { size?: number | string; notional?: number; slippage?: number } = {}
   ): Promise<PlacedOrder> {
     return this.buy(asset, { ...options, tif: 'market' });
   }
 
   /**
    * Market sell — executes immediately at best available price.
+   * @param options.slippage - Slippage tolerance (e.g. 0.05 = 5%). Default: SDK setting (3%).
    */
   async marketSell(
     asset: string,
-    options: { size?: number | string; notional?: number } = {}
+    options: { size?: number | string; notional?: number; slippage?: number } = {}
   ): Promise<PlacedOrder> {
     return this.sell(asset, { ...options, tif: 'market' });
   }
@@ -1153,14 +1161,14 @@ export class HyperliquidSDK {
   /**
    * Close an open position completely.
    */
-  async closePosition(asset: string): Promise<PlacedOrder> {
+  async closePosition(asset: string, options: { slippage?: number } = {}): Promise<PlacedOrder> {
     const action = {
       type: 'closePosition',
       asset,
       user: this.address,
     };
 
-    const result = await this._buildSignSend(action);
+    const result = await this._buildSignSend(action, options.slippage);
 
     const order = Order.sell(asset);
     order['_size'] = '0';
@@ -1563,6 +1571,7 @@ export class HyperliquidSDK {
     tif: TIF | string;
     reduceOnly: boolean;
     grouping: OrderGrouping;
+    slippage?: number;
   }): Promise<PlacedOrder> {
     const order = new Order(params.asset, params.side);
 
@@ -1601,18 +1610,19 @@ export class HyperliquidSDK {
       order['_reduceOnly'] = true;
     }
 
-    return this._executeOrder(order, params.grouping);
+    return this._executeOrder(order, params.grouping, params.slippage);
   }
 
   private async _executeOrder(
     order: Order,
-    grouping: OrderGrouping = OrderGrouping.NA
+    grouping: OrderGrouping = OrderGrouping.NA,
+    slippage?: number
   ): Promise<PlacedOrder> {
     const action = order.toAction();
     if (grouping !== OrderGrouping.NA) {
       action.grouping = grouping; // enum value is already the string (e.g., 'na', 'normalTpsl')
     }
-    const result = await this._buildSignSend(action);
+    const result = await this._buildSignSend(action, slippage);
     return PlacedOrder.fromResponse(
       (result as Record<string, unknown>).exchangeResponse as Record<string, unknown> ?? {},
       order,
@@ -1629,7 +1639,7 @@ export class HyperliquidSDK {
     }
   }
 
-  private async _buildSignSend(action: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async _buildSignSend(action: Record<string, unknown>, slippage?: number): Promise<Record<string, unknown>> {
     this._requireWallet();
 
     // Ensure approval on first trading action
@@ -1645,7 +1655,8 @@ export class HyperliquidSDK {
     }
 
     // Step 1: Build
-    const buildResult = await this._exchange({ action });
+    const effectiveSlippage = slippage ?? this._slippage;
+    const buildResult = await this._exchange({ action, slippage: effectiveSlippage });
 
     if (!buildResult.hash) {
       throw new BuildError('Build response missing hash', { raw: buildResult });
