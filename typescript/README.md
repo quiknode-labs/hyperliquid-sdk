@@ -54,7 +54,7 @@ console.log(order3.oid);     // Order ID
 
 ## Data APIs
 
-All data APIs are accessed through the SDK instance.
+All data APIs are accessed through the SDK instance. You can create a Hyperliquid endpoint on [Quicknode](https://www.quicknode.com/) to get access to the data APIs.
 
 ### Info API
 

@@ -44,7 +44,9 @@ let endpoint = "https://x.quiknode.pro/TOKEN/hypercore";
 let endpoint = "https://x.quiknode.pro/TOKEN/evm";
 ```
 
-Just pass your endpoint - the SDK handles the rest.
+Just pass your endpoint - the SDK handles the rest. 
+
+You can create a Hyperliquid endpoint on [Quicknode](https://www.quicknode.com/) to get access to the data APIs.
 
 ### 1. Set your private key
 

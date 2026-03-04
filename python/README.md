@@ -54,6 +54,8 @@ print(order.oid)     # Order ID
 
 All data APIs are accessed through the SDK instance.
 
+You can create a Hyperliquid endpoint on [Quicknode](https://www.quicknode.com/) to get access to the data APIs.
+
 ### Info API
 
 50+ methods for account state, positions, market data, and metadata.
