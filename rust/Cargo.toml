@@ -1,12 +1,12 @@
 [package]
 name = "quicknode-hyperliquid-sdk"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 license = "MIT"
 authors = ["QuickNode <support@quicknode.com>"]
 description = "Hyperliquid SDK for Rust - Simple, performant trading client. HyperCore, HyperEVM, WebSocket and gRPC streams."
 documentation = "https://docs.rs/quicknode-hyperliquid-sdk"
-homepage = "https://www.quicknode.com"
+homepage = "https://hyperliquidapi.com"
 repository = "https://github.com/quiknode-labs/hyperliquid-sdk"
 keywords = ["hyperliquid", "trading", "defi", "crypto", "sdk"]
 categories = ["api-bindings", "cryptography::cryptocurrencies"]
