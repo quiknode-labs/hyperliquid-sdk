@@ -759,6 +759,8 @@ hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
 
 See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-examples) repository for 44 complete, runnable examples covering trading, streaming, market data, and more.
 
+Learn more at [Hyperliquidapi.com](https://hyperliquidapi.com/).
+
 ---
 
 ## Disclaimer
