@@ -498,6 +498,157 @@ sdk.schedule_cancel(Some(timestamp_ms)).await?;
 sdk.close_position("BTC").await?;  // Close entire position
 ```
 
+### Querying Open Orders by Trading Pair
+
+```rust
+// Get all open orders
+let result = sdk.open_orders().await?;
+let orders = result.as_array().unwrap();
+println!("Total open orders: {}", orders.len());
+
+// Order fields: coin, limitPx (price), sz (size), side, oid, timestamp,
+//               orderType, tif, cloid, reduceOnly
+for order in orders {
+    println!("{} {} {}@{}", order["coin"], order["side"], order["sz"], order["limitPx"]);
+}
+
+// Filter by trading pair
+for order in orders {
+    if order["coin"].as_str() == Some("BTC") {
+        println!("  {} {} @ {} | type={} tif={} oid={}",
+            order["side"], order["sz"], order["limitPx"], order["orderType"], order["tif"], order["oid"]);
+    }
+}
+
+// For enhanced data (triggers, children), use frontend_open_orders()
+let addr = format!("{:?}", sdk.address().unwrap());
+let enhanced = sdk.info().frontend_open_orders(&addr, None).await?;
+```
+
+### Partial Position Close by Percentage
+
+`close_position()` closes the entire position. To close a percentage, read the current size and place a reduce-only market order for the desired amount:
+
+```rust
+async fn close_percentage(sdk: &HyperliquidSDK, coin: &str, percent: f64) -> Result<(), Error> {
+    let addr = format!("{:?}", sdk.address().unwrap());
+    let state = sdk.info().clearinghouse_state(&addr, None).await?;
+    let positions = state["assetPositions"].as_array().unwrap();
+    let position = positions.iter()
+        .find(|p| p["position"]["coin"].as_str() == Some(coin))
+        .ok_or_else(|| Error::NoPosition { asset: coin.to_string() })?;
+
+    // szi is signed: positive = long, negative = short
+    let szi: f64 = position["position"]["szi"].as_str().unwrap().parse().unwrap();
+    // Note: round close_size to asset's size decimals in production
+    let close_size = szi.abs() * (percent / 100.0);
+
+    if szi > 0.0 {
+        // Long position: sell to close
+        sdk.market_sell(coin).await.reduce_only().size(close_size).await?;
+    } else {
+        // Short position: buy to close
+        sdk.market_buy(coin).await.reduce_only().size(close_size).await?;
+    }
+    Ok(())
+}
+
+// Close 50% of BTC position
+close_percentage(&sdk, "BTC", 50.0).await?;
+```
+
+### Batch Cancel with Partial Failure Handling
+
+Cancel all orders for an asset in one call:
+
+```rust
+// Cancel all orders for a specific asset
+sdk.cancel_all(Some("BTC")).await?;
+
+// Cancel by client order ID (for CLOID-tracked orders)
+sdk.cancel_by_cloid("0xmycloid...", "BTC").await?;
+```
+
+Or cancel selectively with per-order error handling:
+
+```rust
+use hyperliquid_sdk::Error;
+
+// Get open orders
+let result = sdk.open_orders().await?;
+let orders = result.as_array().unwrap();
+
+// Cancel specific orders with per-order error handling
+let mut failures = Vec::new();
+for order in orders {
+    if order["coin"].as_str() == Some("BTC")
+        && order["limitPx"].as_str().and_then(|p| p.parse::<f64>().ok()).unwrap_or(0.0) < 50000.0
+    {
+        let oid = order["oid"].as_u64().unwrap();
+        if let Err(e) = sdk.cancel(oid, "BTC").await {
+            failures.push((oid, e.to_string()));
+        }
+    }
+}
+
+if !failures.is_empty() {
+    eprintln!("Failed to cancel {} orders: {:?}", failures.len(), failures);
+}
+```
+
+### Resilient Order Placement
+
+Use client order IDs (CLOIDs) for idempotent orders and categorize errors for retry logic:
+
+```rust
+use hyperliquid_sdk::{Order, PlacedOrder, Error, Result};
+use hyperliquid_sdk::error::ErrorCode;
+use std::time::Duration;
+
+// Set a CLOID for idempotency — the exchange rejects duplicates
+let order = sdk.order(
+    Order::buy("BTC").size(0.001).price(65000.0).gtc().random_cloid()
+).await?;
+
+// Error categories:
+//   Transient (retry):   Error::RateLimited, Error::ApiError { code: ErrorCode::InvalidNonce, .. }
+//   Permanent (fail):    Error::GeoBlocked, Error::ApiError { code: ErrorCode::InsufficientMargin, .. },
+//                        Error::ValidationError(..), Error::SigningError(..), Error::ApiError { code: ErrorCode::MaxOrdersExceeded, .. }
+//   Already done:        Error::ApiError { code: ErrorCode::DuplicateOrder, .. }
+
+async fn place_with_retry(
+    sdk: &HyperliquidSDK,
+    order_builder: Order,
+    max_retries: usize,
+) -> Result<Option<PlacedOrder>> {
+    let order_builder = order_builder.random_cloid();
+
+    for attempt in 0..max_retries {
+        match sdk.order(order_builder.clone()).await {
+            Ok(result) => return Ok(Some(result)),
+            Err(Error::ApiError { code: ErrorCode::DuplicateOrder, .. }) => return Ok(None),
+            Err(Error::RateLimited { .. })
+            | Err(Error::ApiError { code: ErrorCode::InvalidNonce, .. })
+                if attempt + 1 < max_retries =>
+            {
+                let wait = Duration::from_millis(
+                    (1u64 << attempt) * 1000 + attempt as u64 * 500
+                );
+                tokio::time::sleep(wait).await;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(None)
+}
+
+// Timeout configuration on SDK constructor
+let sdk = HyperliquidSDK::new()
+    .private_key("0x...")
+    .timeout(Duration::from_secs(30))
+    .build().await?;
+```
+
 ### Leverage & Margin
 
 ```rust
@@ -663,7 +814,8 @@ sdk.refresh_markets().await?;
 All errors are typed with specific error codes and guidance.
 
 ```rust
-use hyperliquid_sdk::{Error, ErrorCode};
+use hyperliquid_sdk::Error;
+use hyperliquid_sdk::error::ErrorCode;
 
 match sdk.market_buy("BTC").await.notional(100.0).await {
     Ok(order) => println!("Success: {:?}", order.oid),

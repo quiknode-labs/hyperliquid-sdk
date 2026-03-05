@@ -389,6 +389,157 @@ await sdk.scheduleCancel(Date.now() + 60000);
 await sdk.closePosition("BTC");  // Close entire position
 ```
 
+### Querying Open Orders by Trading Pair
+
+```typescript
+// Get all open orders
+const result = await sdk.openOrders() as any;
+console.log(`Total open orders: ${result.orders.length}`);
+
+// Order fields: coin, limitPx (price), sz (size), side, oid, timestamp,
+//               orderType, tif, cloid, reduceOnly
+for (const order of result.orders) {
+  console.log(`${order.coin} ${order.side} ${order.sz}@${order.limitPx}`);
+}
+
+// Filter by trading pair
+const btcOrders = result.orders.filter(o => o.coin === 'BTC');
+for (const order of btcOrders) {
+  console.log(`  ${order.side} ${order.sz} @ ${order.limitPx} | type=${order.orderType} tif=${order.tif} oid=${order.oid}`);
+}
+
+// For enhanced data (triggers, children), use frontendOpenOrders()
+const enhanced = await sdk.info.frontendOpenOrders(sdk.address!);
+```
+
+### Partial Position Close by Percentage
+
+`closePosition()` closes the entire position. To close a percentage, read the current size and place a reduce-only market order for the desired amount:
+
+```typescript
+async function closePercentage(sdk: HyperliquidSDK, coin: string, percent: number) {
+  const state = await sdk.info.clearinghouseState(sdk.address!) as any;
+  const position = state.assetPositions.find((p: any) => p.position.coin === coin);
+  if (!position) throw new Error(`No open position for ${coin}`);
+
+  // szi is signed: positive = long, negative = short
+  const szi = parseFloat(position.position.szi);
+  // Note: round closeSize to asset's size decimals in production
+  const closeSize = Math.abs(szi) * (percent / 100);
+
+  if (szi > 0) {
+    // Long position: sell to close
+    await sdk.sell(coin, { size: closeSize, tif: 'market', reduceOnly: true });
+  } else {
+    // Short position: buy to close
+    await sdk.buy(coin, { size: closeSize, tif: 'market', reduceOnly: true });
+  }
+}
+
+// Close 50% of BTC position
+await closePercentage(sdk, "BTC", 50);
+```
+
+### Batch Cancel with Partial Failure Handling
+
+Cancel all orders for an asset in one call:
+
+```typescript
+// Cancel all orders for a specific asset
+await sdk.cancelAll("BTC");
+
+// Cancel by client order ID (for CLOID-tracked orders)
+await sdk.cancelByCloid("0xmycloid...", "BTC");
+```
+
+Or cancel selectively with per-order error handling:
+
+```typescript
+import { HyperliquidError } from '@quicknode/hyperliquid-sdk';
+
+// Get open orders
+const result = await sdk.openOrders() as any;
+const orders = result.orders;
+
+// Cancel specific orders with per-order error handling
+const targetOrders = orders.filter(
+  o => o.coin === 'BTC' && parseFloat(o.limitPx) < 50000
+);
+const failures: Array<{ oid: number; error: string }> = [];
+
+for (const order of targetOrders) {
+  try {
+    await sdk.cancel(order.oid, order.coin);
+  } catch (e) {
+    if (e instanceof HyperliquidError) {
+      failures.push({ oid: order.oid, error: e.message });
+    }
+  }
+}
+
+if (failures.length > 0) {
+  console.log(`Failed to cancel ${failures.length} orders:`, failures);
+}
+```
+
+### Resilient Order Placement
+
+Use client order IDs (CLOIDs) for idempotent orders and categorize errors for retry logic:
+
+```typescript
+import {
+  Order, PlacedOrder, HyperliquidError, RateLimitError, InvalidNonceError,
+  DuplicateOrderError, GeoBlockedError, InsufficientMarginError,
+  ValidationError, SignatureError, MaxOrdersError,
+} from '@quicknode/hyperliquid-sdk';
+
+// Set a CLOID for idempotency — the exchange rejects duplicates
+const cloid = `0x${crypto.randomUUID().replace(/-/g, '')}`;
+const order = await sdk.order(Order.buy("BTC").size(0.001).price(65000).gtc().cloid(cloid));
+
+// Error categories:
+//   Transient (retry):   RateLimitError, InvalidNonceError
+//   Permanent (fail):    GeoBlockedError, InsufficientMarginError, ValidationError,
+//                        SignatureError, MaxOrdersError
+//   Already done:        DuplicateOrderError (order already placed)
+
+const TRANSIENT_ERRORS = [RateLimitError, InvalidNonceError];
+
+async function placeWithRetry(
+  sdk: HyperliquidSDK, orderBuilder: Order, maxRetries = 3
+): Promise<PlacedOrder | null> {
+  const cloid = `0x${crypto.randomUUID().replace(/-/g, '')}`;
+  orderBuilder = orderBuilder.cloid(cloid);
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await sdk.order(orderBuilder);
+    } catch (e) {
+      if (e instanceof DuplicateOrderError) {
+        return null; // Order already went through
+      }
+      if (TRANSIENT_ERRORS.some(cls => e instanceof cls)) {
+        if (attempt === maxRetries - 1) throw e;
+        const wait = (2 ** attempt) + Math.random();
+        await new Promise(r => setTimeout(r, wait * 1000));
+        continue;
+      }
+      throw e;
+    }
+  }
+  return null;
+}
+
+await placeWithRetry(sdk, Order.buy("BTC").size(0.001).price(65000).gtc());
+```
+
+#### Timeout Configuration
+
+```typescript
+// Configure timeout on SDK constructor
+const sdkWithTimeout = new HyperliquidSDK(endpoint, { privateKey: "0x...", timeout: 30000 });
+```
+
 ### Leverage & Margin
 
 ```typescript

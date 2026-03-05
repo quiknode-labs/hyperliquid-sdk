@@ -475,6 +475,178 @@ sdk.ScheduleCancel(timestampMs)
 sdk.ClosePosition("BTC")  // Close entire position
 ```
 
+### Querying Open Orders by Trading Pair
+
+```go
+// Get all open orders
+result, _ := sdk.OpenOrders("")
+orders := result["orders"].([]any)
+fmt.Printf("Total open orders: %d\n", len(orders))
+
+// Order fields: coin, limitPx (price), sz (size), side, oid, timestamp,
+//               orderType, tif, cloid, reduceOnly
+for _, o := range orders {
+	order := o.(map[string]any)
+	fmt.Printf("%s %s %s@%s\n", order["coin"], order["side"], order["sz"], order["limitPx"])
+}
+
+// Filter by trading pair
+for _, o := range orders {
+	order := o.(map[string]any)
+	if order["coin"].(string) == "BTC" {
+		fmt.Printf("  %s %s @ %s | type=%s tif=%s oid=%v\n",
+			order["side"], order["sz"], order["limitPx"], order["orderType"], order["tif"], order["oid"])
+	}
+}
+
+// For enhanced data (triggers, children), use FrontendOpenOrders()
+enhanced, _ := sdk.Info().FrontendOpenOrders(sdk.Address())
+```
+
+### Partial Position Close by Percentage
+
+`ClosePosition()` closes the entire position. To close a percentage, read the current size and place a reduce-only market order for the desired amount:
+
+```go
+func closePercentage(sdk *hyperliquid.SDK, coin string, percent float64) error {
+	state, err := sdk.Info().ClearinghouseState(sdk.Address())
+	if err != nil {
+		return err
+	}
+
+	var szi float64
+	positions := state["assetPositions"].([]any)
+	for _, ap := range positions {
+		pos := ap.(map[string]any)["position"].(map[string]any)
+		if pos["coin"].(string) == coin {
+			szi, _ = strconv.ParseFloat(pos["szi"].(string), 64)
+			break
+		}
+	}
+	if szi == 0 {
+		return fmt.Errorf("no open position for %s", coin)
+	}
+
+	// szi is signed: positive = long, negative = short
+	// Note: round closeSize to asset's size decimals in production
+	closeSize := math.Abs(szi) * (percent / 100)
+
+	if szi > 0 {
+		// Long position: sell to close
+		_, err = sdk.MarketSell(coin, hyperliquid.WithSize(closeSize), hyperliquid.WithReduceOnly())
+	} else {
+		// Short position: buy to close
+		_, err = sdk.MarketBuy(coin, hyperliquid.WithSize(closeSize), hyperliquid.WithReduceOnly())
+	}
+	return err
+}
+
+// Close 50% of BTC position
+closePercentage(sdk, "BTC", 50)
+```
+
+### Batch Cancel with Partial Failure Handling
+
+Cancel all orders for an asset in one call:
+
+```go
+// Cancel all orders for a specific asset
+sdk.CancelAll("BTC")
+
+// Cancel by client order ID (for CLOID-tracked orders)
+sdk.CancelByCloid("0xmycloid...", "BTC")
+```
+
+Or cancel selectively with per-order error handling:
+
+```go
+// Get open orders
+result, _ := sdk.OpenOrders("")
+orders := result["orders"].([]any)
+
+// Cancel specific orders with per-order error handling
+type cancelFailure struct {
+	OID   int64
+	Error string
+}
+var failures []cancelFailure
+
+for _, o := range orders {
+	order := o.(map[string]any)
+	if order["coin"].(string) == "BTC" {
+		limitPx, _ := strconv.ParseFloat(order["limitPx"].(string), 64)
+		if limitPx < 50000 {
+			oid := int64(order["oid"].(float64))
+			if _, err := sdk.Cancel(oid, "BTC"); err != nil {
+				failures = append(failures, cancelFailure{OID: oid, Error: err.Error()})
+			}
+		}
+	}
+}
+
+if len(failures) > 0 {
+	fmt.Printf("Failed to cancel %d orders: %v\n", len(failures), failures)
+}
+```
+
+### Resilient Order Placement
+
+Use client order IDs (CLOIDs) for idempotent orders and categorize errors for retry logic:
+
+```go
+// Set a CLOID for idempotency — the exchange rejects duplicates
+cloid := fmt.Sprintf("0x%x%x", time.Now().UnixNano(), rand.Int63())
+order := hyperliquid.Order().
+	Buy("BTC").
+	Size(0.001).
+	Price(65000).
+	GTC().
+	CLOID(cloid)
+
+result, _ := sdk.PlaceOrder(order)
+
+// Error categories:
+//   Transient (retry):   ErrorCodeRateLimited, ErrorCodeInvalidNonce
+//   Permanent (fail):    ErrorCodeGeoBlocked, ErrorCodeInsufficientMargin,
+//                        ErrorCodeInvalidParams, ErrorCodeSignatureInvalid, ErrorCodeMaxOrdersExceeded
+//   Already done:        ErrorCodeDuplicateOrder (order already placed)
+
+func placeWithRetry(sdk *hyperliquid.SDK, builder *hyperliquid.OrderBuilder, maxRetries int) error {
+	builder = builder.CLOID(fmt.Sprintf("0x%x%x", time.Now().UnixNano(), rand.Int63()))
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+
+		_, err := sdk.PlaceOrder(builder)
+		if err == nil {
+			return nil
+		}
+
+		var hlErr *hyperliquid.Error
+		if errors.As(err, &hlErr) {
+			switch hlErr.Code {
+			case hyperliquid.ErrorCodeDuplicateOrder:
+				return nil // Order already went through
+			case hyperliquid.ErrorCodeRateLimited, hyperliquid.ErrorCodeInvalidNonce:
+				if attempt == maxRetries-1 {
+					return err
+				}
+				wait := time.Duration((1<<attempt)*1000+rand.Intn(1000)) * time.Millisecond
+				time.Sleep(wait)
+				continue
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+// Timeout configuration on SDK constructor
+sdk, _ := hyperliquid.New(endpoint,
+	hyperliquid.WithPrivateKey(key),
+	hyperliquid.WithTimeout(30*time.Second),
+)
+```
+
 ### Leverage & Margin
 
 ```go

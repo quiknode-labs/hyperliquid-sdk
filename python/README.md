@@ -388,6 +388,139 @@ sdk.schedule_cancel(int(time.time() * 1000) + 60000)
 sdk.close_position("BTC")  # Close entire position
 ```
 
+### Querying Open Orders by Trading Pair
+
+```python
+# Get all open orders
+result = sdk.open_orders()
+print(f"Total open orders: {len(result['orders'])}")
+
+# Order fields: coin, limitPx (price), sz (size), side, oid, timestamp,
+#               orderType, tif, cloid, reduceOnly
+for order in result['orders']:
+    print(f"{order['coin']} {order['side']} {order['sz']}@{order['limitPx']}")
+
+# Filter by trading pair
+btc_orders = [o for o in result['orders'] if o['coin'] == 'BTC']
+for order in btc_orders:
+    print(f"  {order['side']} {order['sz']} @ {order['limitPx']} | "
+          f"type={order['orderType']} tif={order['tif']} oid={order['oid']}")
+
+# For enhanced data (triggers, children), use frontend_open_orders()
+enhanced = sdk.info().frontend_open_orders(sdk.address)
+```
+
+### Partial Position Close by Percentage
+
+`close_position()` closes the entire position. To close a percentage, read the current size and place a reduce-only market order for the desired amount:
+
+```python
+def close_percentage(sdk, coin: str, percent: float):
+    """Close a percentage (0-100) of an open position."""
+    state = sdk.info().clearinghouse_state(sdk.address)
+    position = next(
+        (p for p in state['assetPositions'] if p['position']['coin'] == coin), None
+    )
+    if position is None:
+        raise ValueError(f"No open position for {coin}")
+
+    # szi is signed: positive = long, negative = short
+    szi = float(position['position']['szi'])
+    # Note: round close_size to asset's size decimals in production
+    close_size = abs(szi) * (percent / 100)
+
+    if szi > 0:
+        # Long position: sell to close
+        sdk.sell(coin, size=close_size, tif="market", reduce_only=True)
+    else:
+        # Short position: buy to close
+        sdk.buy(coin, size=close_size, tif="market", reduce_only=True)
+
+# Close 50% of BTC position
+close_percentage(sdk, "BTC", 50)
+```
+
+### Batch Cancel with Partial Failure Handling
+
+Cancel all orders for an asset in one call:
+
+```python
+# Cancel all orders for a specific asset
+sdk.cancel_all("BTC")
+
+# Cancel by client order ID (for CLOID-tracked orders)
+sdk.cancel_by_cloid("0xmycloid...", "BTC")
+```
+
+Or cancel selectively with per-order error handling:
+
+```python
+from hyperliquid_sdk import HyperliquidError
+
+# Get open orders
+result = sdk.open_orders()
+
+# Cancel specific orders with per-order error handling
+target_orders = [o for o in result['orders']
+                 if o['coin'] == 'BTC' and float(o['limitPx']) < 50000]
+failures = []
+for order in target_orders:
+    try:
+        sdk.cancel(order['oid'], order['coin'])
+    except HyperliquidError as e:
+        failures.append({'oid': order['oid'], 'error': str(e)})
+
+if failures:
+    print(f"Failed to cancel {len(failures)} orders: {failures}")
+```
+
+### Resilient Order Placement
+
+Use client order IDs (CLOIDs) for idempotent orders and categorize errors for retry logic:
+
+```python
+import uuid
+import time
+import random
+from hyperliquid_sdk import (
+    Order, HyperliquidError, RateLimitError, InvalidNonceError,
+    DuplicateOrderError, GeoBlockedError, InsufficientMarginError,
+    ValidationError, SignatureError, MaxOrdersError,
+)
+
+# Set a CLOID for idempotency — the exchange rejects duplicates
+cloid = "0x" + uuid.uuid4().hex
+order = sdk.order(Order.buy("BTC").size(0.001).price(65000).gtc().cloid(cloid))
+
+# Error categories:
+#   Transient (retry):   RateLimitError, InvalidNonceError
+#   Permanent (fail):    GeoBlockedError, InsufficientMarginError, ValidationError,
+#                        SignatureError, MaxOrdersError
+#   Already done:        DuplicateOrderError (order already placed)
+
+TRANSIENT_ERRORS = (RateLimitError, InvalidNonceError)
+
+def place_with_retry(sdk, order_builder, max_retries=3):
+    """Place an order with exponential backoff and idempotency."""
+    cloid = "0x" + uuid.uuid4().hex
+    order_builder = order_builder.cloid(cloid)
+
+    for attempt in range(max_retries):
+        try:
+            return sdk.order(order_builder)
+        except DuplicateOrderError:
+            return None  # Order already went through
+        except TRANSIENT_ERRORS as e:
+            if attempt == max_retries - 1:
+                raise
+            wait = (2 ** attempt) + random.random()
+            time.sleep(wait)
+
+# Timeout configuration on SDK constructor
+from hyperliquid_sdk import HyperliquidSDK
+sdk = HyperliquidSDK(endpoint, private_key="0x...", timeout=30)
+```
+
 ### Leverage & Margin
 
 ```python
