@@ -424,6 +424,7 @@ async function closePercentage(sdk: HyperliquidSDK, coin: string, percent: numbe
 
   // szi is signed: positive = long, negative = short
   const szi = parseFloat(position.position.szi);
+  // Note: round closeSize to asset's size decimals in production
   const closeSize = Math.abs(szi) * (percent / 100);
 
   if (szi > 0) {
@@ -441,15 +442,24 @@ await closePercentage(sdk, "BTC", 50);
 
 ### Batch Cancel with Partial Failure Handling
 
+Cancel all orders for an asset in one call:
+
+```typescript
+// Cancel all orders for a specific asset
+await sdk.cancelAll("BTC");
+
+// Cancel by client order ID (for CLOID-tracked orders)
+await sdk.cancelByCloid("0xmycloid...", "BTC");
+```
+
+Or cancel selectively with per-order error handling:
+
 ```typescript
 import { HyperliquidError } from '@quicknode/hyperliquid-sdk';
 
 // Get open orders
 const result = await sdk.openOrders() as any;
 const orders = result.orders;
-
-// Cancel all orders for a specific asset
-await sdk.cancelAll("BTC");
 
 // Cancel specific orders with per-order error handling
 const targetOrders = orders.filter(
@@ -470,9 +480,6 @@ for (const order of targetOrders) {
 if (failures.length > 0) {
   console.log(`Failed to cancel ${failures.length} orders:`, failures);
 }
-
-// Cancel by client order ID (for CLOID-tracked orders)
-await sdk.cancelByCloid("0xmycloid...", "BTC");
 ```
 
 ### Resilient Order Placement
@@ -501,6 +508,9 @@ const TRANSIENT_ERRORS = [RateLimitError, InvalidNonceError];
 async function placeWithRetry(
   sdk: HyperliquidSDK, orderBuilder: Order, maxRetries = 3
 ): Promise<PlacedOrder | null> {
+  const cloid = `0x${crypto.randomUUID().replace(/-/g, '')}`;
+  orderBuilder = orderBuilder.cloid(cloid);
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await sdk.order(orderBuilder);
@@ -520,10 +530,7 @@ async function placeWithRetry(
   return null;
 }
 
-// Generate CLOID before the retry loop so the same ID is reused on retries
-const retryCloid = `0x${crypto.randomUUID().replace(/-/g, '')}`;
-const retryOrder = Order.buy("BTC").size(0.001).price(65000).gtc().cloid(retryCloid);
-await placeWithRetry(sdk, retryOrder);
+await placeWithRetry(sdk, Order.buy("BTC").size(0.001).price(65000).gtc());
 ```
 
 #### Timeout Configuration

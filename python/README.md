@@ -426,6 +426,7 @@ def close_percentage(sdk, coin: str, percent: float):
 
     # szi is signed: positive = long, negative = short
     szi = float(position['position']['szi'])
+    # Note: round close_size to asset's size decimals in production
     close_size = abs(szi) * (percent / 100)
 
     if szi > 0:
@@ -441,14 +442,23 @@ close_percentage(sdk, "BTC", 50)
 
 ### Batch Cancel with Partial Failure Handling
 
+Cancel all orders for an asset in one call:
+
+```python
+# Cancel all orders for a specific asset
+sdk.cancel_all("BTC")
+
+# Cancel by client order ID (for CLOID-tracked orders)
+sdk.cancel_by_cloid("0xmycloid...", "BTC")
+```
+
+Or cancel selectively with per-order error handling:
+
 ```python
 from hyperliquid_sdk import HyperliquidError
 
 # Get open orders
 result = sdk.open_orders()
-
-# Cancel all orders for a specific asset
-sdk.cancel_all("BTC")
 
 # Cancel specific orders with per-order error handling
 target_orders = [o for o in result['orders']
@@ -462,9 +472,6 @@ for order in target_orders:
 
 if failures:
     print(f"Failed to cancel {len(failures)} orders: {failures}")
-
-# Cancel by client order ID (for CLOID-tracked orders)
-sdk.cancel_by_cloid("0xmycloid...", "BTC")
 ```
 
 ### Resilient Order Placement

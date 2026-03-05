@@ -528,6 +528,7 @@ func closePercentage(sdk *hyperliquid.SDK, coin string, percent float64) error {
 	}
 
 	// szi is signed: positive = long, negative = short
+	// Note: round closeSize to asset's size decimals in production
 	closeSize := math.Abs(szi) * (percent / 100)
 
 	if szi > 0 {
@@ -546,13 +547,22 @@ closePercentage(sdk, "BTC", 50)
 
 ### Batch Cancel with Partial Failure Handling
 
+Cancel all orders for an asset in one call:
+
+```go
+// Cancel all orders for a specific asset
+sdk.CancelAll("BTC")
+
+// Cancel by client order ID (for CLOID-tracked orders)
+sdk.CancelByCloid("0xmycloid...", "BTC")
+```
+
+Or cancel selectively with per-order error handling:
+
 ```go
 // Get open orders
 result, _ := sdk.OpenOrders("")
 orders := result["orders"].([]any)
-
-// Cancel all orders for a specific asset
-sdk.CancelAll("BTC")
 
 // Cancel specific orders with per-order error handling
 type cancelFailure struct {
@@ -577,9 +587,6 @@ for _, o := range orders {
 if len(failures) > 0 {
 	fmt.Printf("Failed to cancel %d orders: %v\n", len(failures), failures)
 }
-
-// Cancel by client order ID (for CLOID-tracked orders)
-sdk.CancelByCloid("0xmycloid...", "BTC")
 ```
 
 ### Resilient Order Placement
@@ -588,12 +595,13 @@ Use client order IDs (CLOIDs) for idempotent orders and categorize errors for re
 
 ```go
 // Set a CLOID for idempotency — the exchange rejects duplicates
+cloid := fmt.Sprintf("0x%x%x", time.Now().UnixNano(), rand.Int63())
 order := hyperliquid.Order().
 	Buy("BTC").
 	Size(0.001).
 	Price(65000).
 	GTC().
-	CLOID("0x" + generateCLOID())
+	CLOID(cloid)
 
 result, _ := sdk.PlaceOrder(order)
 
@@ -604,7 +612,7 @@ result, _ := sdk.PlaceOrder(order)
 //   Already done:        ErrorCodeDuplicateOrder (order already placed)
 
 func placeWithRetry(sdk *hyperliquid.SDK, builder *hyperliquid.OrderBuilder, maxRetries int) error {
-	builder = builder.CLOID("0x" + generateCLOID())
+	builder = builder.CLOID(fmt.Sprintf("0x%x%x", time.Now().UnixNano(), rand.Int63()))
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 

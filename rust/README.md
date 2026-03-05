@@ -540,6 +540,7 @@ async fn close_percentage(sdk: &HyperliquidSDK, coin: &str, percent: f64) -> Res
 
     // szi is signed: positive = long, negative = short
     let szi: f64 = position["position"]["szi"].as_str().unwrap().parse().unwrap();
+    // Note: round close_size to asset's size decimals in production
     let close_size = szi.abs() * (percent / 100.0);
 
     if szi > 0.0 {
@@ -558,15 +559,24 @@ close_percentage(&sdk, "BTC", 50.0).await?;
 
 ### Batch Cancel with Partial Failure Handling
 
+Cancel all orders for an asset in one call:
+
+```rust
+// Cancel all orders for a specific asset
+sdk.cancel_all(Some("BTC")).await?;
+
+// Cancel by client order ID (for CLOID-tracked orders)
+sdk.cancel_by_cloid("0xmycloid...", "BTC").await?;
+```
+
+Or cancel selectively with per-order error handling:
+
 ```rust
 use hyperliquid_sdk::Error;
 
 // Get open orders
 let result = sdk.open_orders().await?;
 let orders = result.as_array().unwrap();
-
-// Cancel all orders for a specific asset
-sdk.cancel_all(Some("BTC")).await?;
 
 // Cancel specific orders with per-order error handling
 let mut failures = Vec::new();
@@ -584,9 +594,6 @@ for order in orders {
 if !failures.is_empty() {
     eprintln!("Failed to cancel {} orders: {:?}", failures.len(), failures);
 }
-
-// Cancel by client order ID (for CLOID-tracked orders)
-sdk.cancel_by_cloid("0xmycloid...", "BTC").await?;
 ```
 
 ### Resilient Order Placement
@@ -622,12 +629,10 @@ async fn place_with_retry(
             Err(Error::ApiError { code: ErrorCode::DuplicateOrder, .. }) => return Ok(None),
             Err(Error::RateLimited { .. })
             | Err(Error::ApiError { code: ErrorCode::InvalidNonce, .. })
-                if attempt < max_retries - 1 =>
+                if attempt + 1 < max_retries =>
             {
                 let wait = Duration::from_millis(
-                    (1u64 << attempt) * 1000 + (std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH).unwrap()
-                        .subsec_nanos() as u64 % 1000)
+                    (1u64 << attempt) * 1000 + attempt as u64 * 500
                 );
                 tokio::time::sleep(wait).await;
             }
