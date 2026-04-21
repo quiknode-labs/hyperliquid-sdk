@@ -23,6 +23,23 @@ Everything is included: trading, market data, WebSocket streaming, gRPC streamin
 
 ## Quick Start
 
+### Try without an account (read-only)
+
+All market data APIs work without a private key or QuickNode account — great for exploration:
+
+```python
+from hyperliquid_sdk import HyperliquidSDK
+
+sdk = HyperliquidSDK("https://api.hyperliquid.xyz")  # Public endpoint, no auth needed
+
+# Fetch live market data right away
+print(sdk.info.all_mids())        # All mid prices
+print(sdk.info.meta())            # Exchange metadata (229 perp markets)
+print(sdk.info.l2_book("BTC"))    # BTC order book
+```
+
+To place orders, set up a private key and use a [QuickNode Hyperliquid endpoint](https://www.quicknode.com/).
+
 ### 1. Set your private key
 
 ```bash
@@ -64,64 +81,67 @@ You can create a Hyperliquid endpoint on [Quicknode](https://www.quicknode.com/)
 sdk = HyperliquidSDK(endpoint)
 
 # Market data
-sdk.info().all_mids()                          # All mid prices
-sdk.info().l2_book("BTC")                      # Order book
-sdk.info().recent_trades("BTC")                # Recent trades
-sdk.info().candles("BTC", "1h", start, end)    # OHLCV candles
-sdk.info().funding_history("BTC", start, end)  # Funding history
-sdk.info().predicted_fundings()                # Predicted funding rates
+sdk.info.all_mids()                          # All mid prices
+sdk.info.l2_book("BTC")                      # Order book
+sdk.info.recent_trades("BTC")                # Recent trades
+sdk.info.candles("BTC", "1h", start, end)    # OHLCV candles
+sdk.info.funding_history("BTC", start, end)  # Funding history
+sdk.info.predicted_fundings()                # Predicted funding rates
+# Note: predicted_fundings() returns rates from multiple sources (HlPerp, BinPerp, BybitPerp).
+# Each source uses a different funding interval (1h, 8h, or variable). Always normalise
+# by the returned `fundingIntervalHours` field before comparing rates across exchanges.
 
 # Metadata
-sdk.info().meta()                              # Exchange metadata
-sdk.info().spot_meta()                         # Spot metadata
-sdk.info().exchange_status()                   # Exchange status
-sdk.info().perp_dexs()                         # Perpetual DEX info
-sdk.info().max_market_order_ntls()             # Max market order notionals
+sdk.info.meta()                              # Exchange metadata
+sdk.info.spot_meta()                         # Spot metadata
+sdk.info.exchange_status()                   # Exchange status
+sdk.info.perp_dexs()                         # Perpetual DEX info
+sdk.info.max_market_order_ntls()             # Max market order notionals
 
 # User data
-sdk.info().clearinghouse_state("0x...")        # Positions & margin
-sdk.info().spot_clearinghouse_state("0x...")   # Spot balances
-sdk.info().open_orders("0x...")                # Open orders
-sdk.info().frontend_open_orders("0x...")       # Enhanced open orders
-sdk.info().order_status("0x...", oid)          # Specific order status
-sdk.info().historical_orders("0x...")          # Order history
-sdk.info().user_fills("0x...")                 # Trade history
-sdk.info().user_fills_by_time("0x...", start)  # Fills by time range
-sdk.info().user_funding("0x...")               # Funding payments
-sdk.info().user_fees("0x...")                  # Fee structure
-sdk.info().user_rate_limit("0x...")            # Rate limit status
-sdk.info().user_role("0x...")                  # Account type
-sdk.info().portfolio("0x...")                  # Portfolio history
-sdk.info().sub_accounts("0x...")               # Sub-accounts
-sdk.info().extra_agents("0x...")               # API keys/agents
+sdk.info.clearinghouse_state("0x...")        # Positions & margin
+sdk.info.spot_clearinghouse_state("0x...")   # Spot balances
+sdk.info.open_orders("0x...")                # Open orders
+sdk.info.frontend_open_orders("0x...")       # Enhanced open orders
+sdk.info.order_status("0x...", oid)          # Specific order status
+sdk.info.historical_orders("0x...")          # Order history
+sdk.info.user_fills("0x...")                 # Trade history
+sdk.info.user_fills_by_time("0x...", start)  # Fills by time range
+sdk.info.user_funding("0x...")               # Funding payments
+sdk.info.user_fees("0x...")                  # Fee structure
+sdk.info.user_rate_limit("0x...")            # Rate limit status
+sdk.info.user_role("0x...")                  # Account type
+sdk.info.portfolio("0x...")                  # Portfolio history
+sdk.info.sub_accounts("0x...")               # Sub-accounts
+sdk.info.extra_agents("0x...")               # API keys/agents
 
 # TWAP
-sdk.info().user_twap_slice_fills("0x...")      # TWAP slice fills
+sdk.info.user_twap_slice_fills("0x...")      # TWAP slice fills
 
 # Batch queries
-sdk.info().batch_clearinghouse_states(["0x...", "0x..."])
+sdk.info.batch_clearinghouse_states(["0x...", "0x..."])
 
 # Vaults
-sdk.info().vault_summaries()                   # All vault summaries
-sdk.info().vault_details("0x...")              # Specific vault
-sdk.info().user_vault_equities("0x...")        # User's vault equities
-sdk.info().leading_vaults("0x...")             # Vaults user leads
+sdk.info.vault_summaries()                   # All vault summaries
+sdk.info.vault_details("0x...")              # Specific vault
+sdk.info.user_vault_equities("0x...")        # User's vault equities
+sdk.info.leading_vaults("0x...")             # Vaults user leads
 
 # Delegation/Staking
-sdk.info().delegations("0x...")                # Active delegations
-sdk.info().delegator_summary("0x...")          # Delegation summary
-sdk.info().delegator_history("0x...")          # Delegation history
-sdk.info().delegator_rewards("0x...")          # Delegation rewards
+sdk.info.delegations("0x...")                # Active delegations
+sdk.info.delegator_summary("0x...")          # Delegation summary
+sdk.info.delegator_history("0x...")          # Delegation history
+sdk.info.delegator_rewards("0x...")          # Delegation rewards
 
 # Tokens
-sdk.info().token_details("token_id")           # Token details
-sdk.info().spot_deploy_state("0x...")          # Spot deployment state
+sdk.info.token_details("token_id")           # Token details
+sdk.info.spot_deploy_state("0x...")          # Spot deployment state
 
 # Other
-sdk.info().referral("0x...")                   # Referral info
-sdk.info().max_builder_fee("0x...", "0x...")   # Builder fee limits
-sdk.info().approved_builders("0x...")          # Approved builders
-sdk.info().liquidatable()                      # Liquidatable positions
+sdk.info.referral("0x...")                   # Referral info
+sdk.info.max_builder_fee("0x...", "0x...")   # Builder fee limits
+sdk.info.approved_builders("0x...")          # Approved builders
+sdk.info.liquidatable()                      # Liquidatable positions
 ```
 
 ### HyperCore API
@@ -132,26 +152,26 @@ Block data, trading operations, and real-time data via JSON-RPC.
 sdk = HyperliquidSDK(endpoint)
 
 # Block data
-sdk.core().latest_block_number()                 # Latest block
-sdk.core().get_block(12345)                      # Get specific block
-sdk.core().get_batch_blocks(100, 110)            # Get block range
-sdk.core().latest_blocks(count=10)               # Latest blocks
+sdk.core.latest_block_number()                 # Latest block
+sdk.core.get_block(12345)                      # Get specific block
+sdk.core.get_batch_blocks(100, 110)            # Get block range
+sdk.core.latest_blocks(count=10)               # Latest blocks
 
 # Recent data
-sdk.core().latest_trades(count=10)               # Recent trades (all coins)
-sdk.core().latest_trades(count=10, coin="BTC")   # Recent BTC trades
-sdk.core().latest_orders(count=10)               # Recent order events
-sdk.core().latest_book_updates(count=10)         # Recent book updates
+sdk.core.latest_trades(count=10)               # Recent trades (all coins)
+sdk.core.latest_trades(count=10, coin="BTC")   # Recent BTC trades
+sdk.core.latest_orders(count=10)               # Recent order events
+sdk.core.latest_book_updates(count=10)         # Recent book updates
 
 # Discovery
-sdk.core().list_dexes()                          # All DEXes
-sdk.core().list_markets()                        # All markets
-sdk.core().list_markets(dex="hyperliquidity")    # Markets by DEX
+sdk.core.list_dexes()                          # All DEXes
+sdk.core.list_markets()                        # All markets
+sdk.core.list_markets(dex="hyperliquidity")    # Markets by DEX
 
 # Order queries
-sdk.core().open_orders("0x...")                  # User's open orders
-sdk.core().order_status("0x...", oid)            # Specific order status
-sdk.core().preflight(...)                        # Validate order before signing
+sdk.core.open_orders("0x...")                  # User's open orders
+sdk.core.order_status("0x...", oid)            # Specific order status
+sdk.core.preflight(...)                        # Validate order before signing
 ```
 
 ### EVM (Ethereum JSON-RPC)
@@ -162,45 +182,45 @@ sdk.core().preflight(...)                        # Validate order before signing
 sdk = HyperliquidSDK(endpoint)
 
 # Chain info
-sdk.evm().block_number()                       # Latest block
-sdk.evm().chain_id()                           # 999 mainnet, 998 testnet
-sdk.evm().gas_price()                          # Current gas price
-sdk.evm().max_priority_fee_per_gas()           # Priority fee
-sdk.evm().net_version()                        # Network version
-sdk.evm().syncing()                            # Sync status
+sdk.evm.block_number()                       # Latest block
+sdk.evm.chain_id()                           # 999 mainnet, 998 testnet
+sdk.evm.gas_price()                          # Current gas price
+sdk.evm.max_priority_fee_per_gas()           # Priority fee
+sdk.evm.net_version()                        # Network version
+sdk.evm.syncing()                            # Sync status
 
 # Accounts
-sdk.evm().get_balance("0x...")                 # Account balance
-sdk.evm().get_transaction_count("0x...")       # Nonce
-sdk.evm().get_code("0x...")                    # Contract code
-sdk.evm().get_storage_at("0x...", position)    # Storage value
+sdk.evm.get_balance("0x...")                 # Account balance
+sdk.evm.get_transaction_count("0x...")       # Nonce
+sdk.evm.get_code("0x...")                    # Contract code
+sdk.evm.get_storage_at("0x...", position)    # Storage value
 
 # Transactions
-sdk.evm().call({"to": "0x...", "data": "0x..."})
-sdk.evm().estimate_gas(tx)
-sdk.evm().send_raw_transaction(signed_tx)
-sdk.evm().get_transaction_by_hash("0x...")
-sdk.evm().get_transaction_receipt("0x...")
+sdk.evm.call({"to": "0x...", "data": "0x..."})
+sdk.evm.estimate_gas(tx)
+sdk.evm.send_raw_transaction(signed_tx)
+sdk.evm.get_transaction_by_hash("0x...")
+sdk.evm.get_transaction_receipt("0x...")
 
 # Blocks
-sdk.evm().get_block_by_number(12345)
-sdk.evm().get_block_by_hash("0x...")
-sdk.evm().get_block_receipts(12345)
-sdk.evm().get_block_transaction_count_by_number(12345)
+sdk.evm.get_block_by_number(12345)
+sdk.evm.get_block_by_hash("0x...")
+sdk.evm.get_block_receipts(12345)
+sdk.evm.get_block_transaction_count_by_number(12345)
 
 # Logs
-sdk.evm().get_logs({"address": "0x...", "topics": [...]})
+sdk.evm.get_logs({"address": "0x...", "topics": [...]})
 
 # HyperEVM-specific
-sdk.evm().big_block_gas_price()                # Big block gas price
-sdk.evm().using_big_blocks()                   # Is using big blocks?
-sdk.evm().get_system_txs_by_block_number(12345)
+sdk.evm.big_block_gas_price()                # Big block gas price
+sdk.evm.using_big_blocks()                   # Is using big blocks?
+sdk.evm.get_system_txs_by_block_number(12345)
 
 # Debug/Trace
-sdk.evm().debug_trace_transaction("0x...", {"tracer": "callTracer"})
-sdk.evm().debug_trace_block_by_number(12345)
-sdk.evm().trace_transaction("0x...")
-sdk.evm().trace_block(12345)
+sdk.evm.debug_trace_transaction("0x...", {"tracer": "callTracer"})
+sdk.evm.debug_trace_block_by_number(12345)
+sdk.evm.trace_transaction("0x...")
+sdk.evm.trace_block(12345)
 ```
 
 ---
@@ -215,21 +235,21 @@ sdk.evm().trace_block(12345)
 sdk = HyperliquidSDK(endpoint)
 
 # Subscribe to trades
-sdk.stream().trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
+sdk.stream.trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
 
 # Subscribe to book updates
-sdk.stream().book_updates(["BTC"], lambda b: print(f"Book: {b}"))
+sdk.stream.book_updates(["BTC"], lambda b: print(f"Book: {b}"))
 
 # Subscribe to orders (your orders)
-sdk.stream().orders(["BTC"], lambda o: print(f"Order: {o}"), users=["0x..."])
+sdk.stream.orders(["BTC"], lambda o: print(f"Order: {o}"), users=["0x..."])
 
 # Run in background
-sdk.stream().start()
+sdk.stream.start()
 # ... do other work ...
-sdk.stream().stop()
+sdk.stream.stop()
 
 # Or run blocking
-sdk.stream().run()
+sdk.stream.run()
 ```
 
 Available streams:
@@ -273,24 +293,24 @@ Lower latency streaming via gRPC for high-frequency applications.
 sdk = HyperliquidSDK(endpoint)
 
 # Subscribe to trades
-sdk.grpc().trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
+sdk.grpc.trades(["BTC", "ETH"], lambda t: print(f"Trade: {t}"))
 
 # Subscribe to L2 order book (aggregated by price level)
-sdk.grpc().l2_book("BTC", lambda b: print(f"Book: {b}"), n_sig_figs=5)
+sdk.grpc.l2_book("BTC", lambda b: print(f"Book: {b}"), n_sig_figs=5)
 
 # Subscribe to L4 order book (CRITICAL: individual orders with order IDs)
-sdk.grpc().l4_book("BTC", lambda b: print(f"L4: {b}"))
+sdk.grpc.l4_book("BTC", lambda b: print(f"L4: {b}"))
 
 # Subscribe to blocks
-sdk.grpc().blocks(lambda b: print(f"Block: {b}"))
+sdk.grpc.blocks(lambda b: print(f"Block: {b}"))
 
 # Run in background
-sdk.grpc().start()
+sdk.grpc.start()
 # ... do other work ...
-sdk.grpc().stop()
+sdk.grpc.stop()
 
 # Or run blocking
-sdk.grpc().run()
+sdk.grpc.run()
 ```
 
 **Available gRPC Streams:**
@@ -330,8 +350,8 @@ def on_l4_book(data):
         print(f"Bid: ${float(px):,.2f} x {sz} (order: {oid})")
 
 sdk = HyperliquidSDK(endpoint)
-sdk.grpc().l4_book("BTC", on_l4_book)
-sdk.grpc().run()
+sdk.grpc.l4_book("BTC", on_l4_book)
+sdk.grpc.run()
 ```
 
 ### L2 vs L4 Comparison
@@ -407,7 +427,7 @@ for order in btc_orders:
           f"type={order['orderType']} tif={order['tif']} oid={order['oid']}")
 
 # For enhanced data (triggers, children), use frontend_open_orders()
-enhanced = sdk.info().frontend_open_orders(sdk.address)
+enhanced = sdk.info.frontend_open_orders(sdk.address)
 ```
 
 ### Partial Position Close by Percentage
@@ -417,7 +437,7 @@ enhanced = sdk.info().frontend_open_orders(sdk.address)
 ```python
 def close_percentage(sdk, coin: str, percent: float):
     """Close a percentage (0-100) of an open position."""
-    state = sdk.info().clearinghouse_state(sdk.address)
+    state = sdk.info.clearinghouse_state(sdk.address)
     position = next(
         (p for p in state['assetPositions'] if p['position']['coin'] == coin), None
     )
@@ -681,13 +701,13 @@ HyperliquidSDK(
     timeout=30,            # Request timeout in seconds
 )
 
-# Access sub-clients
-sdk.info()      # Info API (market data, user data, metadata)
-sdk.core()      # HyperCore (blocks, trades, orders)
-sdk.evm()       # EVM (Ethereum JSON-RPC)
-sdk.stream()    # WebSocket streaming
-sdk.grpc()      # gRPC streaming
-sdk.evm_stream() # EVM WebSocket (eth_subscribe)
+# Access sub-clients (properties, not methods — no parentheses needed)
+sdk.info        # Info API (market data, user data, metadata)
+sdk.core        # HyperCore (blocks, trades, orders)
+sdk.evm         # EVM (Ethereum JSON-RPC)
+sdk.stream      # WebSocket streaming
+sdk.grpc        # gRPC streaming
+sdk.evm_stream  # EVM WebSocket (eth_subscribe)
 ```
 
 ---
