@@ -434,6 +434,11 @@ sdk.MarketSell("ETH", hyperliquid.WithNotional(100))
 sdk.Buy("BTC", hyperliquid.WithSize(0.001), hyperliquid.WithPrice(65000))
 sdk.Sell("ETH", hyperliquid.WithSize(0.5), hyperliquid.WithPrice(4000), hyperliquid.WithTIF(hyperliquid.TIFGtc))
 
+// Order priority. WithPriorityFee(10000) is 1 bp.
+// Priority fees are paid from undelegated staking HYPE.
+sdk.FundPriorityFees(0.001)
+sdk.MarketBuy("HYPE", hyperliquid.WithSize(0.3), hyperliquid.WithPriorityFee(10000))
+
 // Perp trader aliases
 sdk.Long("BTC", hyperliquid.WithSize(0.001), hyperliquid.WithPrice(65000))
 sdk.Short("ETH", hyperliquid.WithNotional(500), hyperliquid.WithTIF(hyperliquid.TIFIoc))
@@ -447,6 +452,7 @@ order := hyperliquid.Order().
     Size(0.001).
     Price(65000).
     GTC().
+    PriorityFee(10000).
     ReduceOnly().
     RandomCloid()
 
@@ -563,13 +569,15 @@ sdk.VaultWithdraw(hlpVault, 50)
 ### Staking
 
 ```go
-// Stake/unstake HYPE
-sdk.Stake(1000)
-sdk.Unstake(500)  // 7-day queue
+// Move spot HYPE into undelegated staking HYPE.
+// This is the balance Hyperliquid uses for order priority fees.
+sdk.FundPriorityFees(0.001)
+sdk.Stake(0.001)
+sdk.Unstake(0.001)  // 7-day queue
 
 // Delegate to validators
-sdk.Delegate("0x...", 500)
-sdk.Undelegate("0x...", 250)
+sdk.Delegate("0x...", 0.5)
+sdk.Undelegate("0x...", 0.25)
 ```
 
 ### Builder Fee

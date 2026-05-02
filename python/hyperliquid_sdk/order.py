@@ -84,6 +84,7 @@ class Order:
     _reduce_only: bool = False
     _notional: Optional[float] = None
     _cloid: Optional[str] = None
+    _priority_fee: Optional[Union[int, str]] = None
 
     # ═══════════════ STATIC CONSTRUCTORS ═══════════════
 
@@ -175,6 +176,17 @@ class Order:
         self._cloid = client_order_id
         return self
 
+    def priority_fee(self, p: Union[int, str]) -> Order:
+        """
+        Set Hyperliquid order priority fee rate.
+
+        Hyperliquid interprets p as p / 100000000 of filled notional.
+        For example, p=10000 is 1 bp. Fees are paid from undelegated
+        staking HYPE, not spot USDC.
+        """
+        self._priority_fee = p
+        return self
+
     # ═══════════════ BUILD ACTION ═══════════════
 
     def to_action(self) -> dict:
@@ -249,6 +261,20 @@ class Order:
                 guidance="Use .price(67000) or .market() for market orders",
             )
 
+        if self._priority_fee is not None:
+            try:
+                priority_fee = int(self._priority_fee)
+            except (TypeError, ValueError):
+                raise ValidationError(
+                    "priority_fee must be an unsigned integer",
+                    guidance="Use .priority_fee(10000) for 1 bp.",
+                )
+            if priority_fee < 0:
+                raise ValidationError(
+                    "priority_fee must be an unsigned integer",
+                    guidance="Use .priority_fee(10000) for 1 bp.",
+                )
+
         # Validate price is positive for limit orders
         if self._price is not None:
             try:
@@ -278,6 +304,8 @@ class Order:
             parts.append(f".{self._tif.name.lower()}()")
         if self._reduce_only:
             parts.append(".reduce_only()")
+        if self._priority_fee is not None:
+            parts.append(f".priority_fee({self._priority_fee})")
         return "".join(parts)
 
 

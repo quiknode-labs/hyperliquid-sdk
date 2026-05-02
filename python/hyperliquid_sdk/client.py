@@ -85,6 +85,7 @@ class HyperliquidSDK:
 
     # Default URL - Worker handles requests and routes to Hyperliquid
     DEFAULT_WORKER_URL = "https://send.hyperliquidapi.com"
+    HYPE_WEI_DECIMALS = 8
 
     # Info API methods supported by QuickNode nodes with --serve-info-endpoint
     # Other methods (allMids, l2Book, recentTrades, etc.) route through the worker
@@ -385,6 +386,7 @@ class HyperliquidSDK:
         reduce_only: bool = False,
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """
         Place a buy order.
@@ -399,6 +401,7 @@ class HyperliquidSDK:
             grouping: Order grouping for TP/SL attachment
             slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
                       Overrides the SDK default for this call only.
+            priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -407,6 +410,7 @@ class HyperliquidSDK:
             sdk.buy("BTC", size=0.001, price=67000)
             sdk.buy("ETH", notional=100, tif="market")
             sdk.buy("ETH", notional=100, tif="market", slippage=0.05)
+            sdk.buy("HYPE", size=0.3, tif="market", priority_fee=10000)
         """
         return self._place_order(
             asset=asset,
@@ -418,6 +422,7 @@ class HyperliquidSDK:
             reduce_only=reduce_only,
             grouping=grouping,
             slippage=slippage,
+            priority_fee=priority_fee,
         )
 
     def sell(
@@ -431,6 +436,7 @@ class HyperliquidSDK:
         reduce_only: bool = False,
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """
         Place a sell order.
@@ -445,6 +451,7 @@ class HyperliquidSDK:
             grouping: Order grouping for TP/SL attachment
             slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
                       Overrides the SDK default for this call only.
+            priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -459,6 +466,7 @@ class HyperliquidSDK:
             reduce_only=reduce_only,
             grouping=grouping,
             slippage=slippage,
+            priority_fee=priority_fee,
         )
 
     # Aliases for perp traders
@@ -472,6 +480,7 @@ class HyperliquidSDK:
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """
         Market buy — executes immediately at best available price.
@@ -482,13 +491,22 @@ class HyperliquidSDK:
             notional: Size in USD (alternative to size)
             slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
                       Default: SDK-level setting (3%). Range: 0.1%-10%.
+            priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
 
         Example:
             sdk.market_buy("BTC", size=0.001)
             sdk.market_buy("ETH", notional=100)  # $100 worth
             sdk.market_buy("BTC", size=0.001, slippage=0.05)  # 5% slippage
+            sdk.market_buy("HYPE", size=0.3, priority_fee=10000)
         """
-        return self.buy(asset, size=size, notional=notional, tif="market", slippage=slippage)
+        return self.buy(
+            asset,
+            size=size,
+            notional=notional,
+            tif="market",
+            slippage=slippage,
+            priority_fee=priority_fee,
+        )
 
     def market_sell(
         self,
@@ -497,6 +515,7 @@ class HyperliquidSDK:
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """
         Market sell — executes immediately at best available price.
@@ -507,8 +526,16 @@ class HyperliquidSDK:
             notional: Size in USD (alternative to size)
             slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
                       Default: SDK-level setting (3%). Range: 0.1%-10%.
+            priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
         """
-        return self.sell(asset, size=size, notional=notional, tif="market", slippage=slippage)
+        return self.sell(
+            asset,
+            size=size,
+            notional=notional,
+            tif="market",
+            slippage=slippage,
+            priority_fee=priority_fee,
+        )
 
     def order(self, order: Order) -> PlacedOrder:
         """
@@ -1091,54 +1118,68 @@ class HyperliquidSDK:
     # STAKING OPERATIONS
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def stake(self, amount: Union[float, int]) -> dict:
+    def fund_priority_fees(self, amount_hype: Union[float, int, str, Decimal]) -> dict:
         """
-        Stake tokens.
+        Move spot HYPE into undelegated staking HYPE for order priority fees.
+
+        Order priority fees are paid from undelegated staking HYPE, not spot
+        USDC. This submits a Hyperliquid cDeposit through the worker API.
 
         Args:
-            amount: Amount to stake
+            amount_hype: HYPE amount to deposit. Uses Hyperliquid's 8-decimal HYPE wei.
 
         Returns:
             Exchange response
 
         Example:
-            sdk.stake(1000)
+            sdk.fund_priority_fees(0.001)
+            sdk.market_buy("HYPE", size=0.3, priority_fee=10000)
         """
-        # Convert to wei (assuming 18 decimals)
-        wei = int(amount * 10**18)
+        return self.stake(amount_hype)
+
+    def stake(self, amount: Union[float, int, str, Decimal]) -> dict:
+        """
+        Move spot HYPE into undelegated staking HYPE.
+
+        Args:
+            amount: HYPE amount to stake. Uses Hyperliquid's 8-decimal HYPE wei.
+
+        Returns:
+            Exchange response
+
+        Example:
+            sdk.stake(0.001)
+        """
+        wei = self._hype_to_wei(amount)
         nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "cDeposit",
-            "hyperliquidChain": self._chain,
-            "signatureChainId": self._chain_id,
             "wei": wei,
             "nonce": nonce,
         }
         return self._build_sign_send(action)
 
-    def unstake(self, amount: Union[float, int]) -> dict:
+    def unstake(self, amount: Union[float, int, str, Decimal]) -> dict:
         """
-        Unstake tokens.
+        Withdraw undelegated staking HYPE back to spot HYPE.
 
         Note: 7-day unstaking queue applies.
 
         Args:
-            amount: Amount to unstake
+            amount: HYPE amount to unstake. Uses Hyperliquid's 8-decimal HYPE wei.
 
         Returns:
             Exchange response
 
         Example:
-            sdk.unstake(500)
+            sdk.unstake(0.001)
         """
-        wei = int(amount * 10**18)
+        wei = self._hype_to_wei(amount)
         nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "cWithdraw",
-            "hyperliquidChain": self._chain,
-            "signatureChainId": self._chain_id,
             "wei": wei,
             "nonce": nonce,
         }
@@ -1147,7 +1188,7 @@ class HyperliquidSDK:
     def delegate(
         self,
         validator: str,
-        amount: Union[float, int],
+        amount: Union[float, int, str, Decimal],
     ) -> dict:
         """
         Delegate staked tokens to a validator.
@@ -1156,21 +1197,19 @@ class HyperliquidSDK:
 
         Args:
             validator: Validator address (42-char hex)
-            amount: Amount to delegate
+            amount: HYPE amount to delegate. Uses Hyperliquid's 8-decimal HYPE wei.
 
         Returns:
             Exchange response
 
         Example:
-            sdk.delegate("0xValidator...", 500)
+            sdk.delegate("0xValidator...", 0.5)
         """
-        wei = int(amount * 10**18)
+        wei = self._hype_to_wei(amount)
         nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "tokenDelegate",
-            "hyperliquidChain": self._chain,
-            "signatureChainId": self._chain_id,
             "validator": validator,
             "isUndelegate": False,
             "wei": wei,
@@ -1181,28 +1220,26 @@ class HyperliquidSDK:
     def undelegate(
         self,
         validator: str,
-        amount: Union[float, int],
+        amount: Union[float, int, str, Decimal],
     ) -> dict:
         """
         Undelegate staked tokens from a validator.
 
         Args:
             validator: Validator address (42-char hex)
-            amount: Amount to undelegate
+            amount: HYPE amount to undelegate. Uses Hyperliquid's 8-decimal HYPE wei.
 
         Returns:
             Exchange response
 
         Example:
-            sdk.undelegate("0xValidator...", 500)
+            sdk.undelegate("0xValidator...", 0.5)
         """
-        wei = int(amount * 10**18)
+        wei = self._hype_to_wei(amount)
         nonce = int(time_module.time() * 1000)
 
         action = {
             "type": "tokenDelegate",
-            "hyperliquidChain": self._chain,
-            "signatureChainId": self._chain_id,
             "validator": validator,
             "isUndelegate": True,
             "wei": wei,
@@ -2067,6 +2104,7 @@ class HyperliquidSDK:
         reduce_only: bool,
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """Internal order placement logic."""
         # Build order
@@ -2104,20 +2142,38 @@ class HyperliquidSDK:
         if reduce_only:
             order._reduce_only = True
 
-        return self._execute_order(order, grouping, slippage=slippage)
+        return self._execute_order(
+            order,
+            grouping,
+            slippage=slippage,
+            priority_fee=priority_fee,
+        )
 
     def _execute_order(
         self,
         order: Order,
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """Execute an order through build→sign→send."""
         action = order.to_action()
+        effective_priority_fee = (
+            priority_fee if priority_fee is not None else order._priority_fee
+        )
+        if grouping != OrderGrouping.NA and effective_priority_fee is not None:
+            raise ValidationError(
+                "priority_fee cannot be combined with TP/SL grouping",
+                guidance="Use priority_fee on standalone IOC/market orders, or omit grouping.",
+            )
         # Add grouping if specified
         if grouping != OrderGrouping.NA:
             action["grouping"] = grouping.value
-        result = self._build_sign_send(action, slippage=slippage)
+        result = self._build_sign_send(
+            action,
+            slippage=slippage,
+            priority_fee=effective_priority_fee,
+        )
         return PlacedOrder.from_response(
             result.get("exchangeResponse", {}),
             order,
@@ -2132,7 +2188,12 @@ class HyperliquidSDK:
                 "Pass private_key to HyperliquidSDK() or set PRIVATE_KEY env var."
             )
 
-    def _build_sign_send(self, action: dict, slippage: Optional[float] = None) -> dict:
+    def _build_sign_send(
+        self,
+        action: dict,
+        slippage: Optional[float] = None,
+        priority_fee: Optional[Union[int, str]] = None,
+    ) -> dict:
         """
         The magic ceremony — build, sign, send in one call.
 
@@ -2144,7 +2205,12 @@ class HyperliquidSDK:
 
         # Step 1: Build
         effective_slippage = slippage if slippage is not None else self._slippage
-        build_result = self._exchange({"action": action, "slippage": effective_slippage})
+        build_payload = {"action": action, "slippage": effective_slippage}
+        normalized_priority_fee = self._normalize_priority_fee(priority_fee)
+        if normalized_priority_fee is not None:
+            build_payload["priorityFee"] = normalized_priority_fee
+
+        build_result = self._exchange(build_payload)
 
         if "hash" not in build_result:
             raise BuildError(
@@ -2163,6 +2229,43 @@ class HyperliquidSDK:
         }
 
         return self._exchange(send_payload)
+
+    def _hype_to_wei(self, amount: Union[float, int, str, Decimal]) -> int:
+        """Convert HYPE to Hyperliquid's 8-decimal integer wei."""
+        dec = Decimal(str(amount))
+        if dec <= 0:
+            raise ValidationError(
+                "HYPE amount must be positive",
+                guidance="Use a positive amount like 0.001",
+            )
+        wei = int(dec * (10 ** self.HYPE_WEI_DECIMALS))
+        if wei <= 0:
+            raise ValidationError(
+                "HYPE amount is too small",
+                guidance="Minimum unit is 0.00000001 HYPE",
+            )
+        return wei
+
+    def _normalize_priority_fee(
+        self,
+        priority_fee: Optional[Union[int, str]],
+    ) -> Optional[int]:
+        """Normalize optional Hyperliquid priority fee p."""
+        if priority_fee is None:
+            return None
+        try:
+            value = int(priority_fee)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                "priority_fee must be an unsigned integer",
+                guidance="Use priority_fee=10000 for 1 bp.",
+            ) from exc
+        if value < 0:
+            raise ValidationError(
+                "priority_fee must be an unsigned integer",
+                guidance="Use priority_fee=10000 for 1 bp.",
+            )
+        return value
 
     def _sign_hash(self, hash_hex: str) -> dict:
         """Sign a hash with the wallet."""

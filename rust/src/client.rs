@@ -34,6 +34,7 @@ const HL_EXCHANGE_URL: &str = "https://api.hyperliquid.xyz/exchange";
 const DEFAULT_SLIPPAGE: f64 = 0.03; // 3%
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const METADATA_CACHE_TTL_SECS: u64 = 300; // 5 minutes
+const HYPE_WEI_DECIMALS: u32 = 8;
 
 // QuickNode-supported info query types
 const QN_SUPPORTED_INFO_TYPES: &[&str] = &[
@@ -489,6 +490,15 @@ impl HyperliquidSDKInner {
     /// to apply when computing market order prices. When `None`, the constructor-level
     /// default slippage is used (if > 0).
     pub async fn build_sign_send(&self, action: &Value, slippage: Option<f64>) -> Result<Value> {
+        self.build_sign_send_with_priority(action, slippage, None).await
+    }
+
+    pub async fn build_sign_send_with_priority(
+        &self,
+        action: &Value,
+        slippage: Option<f64>,
+        priority_fee: Option<u64>,
+    ) -> Result<Value> {
         let signer = self
             .signer
             .as_ref()
@@ -504,7 +514,39 @@ impl HyperliquidSDKInner {
         });
 
         // Step 1: Build
-        let build_result = self.build_action(action, effective_slippage).await?;
+        let build_result = if let Some(priority_fee) = priority_fee {
+            let mut payload = json!({ "action": action, "priorityFee": priority_fee });
+            if let Some(s) = effective_slippage {
+                payload["slippage"] = json!(s);
+            }
+            let response = self
+                .http_client
+                .post(self.exchange_url())
+                .json(&payload)
+                .send()
+                .await?;
+            let status = response.status();
+            let text = response.text().await?;
+            if !status.is_success() {
+                return Err(Error::NetworkError(format!(
+                    "Build request failed {}: {}",
+                    status, text
+                )));
+            }
+            let result: Value = serde_json::from_str(&text)?;
+            if let Some(error) = result.get("error") {
+                return Err(Error::from_api_error(
+                    error.as_str().unwrap_or("Unknown error"),
+                ));
+            }
+            BuildResponse {
+                hash: result.get("hash").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+                nonce: result.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0),
+                action: result.get("action").cloned().unwrap_or_else(|| action.clone()),
+            }
+        } else {
+            self.build_action(action, effective_slippage).await?
+        };
 
         // Step 2: Sign
         let hash_bytes = hex::decode(build_result.hash.trim_start_matches("0x"))
@@ -659,6 +701,22 @@ pub struct BuildResponse {
     pub hash: String,
     pub nonce: u64,
     pub action: Value,
+}
+
+fn hype_to_wei(amount_hype: f64) -> Result<u64> {
+    if !amount_hype.is_finite() || amount_hype <= 0.0 {
+        return Err(Error::ValidationError(
+            "HYPE amount must be positive".to_string(),
+        ));
+    }
+    let scale = 10u64.pow(HYPE_WEI_DECIMALS);
+    let wei = (amount_hype * scale as f64).floor() as u64;
+    if wei == 0 {
+        return Err(Error::ValidationError(
+            "HYPE amount is too small; minimum unit is 0.00000001 HYPE".to_string(),
+        ));
+    }
+    Ok(wei)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -923,7 +981,7 @@ impl HyperliquidSDK {
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Buy, size, Some(price), tif, false, false, None)
+        self.place_order(asset, Side::Buy, size, Some(price), tif, false, false, None, None)
             .await
     }
 
@@ -935,7 +993,7 @@ impl HyperliquidSDK {
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Sell, size, Some(price), tif, false, false, None)
+        self.place_order(asset, Side::Sell, size, Some(price), tif, false, false, None, None)
             .await
     }
 
@@ -980,6 +1038,7 @@ impl HyperliquidSDK {
             order.is_reduce_only(),
             is_market,
             None, // use constructor-level default slippage
+            order.get_priority_fee(),
         )
         .await
     }
@@ -1116,6 +1175,7 @@ impl HyperliquidSDK {
         reduce_only: bool,
         is_market: bool,
         slippage: Option<f64>,
+        priority_fee: Option<u64>,
     ) -> Result<PlacedOrder> {
         // Get size decimals for rounding
         let sz_decimals = self.inner.metadata.get_asset(asset)
@@ -1183,7 +1243,10 @@ impl HyperliquidSDK {
             (action, None) // use constructor-level default (worker ignores slippage for limit orders)
         };
 
-        let response = self.inner.build_sign_send(&action, effective_slippage).await?;
+        let response = self
+            .inner
+            .build_sign_send_with_priority(&action, effective_slippage, priority_fee)
+            .await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1583,17 +1646,20 @@ impl HyperliquidSDK {
             .unwrap()
             .as_millis() as u64;
 
-        let wei = (amount_tokens * 1e18) as u128;
+        let wei = hype_to_wei(amount_tokens)?;
 
         let action = json!({
             "type": "cDeposit",
-            "hyperliquidChain": self.inner.chain.to_string(),
-            "signatureChainId": self.inner.chain.signature_chain_id(),
-            "wei": wei.to_string(),
+            "wei": wei,
             "nonce": nonce,
         });
 
         self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Move spot HYPE into undelegated staking HYPE for order priority fees
+    pub async fn fund_priority_fees(&self, amount_hype: f64) -> Result<Value> {
+        self.stake(amount_hype).await
     }
 
     /// Unstake tokens
@@ -1603,13 +1669,11 @@ impl HyperliquidSDK {
             .unwrap()
             .as_millis() as u64;
 
-        let wei = (amount_tokens * 1e18) as u128;
+        let wei = hype_to_wei(amount_tokens)?;
 
         let action = json!({
             "type": "cWithdraw",
-            "hyperliquidChain": self.inner.chain.to_string(),
-            "signatureChainId": self.inner.chain.signature_chain_id(),
-            "wei": wei.to_string(),
+            "wei": wei,
             "nonce": nonce,
         });
 
@@ -1623,15 +1687,13 @@ impl HyperliquidSDK {
             .unwrap()
             .as_millis() as u64;
 
-        let wei = (amount_tokens * 1e18) as u128;
+        let wei = hype_to_wei(amount_tokens)?;
 
         let action = json!({
             "type": "tokenDelegate",
-            "hyperliquidChain": self.inner.chain.to_string(),
-            "signatureChainId": self.inner.chain.signature_chain_id(),
             "validator": validator,
             "isUndelegate": false,
-            "wei": wei.to_string(),
+            "wei": wei,
             "nonce": nonce,
         });
 
@@ -1645,15 +1707,13 @@ impl HyperliquidSDK {
             .unwrap()
             .as_millis() as u64;
 
-        let wei = (amount_tokens * 1e18) as u128;
+        let wei = hype_to_wei(amount_tokens)?;
 
         let action = json!({
             "type": "tokenDelegate",
-            "hyperliquidChain": self.inner.chain.to_string(),
-            "signatureChainId": self.inner.chain.signature_chain_id(),
             "validator": validator,
             "isUndelegate": true,
-            "wei": wei.to_string(),
+            "wei": wei,
             "nonce": nonce,
         });
 
@@ -2001,6 +2061,7 @@ pub struct MarketOrderBuilder {
     notional: Option<f64>,
     slippage: Option<f64>,
     reduce_only: bool,
+    priority_fee: Option<u64>,
 }
 
 impl MarketOrderBuilder {
@@ -2013,6 +2074,7 @@ impl MarketOrderBuilder {
             notional: None,
             slippage: None,
             reduce_only: false,
+            priority_fee: None,
         }
     }
 
@@ -2039,6 +2101,15 @@ impl MarketOrderBuilder {
     /// Set reduce-only flag (only reduce existing position, never increase)
     pub fn reduce_only(mut self) -> Self {
         self.reduce_only = true;
+        self
+    }
+
+    /// Set Hyperliquid order priority fee rate.
+    ///
+    /// Hyperliquid interprets p as p / 100000000 of filled notional.
+    /// p=10000 is 1 bp. Fees are paid from undelegated staking HYPE.
+    pub fn priority_fee(mut self, p: u64) -> Self {
+        self.priority_fee = Some(p);
         self
     }
 
@@ -2081,7 +2152,10 @@ impl MarketOrderBuilder {
             "orders": [order_spec],
         });
 
-        let response = self.inner.build_sign_send(&action, self.slippage).await?;
+        let response = self
+            .inner
+            .build_sign_send_with_priority(&action, self.slippage, self.priority_fee)
+            .await?;
 
         Ok(PlacedOrder::from_response(
             response,

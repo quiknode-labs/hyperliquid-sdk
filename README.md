@@ -53,6 +53,7 @@ All SDKs share the same design philosophy:
 
 - **One-line orders** — No build-sign-send ceremony
 - **Size or notional** — Specify size in asset units or USD
+- **Order priority** — Set Hyperliquid `priorityFee` and fund it with `cDeposit`
 - **Order management** — Modify, cancel, track orders
 - **Position management** — Close positions with one call
 - **Clear errors** — Actionable error messages with guidance

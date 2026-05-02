@@ -17,14 +17,15 @@ import (
 //	// Post-only with reduce_only
 //	Order().Buy("BTC").Size(0.01).Price(65000).ALO().ReduceOnly()
 type OrderBuilder struct {
-	asset      string
-	side       Side
-	size       string
-	price      string
-	tif        TIF
-	reduceOnly bool
-	notional   float64
-	cloid      string
+	asset       string
+	side        Side
+	size        string
+	price       string
+	tif         TIF
+	reduceOnly  bool
+	notional    float64
+	cloid       string
+	priorityFee *uint64
 }
 
 // Order creates a new order builder.
@@ -125,6 +126,13 @@ func (o *OrderBuilder) CLOID(cloid string) *OrderBuilder {
 	return o
 }
 
+// PriorityFee sets Hyperliquid order priority p.
+// p=10000 is 1 bp and is paid from undelegated staking HYPE.
+func (o *OrderBuilder) PriorityFee(priorityFee uint64) *OrderBuilder {
+	o.priorityFee = &priorityFee
+	return o
+}
+
 // Asset returns the order's asset.
 func (o *OrderBuilder) Asset() string {
 	return o.asset
@@ -158,6 +166,11 @@ func (o *OrderBuilder) GetNotional() float64 {
 // IsReduceOnly returns whether the order is reduce-only.
 func (o *OrderBuilder) IsReduceOnly() bool {
 	return o.reduceOnly
+}
+
+// GetPriorityFee returns the order priority fee if set.
+func (o *OrderBuilder) GetPriorityFee() *uint64 {
+	return o.priorityFee
 }
 
 // SetSize sets the computed size (used internally for notional orders).
@@ -250,6 +263,9 @@ func (o *OrderBuilder) String() string {
 	}
 	if o.reduceOnly {
 		s += ".ReduceOnly()"
+	}
+	if o.priorityFee != nil {
+		s += fmt.Sprintf(".PriorityFee(%d)", *o.priorityFee)
 	}
 	return s
 }

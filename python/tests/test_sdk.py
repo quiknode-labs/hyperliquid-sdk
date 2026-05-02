@@ -16,6 +16,7 @@ These tests verify:
 import pytest
 import time
 import os
+from decimal import Decimal
 
 # Test 1: All imports
 def test_all_imports():
@@ -95,6 +96,84 @@ class TestEndpointParsing:
             grpc = GRPCStream(endpoint, reconnect=False)
             target = grpc._get_target()
             assert ":10000" in target
+
+
+class TestTradingHelpers:
+    """Test local trading helper behavior without network calls."""
+
+    def test_hype_to_wei_uses_8_decimals(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(auto_approve=False)
+        assert sdk._hype_to_wei(Decimal("0.001")) == 100000
+        assert sdk._hype_to_wei("1") == 100000000
+
+    def test_market_order_sends_priority_fee_to_build(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": {
+                        "type": "order",
+                        "orders": body["action"]["orders"],
+                        "grouping": {"p": 10000},
+                    },
+                }
+            return {
+                "exchangeResponse": {
+                    "response": {
+                        "data": {
+                            "statuses": [
+                                {"filled": {"oid": 1, "totalSz": "0.3", "avgPx": "42"}}
+                            ]
+                        }
+                    }
+                }
+            }
+
+        sdk._exchange = fake_exchange
+        placed = sdk.market_buy("HYPE", size=0.3, priority_fee=10000)
+
+        assert calls[0]["priorityFee"] == 10000
+        assert calls[1]["action"]["grouping"] == {"p": 10000}
+        assert placed.oid == 1
+
+    def test_stake_builds_c_deposit_with_8_decimal_wei(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                assert body["action"]["type"] == "cDeposit"
+                assert body["action"]["wei"] == 100000
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": body["action"]["nonce"],
+                    "action": {
+                        "type": "cDeposit",
+                        "wei": 100000,
+                        "nonce": body["action"]["nonce"],
+                        "hyperliquidChain": "Mainnet",
+                        "signatureChainId": "0xa4b1",
+                    },
+                }
+            return {"success": True, "exchangeResponse": {"status": "ok"}}
+
+        sdk._exchange = fake_exchange
+        result = sdk.fund_priority_fees(Decimal("0.001"))
+
+        assert result["success"] is True
+        assert calls[1]["action"]["type"] == "cDeposit"
 
 
 # Test 3: Info API

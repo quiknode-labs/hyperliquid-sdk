@@ -362,6 +362,11 @@ await sdk.marketSell("ETH", { notional: 100 });
 await sdk.buy("BTC", { size: 0.001, price: 65000 });
 await sdk.sell("ETH", { size: 0.5, price: 4000, tif: "gtc" });
 
+// Order priority. priorityFee=10000 is 1 bp.
+// Priority fees are paid from undelegated staking HYPE.
+await sdk.fundPriorityFees(0.001);
+await sdk.marketBuy("HYPE", { size: 0.3, priorityFee: 10000 });
+
 // Perp trader aliases
 await sdk.long("BTC", { size: 0.001, price: 65000 });
 await sdk.short("ETH", { notional: 500, tif: "ioc" });
@@ -463,13 +468,15 @@ await sdk.vaultWithdraw(HLP_VAULT, 50);
 ### Staking
 
 ```typescript
-// Stake/unstake HYPE
-await sdk.stake(1000);
-await sdk.unstake(500);  // 7-day queue
+// Move spot HYPE into undelegated staking HYPE.
+// This is the balance Hyperliquid uses for order priority fees.
+await sdk.fundPriorityFees(0.001);
+await sdk.stake(0.001);
+await sdk.unstake(0.001);  // 7-day queue
 
 // Delegate to validators
-await sdk.delegate("0x...", 500);
-await sdk.undelegate("0x...", 250);
+await sdk.delegate("0x...", 0.5);
+await sdk.undelegate("0x...", 0.25);
 ```
 
 ### Fluent Order Builder
@@ -483,6 +490,13 @@ const order = await sdk.order(
     .price(65000)
     .gtc()
     .reduceOnly()
+);
+
+const priorityOrder = await sdk.order(
+  Order.buy("HYPE")
+    .size(0.3)
+    .market()
+    .priorityFee(10000)
 );
 ```
 

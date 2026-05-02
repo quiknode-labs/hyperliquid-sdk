@@ -1,6 +1,7 @@
 package hyperliquid
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -68,6 +69,18 @@ func TestOrderBuilderReduceOnly(t *testing.T) {
 
 	if !order.IsReduceOnly() {
 		t.Error("IsReduceOnly() = false, want true")
+	}
+}
+
+func TestOrderBuilderPriorityFee(t *testing.T) {
+	order := Order().Buy("HYPE").Size(0.3).Market().PriorityFee(10000)
+
+	priorityFee := order.GetPriorityFee()
+	if priorityFee == nil || *priorityFee != 10000 {
+		t.Fatalf("GetPriorityFee() = %v, want 10000", priorityFee)
+	}
+	if got := order.String(); got == "" || !strings.Contains(got, "PriorityFee(10000)") {
+		t.Fatalf("String() = %q, want PriorityFee(10000)", got)
 	}
 }
 

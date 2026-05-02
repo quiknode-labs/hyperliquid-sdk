@@ -352,6 +352,7 @@ export class HyperliquidSDK {
    * @param options.tif - Time in force ("ioc", "gtc", "alo", "market")
    * @param options.reduceOnly - Close position only, no new exposure
    * @param options.grouping - Order grouping for TP/SL attachment
+   * @param options.priorityFee - Optional Hyperliquid order priority p. p=10000 is 1 bp.
    *
    * @returns PlacedOrder with oid, status, and cancel/modify methods
    */
@@ -364,6 +365,7 @@ export class HyperliquidSDK {
       tif?: TIF | string;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      priorityFee?: number | string;
       /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
       slippage?: number;
     } = {}
@@ -378,6 +380,7 @@ export class HyperliquidSDK {
       reduceOnly: options.reduceOnly ?? false,
       grouping: options.grouping ?? OrderGrouping.NA,
       slippage: options.slippage,
+      priorityFee: options.priorityFee,
     });
   }
 
@@ -393,6 +396,7 @@ export class HyperliquidSDK {
       tif?: TIF | string;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      priorityFee?: number | string;
       /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
       slippage?: number;
     } = {}
@@ -407,6 +411,7 @@ export class HyperliquidSDK {
       reduceOnly: options.reduceOnly ?? false,
       grouping: options.grouping ?? OrderGrouping.NA,
       slippage: options.slippage,
+      priorityFee: options.priorityFee,
     });
   }
 
@@ -420,7 +425,7 @@ export class HyperliquidSDK {
    */
   async marketBuy(
     asset: string,
-    options: { size?: number | string; notional?: number; slippage?: number } = {}
+    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
   ): Promise<PlacedOrder> {
     return this.buy(asset, { ...options, tif: 'market' });
   }
@@ -431,7 +436,7 @@ export class HyperliquidSDK {
    */
   async marketSell(
     asset: string,
-    options: { size?: number | string; notional?: number; slippage?: number } = {}
+    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
   ): Promise<PlacedOrder> {
     return this.sell(asset, { ...options, tif: 'market' });
   }
@@ -800,34 +805,37 @@ export class HyperliquidSDK {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Stake tokens.
+   * Move spot HYPE into undelegated staking HYPE for order priority fees.
    */
-  async stake(amount: number): Promise<Record<string, unknown>> {
-    const wei = BigInt(Math.floor(amount * 10 ** 18));
+  async fundPriorityFees(amountHype: number | string): Promise<Record<string, unknown>> {
+    return this.stake(amountHype);
+  }
+
+  /**
+   * Move spot HYPE into undelegated staking HYPE.
+   */
+  async stake(amount: number | string): Promise<Record<string, unknown>> {
+    const wei = this._hypeToWei(amount);
     const nonce = Date.now();
 
     const action = {
       type: 'cDeposit',
-      hyperliquidChain: this._chain,
-      signatureChainId: this._chainId,
-      wei: wei.toString(),
+      wei,
       nonce,
     };
     return this._buildSignSend(action);
   }
 
   /**
-   * Unstake tokens.
+   * Withdraw undelegated staking HYPE back to spot HYPE.
    */
-  async unstake(amount: number): Promise<Record<string, unknown>> {
-    const wei = BigInt(Math.floor(amount * 10 ** 18));
+  async unstake(amount: number | string): Promise<Record<string, unknown>> {
+    const wei = this._hypeToWei(amount);
     const nonce = Date.now();
 
     const action = {
       type: 'cWithdraw',
-      hyperliquidChain: this._chain,
-      signatureChainId: this._chainId,
-      wei: wei.toString(),
+      wei,
       nonce,
     };
     return this._buildSignSend(action);
@@ -838,18 +846,16 @@ export class HyperliquidSDK {
    */
   async delegate(
     validator: string,
-    amount: number
+    amount: number | string
   ): Promise<Record<string, unknown>> {
-    const wei = BigInt(Math.floor(amount * 10 ** 18));
+    const wei = this._hypeToWei(amount);
     const nonce = Date.now();
 
     const action = {
       type: 'tokenDelegate',
-      hyperliquidChain: this._chain,
-      signatureChainId: this._chainId,
       validator,
       isUndelegate: false,
-      wei: wei.toString(),
+      wei,
       nonce,
     };
     return this._buildSignSend(action);
@@ -860,18 +866,16 @@ export class HyperliquidSDK {
    */
   async undelegate(
     validator: string,
-    amount: number
+    amount: number | string
   ): Promise<Record<string, unknown>> {
-    const wei = BigInt(Math.floor(amount * 10 ** 18));
+    const wei = this._hypeToWei(amount);
     const nonce = Date.now();
 
     const action = {
       type: 'tokenDelegate',
-      hyperliquidChain: this._chain,
-      signatureChainId: this._chainId,
       validator,
       isUndelegate: true,
-      wei: wei.toString(),
+      wei,
       nonce,
     };
     return this._buildSignSend(action);
@@ -1572,6 +1576,7 @@ export class HyperliquidSDK {
     reduceOnly: boolean;
     grouping: OrderGrouping;
     slippage?: number;
+    priorityFee?: number | string;
   }): Promise<PlacedOrder> {
     const order = new Order(params.asset, params.side);
 
@@ -1610,19 +1615,26 @@ export class HyperliquidSDK {
       order['_reduceOnly'] = true;
     }
 
-    return this._executeOrder(order, params.grouping, params.slippage);
+    return this._executeOrder(order, params.grouping, params.slippage, params.priorityFee);
   }
 
   private async _executeOrder(
     order: Order,
     grouping: OrderGrouping = OrderGrouping.NA,
-    slippage?: number
+    slippage?: number,
+    priorityFee?: number | string
   ): Promise<PlacedOrder> {
     const action = order.toAction();
+    const effectivePriorityFee = priorityFee ?? order.getPriorityFee();
+    if (grouping !== OrderGrouping.NA && effectivePriorityFee !== null) {
+      throw new ValidationError('priorityFee cannot be combined with TP/SL grouping', {
+        guidance: 'Use priorityFee on standalone IOC/market orders, or omit grouping.',
+      });
+    }
     if (grouping !== OrderGrouping.NA) {
       action.grouping = grouping; // enum value is already the string (e.g., 'na', 'normalTpsl')
     }
-    const result = await this._buildSignSend(action, slippage);
+    const result = await this._buildSignSend(action, slippage, effectivePriorityFee ?? undefined);
     return PlacedOrder.fromResponse(
       (result as Record<string, unknown>).exchangeResponse as Record<string, unknown> ?? {},
       order,
@@ -1639,7 +1651,11 @@ export class HyperliquidSDK {
     }
   }
 
-  private async _buildSignSend(action: Record<string, unknown>, slippage?: number): Promise<Record<string, unknown>> {
+  private async _buildSignSend(
+    action: Record<string, unknown>,
+    slippage?: number,
+    priorityFee?: number | string
+  ): Promise<Record<string, unknown>> {
     this._requireWallet();
 
     // Ensure approval on first trading action
@@ -1656,7 +1672,12 @@ export class HyperliquidSDK {
 
     // Step 1: Build
     const effectiveSlippage = slippage ?? this._slippage;
-    const buildResult = await this._exchange({ action, slippage: effectiveSlippage });
+    const buildPayload: Record<string, unknown> = { action, slippage: effectiveSlippage };
+    const normalizedPriorityFee = this._normalizePriorityFee(priorityFee);
+    if (normalizedPriorityFee !== undefined) {
+      buildPayload.priorityFee = normalizedPriorityFee;
+    }
+    const buildResult = await this._exchange(buildPayload);
 
     if (!buildResult.hash) {
       throw new BuildError('Build response missing hash', { raw: buildResult });
@@ -1673,6 +1694,37 @@ export class HyperliquidSDK {
     };
 
     return this._exchange(sendPayload);
+  }
+
+  private _hypeToWei(amount: number | string): string {
+    const raw = String(amount).trim();
+    if (!/^\d+(\.\d+)?$/.test(raw)) {
+      throw new ValidationError('HYPE amount must be a positive number', {
+        guidance: 'Use a positive amount like 0.001',
+      });
+    }
+    const [whole, frac = ''] = raw.split('.');
+    const fracPadded = frac.slice(0, 8).padEnd(8, '0');
+    const wei = BigInt(whole) * 100000000n + BigInt(fracPadded || '0');
+    if (wei <= 0n) {
+      throw new ValidationError('HYPE amount is too small', {
+        guidance: 'Minimum unit is 0.00000001 HYPE',
+      });
+    }
+    return wei.toString();
+  }
+
+  private _normalizePriorityFee(priorityFee?: number | string): number | undefined {
+    if (priorityFee === undefined || priorityFee === null) {
+      return undefined;
+    }
+    const value = Number(priorityFee);
+    if (!Number.isInteger(value) || value < 0) {
+      throw new ValidationError('priorityFee must be an unsigned integer', {
+        guidance: 'Use priorityFee: 10000 for 1 bp.',
+      });
+    }
+    return value;
   }
 
   private _signHash(hashHex: string): Record<string, unknown> {
