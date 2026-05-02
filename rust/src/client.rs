@@ -386,9 +386,22 @@ impl HyperliquidSDKInner {
 
     /// Build an action (get hash without sending)
     pub async fn build_action(&self, action: &Value, slippage: Option<f64>) -> Result<BuildResponse> {
+        self.build_action_with_priority(action, slippage, None).await
+    }
+
+    /// Build an action with an optional Hyperliquid order priority fee.
+    pub async fn build_action_with_priority(
+        &self,
+        action: &Value,
+        slippage: Option<f64>,
+        priority_fee: Option<u64>,
+    ) -> Result<BuildResponse> {
         let url = self.exchange_url();
 
         let mut body = json!({ "action": action });
+        if let Some(priority_fee) = priority_fee {
+            body["priorityFee"] = json!(priority_fee);
+        }
         if let Some(s) = slippage {
             if !s.is_finite() || s <= 0.0 {
                 return Err(Error::ValidationError(
@@ -514,39 +527,9 @@ impl HyperliquidSDKInner {
         });
 
         // Step 1: Build
-        let build_result = if let Some(priority_fee) = priority_fee {
-            let mut payload = json!({ "action": action, "priorityFee": priority_fee });
-            if let Some(s) = effective_slippage {
-                payload["slippage"] = json!(s);
-            }
-            let response = self
-                .http_client
-                .post(self.exchange_url())
-                .json(&payload)
-                .send()
-                .await?;
-            let status = response.status();
-            let text = response.text().await?;
-            if !status.is_success() {
-                return Err(Error::NetworkError(format!(
-                    "Build request failed {}: {}",
-                    status, text
-                )));
-            }
-            let result: Value = serde_json::from_str(&text)?;
-            if let Some(error) = result.get("error") {
-                return Err(Error::from_api_error(
-                    error.as_str().unwrap_or("Unknown error"),
-                ));
-            }
-            BuildResponse {
-                hash: result.get("hash").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
-                nonce: result.get("nonce").and_then(|v| v.as_u64()).unwrap_or(0),
-                action: result.get("action").cloned().unwrap_or_else(|| action.clone()),
-            }
-        } else {
-            self.build_action(action, effective_slippage).await?
-        };
+        let build_result = self
+            .build_action_with_priority(action, effective_slippage, priority_fee)
+            .await?;
 
         // Step 2: Sign
         let hash_bytes = hex::decode(build_result.hash.trim_start_matches("0x"))

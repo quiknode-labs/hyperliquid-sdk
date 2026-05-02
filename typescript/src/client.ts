@@ -1698,12 +1698,13 @@ export class HyperliquidSDK {
 
   private _hypeToWei(amount: number | string): string {
     const raw = String(amount).trim();
-    if (!/^\d+(\.\d+)?$/.test(raw)) {
+    const normalized = this._normalizeDecimalAmount(raw);
+    if (!normalized) {
       throw new ValidationError('HYPE amount must be a positive number', {
         guidance: 'Use a positive amount like 0.001',
       });
     }
-    const [whole, frac = ''] = raw.split('.');
+    const [whole, frac = ''] = normalized.split('.');
     const fracPadded = frac.slice(0, 8).padEnd(8, '0');
     const wei = BigInt(whole) * 100000000n + BigInt(fracPadded || '0');
     if (wei <= 0n) {
@@ -1712,6 +1713,37 @@ export class HyperliquidSDK {
       });
     }
     return wei.toString();
+  }
+
+  private _normalizeDecimalAmount(raw: string): string | null {
+    if (!/^\d+(\.\d+)?([eE][+-]?\d+)?$/.test(raw)) {
+      return null;
+    }
+
+    const [mantissa, exponentPart] = raw.toLowerCase().split('e');
+    if (exponentPart === undefined) {
+      return mantissa;
+    }
+
+    const exponent = Number(exponentPart);
+    if (!Number.isInteger(exponent)) {
+      return null;
+    }
+
+    const [whole, frac = ''] = mantissa.split('.');
+    const digits = `${whole}${frac}`;
+    const decimalPlaces = frac.length - exponent;
+
+    if (decimalPlaces <= 0) {
+      return `${digits}${'0'.repeat(-decimalPlaces)}`;
+    }
+
+    if (decimalPlaces >= digits.length) {
+      return `0.${'0'.repeat(decimalPlaces - digits.length)}${digits}`;
+    }
+
+    const pointIndex = digits.length - decimalPlaces;
+    return `${digits.slice(0, pointIndex)}.${digits.slice(pointIndex)}`;
   }
 
   private _normalizePriorityFee(priorityFee?: number | string): number | undefined {
