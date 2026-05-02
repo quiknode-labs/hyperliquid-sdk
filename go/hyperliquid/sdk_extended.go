@@ -2,6 +2,8 @@ package hyperliquid
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -288,12 +290,63 @@ func hypeToWei(amount float64) (int64, error) {
 	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return 0, ValidationError("HYPE amount must be positive")
 	}
-	wei := int64(math.Floor(amount * math.Pow10(HYPEWeiDecimals)))
+	wei, err := decimalAmountToWei(NewDecimal(amount).String())
+	if err != nil {
+		return 0, err
+	}
 	if wei <= 0 {
 		return 0, ValidationError("HYPE amount is too small").
 			WithGuidance("Minimum unit is 0.00000001 HYPE")
 	}
 	return wei, nil
+}
+
+func decimalAmountToWei(raw string) (int64, error) {
+	amount := strings.TrimSpace(raw)
+	parts := strings.Split(amount, ".")
+	if amount == "" || len(parts) > 2 || !allDecimalDigits(parts[0]) {
+		return 0, ValidationError("HYPE amount must be positive")
+	}
+
+	frac := ""
+	if len(parts) == 2 {
+		frac = parts[1]
+		if !allDecimalDigits(frac) {
+			return 0, ValidationError("HYPE amount must be positive")
+		}
+	}
+	if len(frac) > HYPEWeiDecimals {
+		frac = frac[:HYPEWeiDecimals]
+	}
+	frac += strings.Repeat("0", HYPEWeiDecimals-len(frac))
+
+	wholeWei, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, ValidationError("HYPE amount is too large")
+	}
+	fracWei, err := strconv.ParseInt(frac, 10, 64)
+	if err != nil {
+		return 0, ValidationError("HYPE amount must be positive")
+	}
+
+	const scale = int64(100000000)
+	const maxInt64 = int64(1<<63 - 1)
+	if wholeWei > (maxInt64-fracWei)/scale {
+		return 0, ValidationError("HYPE amount is too large")
+	}
+	return wholeWei*scale + fracWei, nil
+}
+
+func allDecimalDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // FundPriorityFees moves spot HYPE into undelegated staking HYPE for order priority fees.

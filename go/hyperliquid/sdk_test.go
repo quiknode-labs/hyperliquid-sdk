@@ -45,20 +45,29 @@ func TestBuildBaseURL(t *testing.T) {
 }
 
 func TestHypeToWei(t *testing.T) {
-	wei, err := hypeToWei(0.001)
-	if err != nil {
-		t.Fatalf("hypeToWei returned error: %v", err)
-	}
-	if wei != 100000 {
-		t.Fatalf("hypeToWei(0.001) = %d, want 100000", wei)
+	tests := []struct {
+		amount float64
+		want   int64
+	}{
+		{0.001, 100000},
+		{0.58, 58000000},
+		{0.00000001, 1},
+		{1.234567891, 123456789},
+		{1, 100000000},
 	}
 
-	wei, err = hypeToWei(1)
-	if err != nil {
-		t.Fatalf("hypeToWei returned error: %v", err)
+	for _, tt := range tests {
+		wei, err := hypeToWei(tt.amount)
+		if err != nil {
+			t.Fatalf("hypeToWei(%v) returned error: %v", tt.amount, err)
+		}
+		if wei != tt.want {
+			t.Fatalf("hypeToWei(%v) = %d, want %d", tt.amount, wei, tt.want)
+		}
 	}
-	if wei != 100000000 {
-		t.Fatalf("hypeToWei(1) = %d, want 100000000", wei)
+
+	if _, err := hypeToWei(0.000000001); err == nil {
+		t.Fatal("hypeToWei(0.000000001) returned nil error, want too-small error")
 	}
 }
 

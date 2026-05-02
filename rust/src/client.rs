@@ -692,14 +692,72 @@ fn hype_to_wei(amount_hype: f64) -> Result<u64> {
             "HYPE amount must be positive".to_string(),
         ));
     }
-    let scale = 10u64.pow(HYPE_WEI_DECIMALS);
-    let wei = (amount_hype * scale as f64).floor() as u64;
+    let wei = decimal_amount_to_wei(&amount_hype.to_string())?;
     if wei == 0 {
         return Err(Error::ValidationError(
             "HYPE amount is too small; minimum unit is 0.00000001 HYPE".to_string(),
         ));
     }
     Ok(wei)
+}
+
+fn decimal_amount_to_wei(raw: &str) -> Result<u64> {
+    let amount = raw.trim();
+    let parts: Vec<&str> = amount.split('.').collect();
+    if amount.is_empty() || parts.len() > 2 || !all_decimal_digits(parts[0]) {
+        return Err(Error::ValidationError(
+            "HYPE amount must be positive".to_string(),
+        ));
+    }
+
+    let mut frac = String::new();
+    if parts.len() == 2 {
+        if !all_decimal_digits(parts[1]) {
+            return Err(Error::ValidationError(
+                "HYPE amount must be positive".to_string(),
+            ));
+        }
+        frac.push_str(parts[1]);
+    }
+    let decimals = HYPE_WEI_DECIMALS as usize;
+    if frac.len() > decimals {
+        frac.truncate(decimals);
+    }
+    while frac.len() < decimals {
+        frac.push('0');
+    }
+
+    let whole_wei = parts[0]
+        .parse::<u64>()
+        .map_err(|_| Error::ValidationError("HYPE amount is too large".to_string()))?;
+    let frac_wei = frac
+        .parse::<u64>()
+        .map_err(|_| Error::ValidationError("HYPE amount must be positive".to_string()))?;
+
+    let scale = 10u64.pow(HYPE_WEI_DECIMALS);
+    whole_wei
+        .checked_mul(scale)
+        .and_then(|wei| wei.checked_add(frac_wei))
+        .ok_or_else(|| Error::ValidationError("HYPE amount is too large".to_string()))
+}
+
+fn all_decimal_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+#[cfg(test)]
+mod client_tests {
+    use super::*;
+
+    #[test]
+    fn hype_to_wei_uses_decimal_string_arithmetic() {
+        assert_eq!(hype_to_wei(0.001).unwrap(), 100_000);
+        assert_eq!(hype_to_wei(0.58).unwrap(), 58_000_000);
+        assert_eq!(hype_to_wei(0.00000001).unwrap(), 1);
+        assert_eq!(hype_to_wei(1.234567891).unwrap(), 123_456_789);
+        assert_eq!(hype_to_wei(1.0).unwrap(), 100_000_000);
+        assert!(hype_to_wei(0.000000001).is_err());
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
