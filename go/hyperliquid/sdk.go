@@ -28,6 +28,9 @@ const (
 
 	// CacheTTL is the market metadata cache TTL.
 	CacheTTL = 5 * time.Minute
+
+	// HYPEWeiDecimals is Hyperliquid's HYPE staking precision.
+	HYPEWeiDecimals = 8
 )
 
 // QNSupportedInfoMethods are Info API methods supported by QuickNode nodes.
@@ -309,13 +312,14 @@ func (s *SDK) NewEVMStream(config *EVMStreamConfig) *EVMStream {
 type OrderOption func(*orderParams)
 
 type orderParams struct {
-	size       string
-	notional   float64
-	price      string
-	tif        TIF
-	reduceOnly bool
-	grouping   OrderGrouping
-	slippage   *float64
+	size        string
+	notional    float64
+	price       string
+	tif         TIF
+	reduceOnly  bool
+	grouping    OrderGrouping
+	slippage    *float64
+	priorityFee *uint64
 }
 
 // WithSize sets the order size in asset units.
@@ -369,6 +373,14 @@ func WithOrderSlippage(slippage float64) OrderOption {
 	}
 }
 
+// WithPriorityFee sets Hyperliquid order priority p.
+// p=10000 is 1 bp and is paid from undelegated staking HYPE.
+func WithPriorityFee(priorityFee uint64) OrderOption {
+	return func(p *orderParams) {
+		p.priorityFee = &priorityFee
+	}
+}
+
 // Buy places a buy order.
 func (s *SDK) Buy(asset string, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.placeOrder(asset, SideBuy, opts...)
@@ -419,7 +431,7 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		order.SetSize(NewDecimal(size).String())
 	}
 
-	return s.executeOrder(order, OrderGroupingNA, nil)
+	return s.executeOrder(order, OrderGroupingNA, nil, order.GetPriorityFee())
 }
 
 func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedOrder, error) {
@@ -460,16 +472,26 @@ func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedO
 	}
 	order.reduceOnly = params.reduceOnly
 
-	return s.executeOrder(order, params.grouping, params.slippage)
+	return s.executeOrder(order, params.grouping, params.slippage, params.priorityFee)
 }
 
-func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage *float64) (*PlacedOrder, error) {
+func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage *float64, priorityFee *uint64) (*PlacedOrder, error) {
 	action := order.ToAction()
+	if grouping != OrderGroupingNA && priorityFee != nil {
+		return nil, ValidationError("priorityFee cannot be combined with TP/SL grouping").
+			WithGuidance("Use priorityFee on standalone IOC/market orders, or omit grouping.")
+	}
 	if grouping != OrderGroupingNA {
 		action["grouping"] = string(grouping)
 	}
 
-	result, err := s.buildSignSend(action, slippage)
+	var result map[string]any
+	var err error
+	if priorityFee != nil {
+		result, err = s.buildSignSend(action, slippage, *priorityFee)
+	} else {
+		result, err = s.buildSignSend(action, slippage)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -989,7 +1011,7 @@ func (s *SDK) requireWallet() {
 	}
 }
 
-func (s *SDK) buildSignSend(action map[string]any, slippage *float64) (map[string]any, error) {
+func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
 	s.requireWallet()
 	ctx := context.Background()
 
@@ -1001,6 +1023,9 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64) (map[strin
 	}
 	if effectiveSlippage > 0 {
 		buildPayload["slippage"] = effectiveSlippage
+	}
+	if len(priorityFee) > 0 {
+		buildPayload["priorityFee"] = priorityFee[0]
 	}
 	buildResult, err := s.http.Post(ctx, s.exchangeURL, buildPayload)
 	if err != nil {

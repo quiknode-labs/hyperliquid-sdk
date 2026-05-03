@@ -39,6 +39,7 @@ pub struct Order {
     tif: TIF,
     reduce_only: bool,
     cloid: Option<Cloid>,
+    priority_fee: Option<u64>,
 }
 
 impl Order {
@@ -72,6 +73,7 @@ impl Order {
             tif: TIF::Ioc,
             reduce_only: false,
             cloid: None,
+            priority_fee: None,
         }
     }
 
@@ -168,6 +170,15 @@ impl Order {
         self
     }
 
+    /// Set Hyperliquid order priority fee rate.
+    ///
+    /// Hyperliquid interprets p as p / 100000000 of filled notional.
+    /// p=10000 is 1 bp. Fees are paid from undelegated staking HYPE.
+    pub fn priority_fee(mut self, p: u64) -> Self {
+        self.priority_fee = Some(p);
+        self
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Getters
     // ──────────────────────────────────────────────────────────────────────────
@@ -215,6 +226,11 @@ impl Order {
     /// Get the client order ID (if set)
     pub fn get_cloid(&self) -> Option<Cloid> {
         self.cloid
+    }
+
+    /// Get the order priority fee if set
+    pub fn get_priority_fee(&self) -> Option<u64> {
+        self.priority_fee
     }
 
     // ──────────────────────────────────────────────────────────────────────────

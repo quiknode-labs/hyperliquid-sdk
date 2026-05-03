@@ -53,6 +53,7 @@ export class Order {
   private _reduceOnly: boolean = false;
   private _notional: number | null = null;
   private _cloid: string | null = null;
+  private _priorityFee: number | string | null = null;
 
   /** @internal */
   constructor(asset: string, side: Side) {
@@ -167,6 +168,17 @@ export class Order {
     return this;
   }
 
+  /**
+   * Set Hyperliquid order priority fee rate.
+   *
+   * Hyperliquid interprets p as p / 100000000 of filled notional.
+   * p=10000 is 1 bp. Fees are paid from undelegated staking HYPE.
+   */
+  priorityFee(p: number | string): Order {
+    this._priorityFee = p;
+    return this;
+  }
+
   // ═══════════════ GETTERS ═══════════════
 
   getSize(): string | null {
@@ -191,6 +203,10 @@ export class Order {
 
   getCloid(): string | null {
     return this._cloid;
+  }
+
+  getPriorityFee(): number | string | null {
+    return this._priorityFee;
   }
 
   isMarket(): boolean {
@@ -275,6 +291,15 @@ export class Order {
       });
     }
 
+    if (this._priorityFee !== null) {
+      const priorityFee = Number(this._priorityFee);
+      if (!Number.isInteger(priorityFee) || priorityFee < 0) {
+        throw new ValidationError('priorityFee must be an unsigned integer', {
+          guidance: 'Use .priorityFee(10000) for 1 bp.',
+        });
+      }
+    }
+
     // Validate price is positive for limit orders
     if (this._price !== null) {
       const priceVal = parseFloat(this._price);
@@ -300,6 +325,7 @@ export class Order {
     if (this._price) parts.push(`.price(${this._price})`);
     if (this._tif !== TIF.IOC) parts.push(`.${this._tif.toLowerCase()}()`);
     if (this._reduceOnly) parts.push('.reduceOnly()');
+    if (this._priorityFee !== null) parts.push(`.priorityFee(${this._priorityFee})`);
     return parts.join('');
   }
 }

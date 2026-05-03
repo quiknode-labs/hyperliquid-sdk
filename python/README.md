@@ -380,6 +380,11 @@ sdk.market_sell("ETH", notional=100)
 sdk.buy("BTC", size=0.001, price=65000)
 sdk.sell("ETH", size=0.5, price=4000, tif="gtc")
 
+# Order priority. priority_fee=10000 is 1 bp.
+# Priority fees are paid from undelegated staking HYPE.
+sdk.fund_priority_fees(0.001)
+sdk.market_buy("HYPE", size=0.3, priority_fee=10000)
+
 # Perp trader aliases
 sdk.long("BTC", size=0.001, price=65000)
 sdk.short("ETH", notional=500, tif="ioc")
@@ -616,13 +621,15 @@ sdk.vault_withdraw(vault_address=HLP_VAULT, amount=50)
 ### Staking
 
 ```python
-# Stake/unstake HYPE
-sdk.stake(amount=1000)
-sdk.unstake(amount=500)  # 7-day queue
+# Move spot HYPE into undelegated staking HYPE.
+# This is the balance Hyperliquid uses for order priority fees.
+sdk.fund_priority_fees(0.001)
+sdk.stake(amount=0.001)
+sdk.unstake(amount=0.001)  # 7-day queue
 
 # Delegate to validators
-sdk.delegate(validator="0x...", amount=500)
-sdk.undelegate(validator="0x...", amount=250)
+sdk.delegate(validator="0x...", amount=0.5)
+sdk.undelegate(validator="0x...", amount=0.25)
 ```
 
 ### Fluent Order Builder
@@ -636,6 +643,13 @@ order = sdk.order(
          .price(65000)
          .gtc()
          .reduce_only()
+)
+
+priority_order = sdk.order(
+    Order.buy("HYPE")
+         .size(0.3)
+         .market()
+         .priority_fee(10000)
 )
 ```
 

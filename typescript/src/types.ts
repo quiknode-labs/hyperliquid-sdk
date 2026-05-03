@@ -107,6 +107,7 @@ export interface OrderOptions {
   reduceOnly?: boolean;
   cloid?: string;
   grouping?: OrderGrouping;
+  priorityFee?: number | string;
 }
 
 export interface TriggerOrderOptions {

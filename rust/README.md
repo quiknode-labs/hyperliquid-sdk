@@ -456,6 +456,11 @@ sdk.market_sell("ETH").await.notional(100.0).await?;
 sdk.buy("BTC", 0.001, 65000.0, TIF::Gtc).await?;
 sdk.sell("ETH", 0.5, 4000.0, TIF::Gtc).await?;
 
+// Order priority. priority_fee(10000) is 1 bp.
+// Priority fees are paid from undelegated staking HYPE.
+sdk.fund_priority_fees(0.001).await?;
+sdk.market_buy("HYPE").await.size(0.3).priority_fee(10000).await?;
+
 // Perp trader aliases
 sdk.long("BTC", 0.001, 65000.0, TIF::Gtc).await?;
 sdk.short("ETH", 0.5, 3000.0, TIF::Ioc).await?;
@@ -472,6 +477,7 @@ let order = sdk.order(
          .price(65000.0)
          .gtc()
          .reduce_only()
+         .priority_fee(10000)
          .random_cloid()
 ).await?;
 ```
@@ -734,13 +740,15 @@ sdk.vault_withdraw(hlp_vault, 50.0).await?;
 ### Staking
 
 ```rust
-// Stake/unstake HYPE
-sdk.stake(1000.0).await?;
-sdk.unstake(500.0).await?;  // 7-day queue
+// Move spot HYPE into undelegated staking HYPE.
+// This is the balance Hyperliquid uses for order priority fees.
+sdk.fund_priority_fees(0.001).await?;
+sdk.stake(0.001).await?;
+sdk.unstake(0.001).await?;  // 7-day queue
 
 // Delegate to validators
-sdk.delegate("0x...", 500.0).await?;
-sdk.undelegate("0x...", 250.0).await?;
+sdk.delegate("0x...", 0.5).await?;
+sdk.undelegate("0x...", 0.25).await?;
 ```
 
 ### Builder Fee

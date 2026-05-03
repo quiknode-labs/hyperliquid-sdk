@@ -44,6 +44,33 @@ func TestBuildBaseURL(t *testing.T) {
 	}
 }
 
+func TestHypeToWei(t *testing.T) {
+	tests := []struct {
+		amount float64
+		want   int64
+	}{
+		{0.001, 100000},
+		{0.58, 58000000},
+		{0.00000001, 1},
+		{1.234567891, 123456789},
+		{1, 100000000},
+	}
+
+	for _, tt := range tests {
+		wei, err := hypeToWei(tt.amount)
+		if err != nil {
+			t.Fatalf("hypeToWei(%v) returned error: %v", tt.amount, err)
+		}
+		if wei != tt.want {
+			t.Fatalf("hypeToWei(%v) = %d, want %d", tt.amount, wei, tt.want)
+		}
+	}
+
+	if _, err := hypeToWei(0.000000001); err == nil {
+		t.Fatal("hypeToWei(0.000000001) returned nil error, want too-small error")
+	}
+}
+
 // Test buildInfoURL
 func TestBuildInfoURL(t *testing.T) {
 	tests := []struct {
@@ -127,9 +154,9 @@ func TestBuildEVMURL(t *testing.T) {
 // Test buildWebSocketURL
 func TestBuildWebSocketURL(t *testing.T) {
 	tests := []struct {
-		input        string
-		expected     string
-		isQuickNode  bool
+		input       string
+		expected    string
+		isQuickNode bool
 	}{
 		{
 			"https://x.quiknode.pro/TOKEN",

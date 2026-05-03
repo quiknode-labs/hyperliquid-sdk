@@ -1,6 +1,9 @@
 package hyperliquid
 
 import (
+	"math"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -283,32 +286,101 @@ func (s *SDK) ApproveAgent(agentAddress, name string) (map[string]any, error) {
 // STAKING OPERATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Stake stakes tokens.
+func hypeToWei(amount float64) (int64, error) {
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return 0, ValidationError("HYPE amount must be positive")
+	}
+	wei, err := decimalAmountToWei(NewDecimal(amount).String())
+	if err != nil {
+		return 0, err
+	}
+	if wei <= 0 {
+		return 0, ValidationError("HYPE amount is too small").
+			WithGuidance("Minimum unit is 0.00000001 HYPE")
+	}
+	return wei, nil
+}
+
+func decimalAmountToWei(raw string) (int64, error) {
+	amount := strings.TrimSpace(raw)
+	parts := strings.Split(amount, ".")
+	if amount == "" || len(parts) > 2 || !allDecimalDigits(parts[0]) {
+		return 0, ValidationError("HYPE amount must be positive")
+	}
+
+	frac := ""
+	if len(parts) == 2 {
+		frac = parts[1]
+		if !allDecimalDigits(frac) {
+			return 0, ValidationError("HYPE amount must be positive")
+		}
+	}
+	if len(frac) > HYPEWeiDecimals {
+		frac = frac[:HYPEWeiDecimals]
+	}
+	frac += strings.Repeat("0", HYPEWeiDecimals-len(frac))
+
+	wholeWei, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, ValidationError("HYPE amount is too large")
+	}
+	fracWei, err := strconv.ParseInt(frac, 10, 64)
+	if err != nil {
+		return 0, ValidationError("HYPE amount must be positive")
+	}
+
+	const scale = int64(100000000)
+	const maxInt64 = int64(1<<63 - 1)
+	if wholeWei > (maxInt64-fracWei)/scale {
+		return 0, ValidationError("HYPE amount is too large")
+	}
+	return wholeWei*scale + fracWei, nil
+}
+
+func allDecimalDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, ch := range s {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// FundPriorityFees moves spot HYPE into undelegated staking HYPE for order priority fees.
+func (s *SDK) FundPriorityFees(amountHype float64) (map[string]any, error) {
+	return s.Stake(amountHype)
+}
+
+// Stake moves spot HYPE into undelegated staking HYPE.
 func (s *SDK) Stake(amount float64) (map[string]any, error) {
-	// Convert to wei (18 decimals)
-	wei := int64(amount * 1e18)
+	wei, err := hypeToWei(amount)
+	if err != nil {
+		return nil, err
+	}
 
 	action := map[string]any{
-		"type":             "cDeposit",
-		"hyperliquidChain": s.chain,
-		"signatureChainId": s.chainID,
-		"wei":              wei,
-		"nonce":            time.Now().UnixMilli(),
+		"type":  "cDeposit",
+		"wei":   wei,
+		"nonce": time.Now().UnixMilli(),
 	}
 
 	return s.buildSignSend(action, nil)
 }
 
-// Unstake unstakes tokens (7-day queue).
+// Unstake withdraws undelegated staking HYPE back to spot HYPE (7-day queue).
 func (s *SDK) Unstake(amount float64) (map[string]any, error) {
-	wei := int64(amount * 1e18)
+	wei, err := hypeToWei(amount)
+	if err != nil {
+		return nil, err
+	}
 
 	action := map[string]any{
-		"type":             "cWithdraw",
-		"hyperliquidChain": s.chain,
-		"signatureChainId": s.chainID,
-		"wei":              wei,
-		"nonce":            time.Now().UnixMilli(),
+		"type":  "cWithdraw",
+		"wei":   wei,
+		"nonce": time.Now().UnixMilli(),
 	}
 
 	return s.buildSignSend(action, nil)
@@ -316,16 +388,17 @@ func (s *SDK) Unstake(amount float64) (map[string]any, error) {
 
 // Delegate delegates staked tokens to a validator.
 func (s *SDK) Delegate(validator string, amount float64) (map[string]any, error) {
-	wei := int64(amount * 1e18)
+	wei, err := hypeToWei(amount)
+	if err != nil {
+		return nil, err
+	}
 
 	action := map[string]any{
-		"type":             "tokenDelegate",
-		"hyperliquidChain": s.chain,
-		"signatureChainId": s.chainID,
-		"validator":        validator,
-		"isUndelegate":     false,
-		"wei":              wei,
-		"nonce":            time.Now().UnixMilli(),
+		"type":         "tokenDelegate",
+		"validator":    validator,
+		"isUndelegate": false,
+		"wei":          wei,
+		"nonce":        time.Now().UnixMilli(),
 	}
 
 	return s.buildSignSend(action, nil)
@@ -333,16 +406,17 @@ func (s *SDK) Delegate(validator string, amount float64) (map[string]any, error)
 
 // Undelegate undelegates staked tokens from a validator.
 func (s *SDK) Undelegate(validator string, amount float64) (map[string]any, error) {
-	wei := int64(amount * 1e18)
+	wei, err := hypeToWei(amount)
+	if err != nil {
+		return nil, err
+	}
 
 	action := map[string]any{
-		"type":             "tokenDelegate",
-		"hyperliquidChain": s.chain,
-		"signatureChainId": s.chainID,
-		"validator":        validator,
-		"isUndelegate":     true,
-		"wei":              wei,
-		"nonce":            time.Now().UnixMilli(),
+		"type":         "tokenDelegate",
+		"validator":    validator,
+		"isUndelegate": true,
+		"wei":          wei,
+		"nonce":        time.Now().UnixMilli(),
 	}
 
 	return s.buildSignSend(action, nil)
@@ -375,12 +449,12 @@ func (s *SDK) SetAbstraction(mode string, user string) (map[string]any, error) {
 func (s *SDK) AgentSetAbstraction(mode string) (map[string]any, error) {
 	// Map full mode names to short codes
 	modeMap := map[string]string{
-		"disabled":       "i",
-		"unifiedAccount": "u",
+		"disabled":        "i",
+		"unifiedAccount":  "u",
 		"portfolioMargin": "p",
-		"i":              "i",
-		"u":              "u",
-		"p":              "p",
+		"i":               "i",
+		"u":               "u",
+		"p":               "p",
 	}
 
 	shortMode, ok := modeMap[mode]

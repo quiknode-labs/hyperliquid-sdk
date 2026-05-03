@@ -60,6 +60,11 @@ class TestOrderBuilder:
         order = Order.buy("BTC").size(0.01).price(67000).cloid("my-order-123")
         assert order._cloid == "my-order-123"
 
+    def test_priority_fee(self):
+        """Test order priority fee builder."""
+        order = Order.buy("HYPE").size(0.3).market().priority_fee(10000)
+        assert order._priority_fee == 10000
+
     def test_to_action(self):
         """Test converting order to API action format."""
         order = Order.buy("BTC").size(0.001).price(67000).gtc()
@@ -160,6 +165,12 @@ class TestOrderValidation:
         """Test valid order passes validation."""
         order = Order.buy("BTC").size(0.001).price(67000).gtc()
         order.validate()  # Should not raise
+
+    def test_priority_fee_must_be_unsigned_integer(self):
+        """Test invalid priority fee validation."""
+        order = Order.buy("BTC").size(0.001).price(67000).priority_fee(-1)
+        with pytest.raises(ValidationError, match="priority_fee"):
+            order.validate()
 
 
 class TestPlacedOrder:

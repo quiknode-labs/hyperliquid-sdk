@@ -18,6 +18,8 @@ ONE SDK, ALL APIs:
 TRADING (add private key):
     >>> sdk = HyperliquidSDK("https://...", private_key="0x...")
     >>> sdk.market_buy("BTC", size=0.001)  # Market buy
+    >>> sdk.fund_priority_fees(0.001)  # Move spot HYPE into staking HYPE
+    >>> sdk.market_buy("HYPE", size=0.3, priority_fee=10000)  # 1 bp priority
     >>> sdk.buy("BTC", size=0.001, price=67000)  # Limit buy
     >>> sdk.close_position("BTC")  # Close position
     >>> sdk.cancel_all()  # Cancel all orders
