@@ -444,6 +444,32 @@ sdk.Long("BTC", hyperliquid.WithSize(0.001), hyperliquid.WithPrice(65000))
 sdk.Short("ETH", hyperliquid.WithNotional(500), hyperliquid.WithTIF(hyperliquid.TIFIoc))
 ```
 
+### HIP-4 Prediction Markets
+
+Always discover the active markets first. The returned `market.Yes` and `market.No` sides are directly tradeable, so users do not need to memorize `#10` or the native asset id.
+
+```go
+markets, _ := sdk.PredictionMarkets()
+for _, market := range markets {
+	fmt.Println(market.Title, market.Yes.Symbol, market.Yes.Mid, market.No.Symbol, market.No.Mid)
+}
+
+market, ok := markets.Find(hyperliquid.PredictionMarketFilter{
+	Underlying:  "BTC",
+	TargetPrice: "78213",
+})
+if !ok {
+	panic("prediction market not found")
+}
+
+// HIP-4 uses USDH collateral and a 10 USDH minimum order value.
+sdk.BuyUSDH(10.7)
+order, _ := sdk.Buy(market.Yes, hyperliquid.WithSize(20), hyperliquid.WithPrice("0.63"))
+exitOrder, _ := sdk.Sell(market.Yes, hyperliquid.WithSize(20), hyperliquid.WithPrice("0.64"))
+```
+
+HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `WithPriorityFee` when trading `market.Yes`, `market.No`, or raw `#` markets.
+
 ### Fluent Order Builder
 
 ```go

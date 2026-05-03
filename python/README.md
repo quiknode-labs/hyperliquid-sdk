@@ -390,6 +390,25 @@ sdk.long("BTC", size=0.001, price=65000)
 sdk.short("ETH", notional=500, tif="ioc")
 ```
 
+### HIP-4 Prediction Markets
+
+Always discover the active markets first. The returned `market.yes` and `market.no` sides are directly tradeable, so users do not need to memorize `#10` or the native asset id.
+
+```python
+markets = sdk.prediction_markets()
+for market in markets:
+    print(market.title, market.yes.symbol, market.yes.mid, market.no.symbol, market.no.mid)
+
+market = markets.find(underlying="BTC", target_price="78213")
+
+# HIP-4 uses USDH collateral and a 10 USDH minimum order value.
+sdk.buy_usdh(10.7)
+order = sdk.buy(market.yes, size=20, price="0.63")
+exit_order = sdk.sell(market.yes, size=20, price="0.64")
+```
+
+HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `priority_fee` when trading `market.yes`, `market.no`, or raw `#` markets.
+
 ### Order Management
 
 ```python

@@ -56,7 +56,7 @@ pub mod grpc;
 pub use types::{
     Chain, Side, TIF, TpSl, OrderGrouping, Signature,
     OrderRequest, OrderTypePlacement, TimeInForce,
-    Action, ActionRequest,
+    Action, ActionRequest, PredictionMarket, PredictionMarketFilter, PredictionSide,
 };
 pub use order::{Order, TriggerOrder, PlacedOrder};
 pub use error::{Error, Result};

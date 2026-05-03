@@ -19,6 +19,8 @@ from enum import Enum
 from typing import Optional, Union, TYPE_CHECKING
 from decimal import Decimal
 
+from .prediction import PredictionSide
+
 if TYPE_CHECKING:
     from .client import HyperliquidSDK
 
@@ -89,22 +91,22 @@ class Order:
     # ═══════════════ STATIC CONSTRUCTORS ═══════════════
 
     @classmethod
-    def buy(cls, asset: str) -> Order:
+    def buy(cls, asset: Union[str, PredictionSide]) -> Order:
         """Create a buy order."""
-        return cls(asset=asset, side=Side.BUY)
+        return cls(asset=str(asset), side=Side.BUY)
 
     @classmethod
-    def sell(cls, asset: str) -> Order:
+    def sell(cls, asset: Union[str, PredictionSide]) -> Order:
         """Create a sell order."""
-        return cls(asset=asset, side=Side.SELL)
+        return cls(asset=str(asset), side=Side.SELL)
 
     @classmethod
-    def long(cls, asset: str) -> Order:
+    def long(cls, asset: Union[str, PredictionSide]) -> Order:
         """Alias for buy (perps terminology)."""
         return cls.buy(asset)
 
     @classmethod
-    def short(cls, asset: str) -> Order:
+    def short(cls, asset: Union[str, PredictionSide]) -> Order:
         """Alias for sell (perps terminology)."""
         return cls.sell(asset)
 

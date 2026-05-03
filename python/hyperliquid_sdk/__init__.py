@@ -32,6 +32,7 @@ READ-ONLY (no private key):
 
 from .client import HyperliquidSDK
 from .order import Order, PlacedOrder, Side, TIF, TriggerOrder, TpSl, OrderGrouping
+from .prediction import PredictionMarket, PredictionMarkets, PredictionSide
 from .info import Info
 from .hypercore import HyperCore
 from .evm import EVM
@@ -71,6 +72,9 @@ __all__ = [
     "TriggerOrder",
     "TpSl",
     "OrderGrouping",
+    "PredictionMarket",
+    "PredictionMarkets",
+    "PredictionSide",
     # Sub-clients (can also be used standalone)
     "Info",
     "HyperCore",

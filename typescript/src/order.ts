@@ -13,7 +13,7 @@
  *     TriggerOrder.takeProfit("ETH").size(1.0).triggerPrice(5000).limit(4990)
  */
 
-import { Side, TIF, TpSl, OrderGrouping } from './types';
+import { AssetInput, assetToString, Side, TIF, TpSl, OrderGrouping } from './types';
 import { ValidationError } from './errors';
 
 // Re-export enums for convenience
@@ -56,30 +56,30 @@ export class Order {
   private _priorityFee: number | string | null = null;
 
   /** @internal */
-  constructor(asset: string, side: Side) {
-    this.asset = asset;
+  constructor(asset: AssetInput, side: Side) {
+    this.asset = assetToString(asset);
     this.side = side;
   }
 
   // ═══════════════ STATIC CONSTRUCTORS ═══════════════
 
   /** Create a buy order. */
-  static buy(asset: string): Order {
+  static buy(asset: AssetInput): Order {
     return new Order(asset, Side.BUY);
   }
 
   /** Create a sell order. */
-  static sell(asset: string): Order {
+  static sell(asset: AssetInput): Order {
     return new Order(asset, Side.SELL);
   }
 
   /** Alias for buy (perps terminology). */
-  static long(asset: string): Order {
+  static long(asset: AssetInput): Order {
     return Order.buy(asset);
   }
 
   /** Alias for sell (perps terminology). */
-  static short(asset: string): Order {
+  static short(asset: AssetInput): Order {
     return Order.sell(asset);
   }
 

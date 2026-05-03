@@ -22,11 +22,166 @@ import {
 import { Info } from './info';
 import { HyperCore } from './hypercore';
 import { EVM } from './evm';
+import {
+  AssetInput,
+  PredictionMarket,
+  PredictionMarketFilter,
+  PredictionSide,
+  assetToString,
+} from './types';
 
 // Import stream types conditionally (they depend on 'ws')
 type StreamType = import('./websocket').Stream;
 type GRPCStreamType = import('./grpc-stream').GRPCStream;
 type EVMStreamType = import('./evm-stream').EVMStream;
+
+function parseOutcomeDescription(description: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  for (const part of description.split('|')) {
+    const index = part.indexOf(':');
+    if (index === -1) continue;
+    fields[part.slice(0, index)] = part.slice(index + 1);
+  }
+  return fields;
+}
+
+function formatExpiry(expiry?: string): string | undefined {
+  if (!expiry || expiry.length !== 13 || expiry[8] !== '-') return expiry;
+  return `${expiry.slice(0, 4)}-${expiry.slice(4, 6)}-${expiry.slice(6, 8)}T${expiry.slice(9, 11)}:${expiry.slice(11, 13)}:00Z`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+// Only used to generate app-style slug aliases such as
+// btc-above-78213-yes-may-04-0600 from outcomeMeta expiry 20260504-0600.
+const APP_STYLE_PREDICTION_SLUG_MONTHS: Record<string, string> = {
+  '01': 'jan',
+  '02': 'feb',
+  '03': 'mar',
+  '04': 'apr',
+  '05': 'may',
+  '06': 'jun',
+  '07': 'jul',
+  '08': 'aug',
+  '09': 'sep',
+  '10': 'oct',
+  '11': 'nov',
+  '12': 'dec',
+};
+
+function appStylePredictionSlug(fields: Record<string, string>, side?: string): string | undefined {
+  const underlying = fields.underlying;
+  const targetPrice = fields.targetPrice;
+  const expiry = fields.expiry;
+  if (!underlying || !targetPrice || !expiry || expiry.length !== 13) return undefined;
+  const month = APP_STYLE_PREDICTION_SLUG_MONTHS[expiry.slice(4, 6)];
+  if (!month) return undefined;
+  const parts = [underlying, 'above', targetPrice];
+  if (side) parts.push(side);
+  parts.push(month, expiry.slice(6, 8), expiry.slice(9, 13));
+  return slugify(parts.join('-'));
+}
+
+function titleFromFields(fields: Record<string, string>): string {
+  const underlying = fields.underlying ?? 'Outcome';
+  const targetPrice = fields.targetPrice;
+  const expiry = formatExpiry(fields.expiry);
+  if (targetPrice && expiry) return `${underlying} above ${targetPrice} on ${expiry}`;
+  if (targetPrice) return `${underlying} above ${targetPrice}`;
+  return underlying;
+}
+
+function predictionMarketMatches(market: PredictionMarket, query: string): boolean {
+  const normalized = query.toLowerCase();
+  const values = [
+    market.slug,
+    market.title.toLowerCase(),
+    market.name.toLowerCase(),
+    market.underlying?.toLowerCase() ?? '',
+    market.yes.symbol.toLowerCase(),
+    market.no.symbol.toLowerCase(),
+    market.yes.token.toLowerCase(),
+    market.no.token.toLowerCase(),
+    ...market.aliases,
+  ];
+  return values.some((value) => value === normalized || value.includes(normalized));
+}
+
+export class PredictionMarkets extends Array<PredictionMarket> {
+  findMarket(queryOrFilter?: string | PredictionMarketFilter): PredictionMarket | undefined {
+    const filter: PredictionMarketFilter =
+      queryOrFilter !== undefined && typeof queryOrFilter === 'object' ? queryOrFilter : {};
+    const query = typeof queryOrFilter === 'string' ? queryOrFilter : filter.query;
+
+    return this.find((market) => {
+      if (query !== undefined && !predictionMarketMatches(market, query)) return false;
+      if (filter.underlying !== undefined && (market.underlying ?? '').toLowerCase() !== filter.underlying.toLowerCase()) return false;
+      if (filter.targetPrice !== undefined && market.targetPrice !== String(filter.targetPrice)) return false;
+      if (filter.expiry !== undefined && market.expiry !== filter.expiry && market.expiry !== formatExpiry(filter.expiry)) return false;
+      return true;
+    });
+  }
+}
+
+function buildPredictionMarkets(outcomes: Array<Record<string, unknown>>, mids: Record<string, string>): PredictionMarkets {
+  const markets = new PredictionMarkets();
+  for (const outcome of outcomes) {
+    const outcomeId = Number(outcome.outcome);
+    const description = String(outcome.description ?? '');
+    const fields = parseOutcomeDescription(description);
+    const title = titleFromFields(fields);
+    const sideSpecs = (outcome.sideSpecs as Array<Record<string, unknown>> | undefined) ?? [];
+
+    const sides = sideSpecs.map((sideSpec, sideIndex): PredictionSide => {
+      const encoding = outcomeId * 10 + sideIndex;
+      const symbol = `#${encoding}`;
+      return {
+        outcome: outcomeId,
+        side: sideIndex,
+        name: String(sideSpec.name ?? sideIndex),
+        symbol,
+        token: `+${encoding}`,
+        assetId: 100000000 + encoding,
+        mid: mids[symbol],
+        szDecimals: 0,
+        supportsPriorityFee: false,
+      };
+    });
+
+    if (sides.length < 2) continue;
+
+    const slug = appStylePredictionSlug(fields) ?? slugify(title);
+    const aliases = [
+      slugify(title),
+      appStylePredictionSlug(fields, sides[0].name),
+      appStylePredictionSlug(fields, sides[1].name),
+    ].filter((alias): alias is string => alias !== undefined);
+
+    markets.push({
+      outcome: outcomeId,
+      name: String(outcome.name ?? ''),
+      description,
+      title,
+      slug,
+      underlying: fields.underlying,
+      targetPrice: fields.targetPrice,
+      expiry: formatExpiry(fields.expiry),
+      period: fields.period,
+      collateral: 'USDH',
+      minOrderValue: '10',
+      aliases,
+      yes: sides[0],
+      no: sides[1],
+      sides,
+    });
+  }
+  return markets;
+}
 
 export interface HyperliquidSDKOptions {
   /** Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var. */
@@ -97,7 +252,7 @@ export class HyperliquidSDK {
     'leadingVaults', 'extraAgents', 'subAccounts', 'userFees', 'userRateLimit',
     'spotDeployState', 'perpDeployAuctionStatus', 'delegations', 'delegatorSummary',
     'maxBuilderFee', 'userToMultiSigSigners', 'userRole', 'perpsAtOpenInterestCap',
-    'validatorL1Votes', 'marginTable', 'perpDexs', 'webData2',
+    'validatorL1Votes', 'marginTable', 'perpDexs', 'webData2', 'outcomeMeta',
   ]);
 
   private readonly _endpoint?: string;
@@ -345,7 +500,7 @@ export class HyperliquidSDK {
   /**
    * Place a buy order.
    *
-   * @param asset - Asset to buy ("BTC", "ETH", "xyz:SILVER")
+   * @param asset - Asset to buy ("BTC", "ETH", "xyz:SILVER", or market.yes/no)
    * @param options.size - Size in asset units
    * @param options.notional - Size in USD (alternative to size)
    * @param options.price - Limit price (omit for market order)
@@ -357,7 +512,7 @@ export class HyperliquidSDK {
    * @returns PlacedOrder with oid, status, and cancel/modify methods
    */
   async buy(
-    asset: string,
+    asset: AssetInput,
     options: {
       size?: number | string;
       notional?: number;
@@ -388,7 +543,7 @@ export class HyperliquidSDK {
    * Place a sell order.
    */
   async sell(
-    asset: string,
+    asset: AssetInput,
     options: {
       size?: number | string;
       notional?: number;
@@ -424,7 +579,7 @@ export class HyperliquidSDK {
    * @param options.slippage - Slippage tolerance (e.g. 0.05 = 5%). Default: SDK setting (3%).
    */
   async marketBuy(
-    asset: string,
+    asset: AssetInput,
     options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
   ): Promise<PlacedOrder> {
     return this.buy(asset, { ...options, tif: 'market' });
@@ -435,7 +590,7 @@ export class HyperliquidSDK {
    * @param options.slippage - Slippage tolerance (e.g. 0.05 = 5%). Default: SDK setting (3%).
    */
   async marketSell(
-    asset: string,
+    asset: AssetInput,
     options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
   ): Promise<PlacedOrder> {
     return this.sell(asset, { ...options, tif: 'market' });
@@ -457,7 +612,12 @@ export class HyperliquidSDK {
           guidance: 'Check the asset name or try again.',
         });
       }
-      const size = Math.round((order['_notional'] / mid) * 1000000) / 1000000;
+      const szDecimals = await this._getSizeDecimals(order.asset);
+      const factor = Math.pow(10, szDecimals);
+      const rawSize = order['_notional'] / mid;
+      const size = this._isPredictionAsset(order.asset)
+        ? Math.ceil(rawSize)
+        : Math.round(rawSize * factor) / factor;
       order['_size'] = String(size);
     }
 
@@ -1371,6 +1531,57 @@ export class HyperliquidSDK {
   }
 
   /**
+   * List active HIP-4 prediction markets with tradeable yes/no sides.
+   */
+  async predictionMarkets(): Promise<PredictionMarkets> {
+    const outcomeMeta = await this._postInfo({ type: 'outcomeMeta' }) as Record<string, unknown>;
+    const mids = await this._postInfo({ type: 'allMids' }) as Record<string, string>;
+    const outcomes = (outcomeMeta.outcomes as Array<Record<string, unknown>> | undefined) ?? [];
+    return buildPredictionMarkets(outcomes, mids);
+  }
+
+  /**
+   * Alias for predictionMarkets().
+   */
+  async predictions(): Promise<PredictionMarkets> {
+    return this.predictionMarkets();
+  }
+
+  /**
+   * Find one HIP-4 prediction market by text or structured fields.
+   */
+  async predictionMarket(queryOrFilter?: string | PredictionMarketFilter): Promise<PredictionMarket> {
+    const market = (await this.predictionMarkets()).findMarket(queryOrFilter);
+    if (market === undefined) {
+      throw new ValidationError('No matching prediction market found', {
+        guidance: 'Call sdk.predictionMarkets() to list active HIP-4 markets.',
+      });
+    }
+    return market;
+  }
+
+  /**
+   * Return a flat list of tradeable HIP-4 sides.
+   */
+  async predictionSides(): Promise<PredictionSide[]> {
+    return (await this.predictionMarkets()).flatMap((market) => market.sides);
+  }
+
+  /**
+   * Buy USDH with USDC for HIP-4 prediction markets.
+   */
+  async buyUsdh(amountUsdc: number | string, options: { slippage?: number } = {}): Promise<PlacedOrder> {
+    return this.marketBuy('@230', { notional: Number(amountUsdc), slippage: options.slippage });
+  }
+
+  /**
+   * Sell USDH back to USDC.
+   */
+  async sellUsdh(amountUsdh: number | string, options: { slippage?: number } = {}): Promise<PlacedOrder> {
+    return this.marketSell('@230', { size: String(amountUsdh), slippage: options.slippage });
+  }
+
+  /**
    * Get all HIP-3 DEXes.
    */
   async dexes(): Promise<Record<string, unknown>> {
@@ -1418,16 +1629,21 @@ export class HyperliquidSDK {
   /**
    * Get current mid price for an asset.
    */
-  async getMid(asset: string): Promise<number> {
+  async getMid(asset: AssetInput): Promise<number> {
+    let assetName = assetToString(asset);
+    if (this._isPredictionAsset(assetName)) {
+      assetName = this._predictionSymbol(assetName);
+    }
+
     let data: Record<string, string>;
-    if (asset.includes(':')) {
-      const dex = asset.split(':')[0];
+    if (assetName.includes(':')) {
+      const dex = assetName.split(':')[0];
       data = await this._postInfo({ type: 'allMids', dex });
     } else {
       data = await this._postInfo({ type: 'allMids' });
     }
 
-    return parseFloat(data[asset] ?? '0');
+    return parseFloat(data[assetName] ?? '0');
   }
 
   /**
@@ -1439,9 +1655,15 @@ export class HyperliquidSDK {
     return this._marketsCache;
   }
 
-  private async _getSizeDecimals(asset: string): Promise<number> {
-    if (this._szDecimalsCache.has(asset)) {
-      return this._szDecimalsCache.get(asset)!;
+  private async _getSizeDecimals(asset: AssetInput): Promise<number> {
+    const assetName = assetToString(asset);
+    if (this._isPredictionAsset(assetName)) {
+      this._szDecimalsCache.set(assetName, 0);
+      return 0;
+    }
+
+    if (this._szDecimalsCache.has(assetName)) {
+      return this._szDecimalsCache.get(assetName)!;
     }
 
     try {
@@ -1455,28 +1677,35 @@ export class HyperliquidSDK {
 
       // Check perps
       for (const m of (markets.perps as Array<Record<string, unknown>>) ?? []) {
-        if (m.name === asset) {
+        if (m.name === assetName) {
           const decimals = (m.szDecimals as number) ?? 5;
-          this._szDecimalsCache.set(asset, decimals);
+          this._szDecimalsCache.set(assetName, decimals);
           return decimals;
         }
       }
       // Check spot
       for (const m of (markets.spot as Array<Record<string, unknown>>) ?? []) {
-        if (m.name === asset) {
+        if (m.name === assetName) {
           const decimals = (m.szDecimals as number) ?? 5;
-          this._szDecimalsCache.set(asset, decimals);
+          this._szDecimalsCache.set(assetName, decimals);
           return decimals;
         }
       }
       // Check HIP-3 markets
       for (const dexMarkets of Object.values((markets.hip3 as Record<string, Array<Record<string, unknown>>>) ?? {})) {
         for (const m of dexMarkets) {
-          if (m.name === asset) {
+          if (m.name === assetName) {
             const decimals = (m.szDecimals as number) ?? 5;
-            this._szDecimalsCache.set(asset, decimals);
+            this._szDecimalsCache.set(assetName, decimals);
             return decimals;
           }
+        }
+      }
+      for (const m of (markets.hip4 as Array<Record<string, unknown>>) ?? []) {
+        if (m.name === assetName) {
+          const decimals = (m.szDecimals as number) ?? 0;
+          this._szDecimalsCache.set(assetName, decimals);
+          return decimals;
         }
       }
     } catch {
@@ -1486,7 +1715,15 @@ export class HyperliquidSDK {
     return 5;
   }
 
-  private async _resolveAssetIndex(asset: string): Promise<number> {
+  private async _resolveAssetIndex(asset: AssetInput): Promise<number> {
+    const assetName = assetToString(asset);
+    if (/^#\d+$/.test(assetName) || /^\+\d+$/.test(assetName)) {
+      return 100000000 + Number(assetName.slice(1));
+    }
+    if (/^\d+$/.test(assetName)) {
+      return Number(assetName);
+    }
+
     try {
       const now = Date.now();
       if (this._marketsCache === null || (now - this._marketsCacheTime) > HyperliquidSDK.CACHE_TTL) {
@@ -1499,7 +1736,7 @@ export class HyperliquidSDK {
       // Check perps
       const perps = (markets.perps as Array<Record<string, unknown>>) ?? [];
       for (let i = 0; i < perps.length; i++) {
-        if (perps[i].name === asset) {
+        if (perps[i].name === assetName) {
           return i;
         }
       }
@@ -1507,7 +1744,7 @@ export class HyperliquidSDK {
       // Check spot
       const spot = (markets.spot as Array<Record<string, unknown>>) ?? [];
       for (let i = 0; i < spot.length; i++) {
-        if (spot[i].name === asset) {
+        if (spot[i].name === assetName) {
           return 10000 + i;
         }
       }
@@ -1515,16 +1752,21 @@ export class HyperliquidSDK {
       // Check HIP-3 markets
       for (const dexMarkets of Object.values((markets.hip3 as Record<string, Array<Record<string, unknown>>>) ?? {})) {
         for (const m of dexMarkets) {
-          if (m.name === asset) {
+          if (m.name === assetName) {
             return (m.assetId as number) ?? 0;
           }
+        }
+      }
+      for (const m of (markets.hip4 as Array<Record<string, unknown>>) ?? []) {
+        if (m.name === assetName) {
+          return Number(m.index ?? 0);
         }
       }
     } catch {
       // Fall through to error
     }
 
-    throw new ValidationError(`Could not resolve asset '${asset}' to index`, {
+    throw new ValidationError(`Could not resolve asset '${assetName}' to index`, {
       guidance: 'Check the asset name or use numeric index directly.',
     });
   }
@@ -1567,7 +1809,7 @@ export class HyperliquidSDK {
   // ═══════════════════════════════════════════════════════════════════════════
 
   private async _placeOrder(params: {
-    asset: string;
+    asset: AssetInput;
     side: Side;
     size?: number | string;
     notional?: number;
@@ -1578,20 +1820,24 @@ export class HyperliquidSDK {
     slippage?: number;
     priorityFee?: number | string;
   }): Promise<PlacedOrder> {
-    const order = new Order(params.asset, params.side);
+    const asset = assetToString(params.asset);
+    const order = new Order(asset, params.side);
 
     // Handle size
     let size = params.size;
     if (params.notional) {
-      const mid = await this.getMid(params.asset);
+      const mid = await this.getMid(asset);
       if (mid === 0) {
-        throw new ValidationError(`Could not fetch price for ${params.asset}`, {
+        throw new ValidationError(`Could not fetch price for ${asset}`, {
           guidance: 'Check the asset name or try again.',
         });
       }
-      const szDecimals = await this._getSizeDecimals(params.asset);
+      const szDecimals = await this._getSizeDecimals(asset);
       const factor = Math.pow(10, szDecimals);
-      size = Math.round((params.notional / mid) * factor) / factor;
+      const rawSize = params.notional / mid;
+      size = this._isPredictionAsset(asset)
+        ? Math.ceil(rawSize)
+        : Math.round(rawSize * factor) / factor;
     }
 
     if (size === undefined) {
@@ -1631,6 +1877,13 @@ export class HyperliquidSDK {
         guidance: 'Use priorityFee on standalone IOC/market orders, or omit grouping.',
       });
     }
+    await this._validatePredictionOrder(
+      order.asset,
+      order.getSize(),
+      order.getPrice(),
+      order.isMarket(),
+      effectivePriorityFee ?? undefined
+    );
     if (grouping !== OrderGrouping.NA) {
       action.grouping = grouping; // enum value is already the string (e.g., 'na', 'normalTpsl')
     }
@@ -1694,6 +1947,56 @@ export class HyperliquidSDK {
     };
 
     return this._exchange(sendPayload);
+  }
+
+  private _isPredictionAsset(asset: AssetInput): boolean {
+    const name = assetToString(asset);
+    if (/^[#+]\d+$/.test(name)) return true;
+    return /^\d+$/.test(name) && Number(name) >= 100000000;
+  }
+
+  private _predictionSymbol(asset: AssetInput): string {
+    const name = assetToString(asset);
+    if (/^\+\d+$/.test(name)) return `#${name.slice(1)}`;
+    if (/^\d+$/.test(name) && Number(name) >= 100000000) return `#${Number(name) - 100000000}`;
+    return name;
+  }
+
+  private async _validatePredictionOrder(
+    asset: AssetInput,
+    size: string | null,
+    price: string | null,
+    isMarket: boolean,
+    priorityFee?: number | string | null
+  ): Promise<void> {
+    if (!this._isPredictionAsset(asset)) return;
+
+    if (priorityFee !== undefined && priorityFee !== null) {
+      throw new ValidationError('priorityFee is not supported for HIP-4 prediction markets', {
+        guidance: 'Omit priorityFee when trading market.yes, market.no, or # markets.',
+      });
+    }
+
+    if (size === null) return;
+
+    const sizeValue = Number(size);
+    if (!Number.isFinite(sizeValue) || !Number.isInteger(sizeValue)) {
+      throw new ValidationError('HIP-4 prediction market size must be a whole number of contracts', {
+        guidance: 'Use size: 20, not size: 20.5.',
+      });
+    }
+
+    let px = price !== null ? Number(price) : undefined;
+    if (px === undefined && isMarket) {
+      const mid = await this.getMid(this._predictionSymbol(asset));
+      if (mid > 0) px = mid;
+    }
+
+    if (px !== undefined && sizeValue * px < 10) {
+      throw new ValidationError('HIP-4 prediction market orders must have minimum value of 10 USDH', {
+        guidance: 'Increase size or price, or call sdk.buyUsdh(...) before trading.',
+      });
+    }
   }
 
   private _hypeToWei(amount: number | string): string {

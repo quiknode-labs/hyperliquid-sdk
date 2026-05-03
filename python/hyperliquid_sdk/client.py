@@ -20,6 +20,12 @@ import requests
 from eth_account import Account
 
 from .order import Order, PlacedOrder, Side, TIF, TriggerOrder, TpSl, OrderGrouping
+from .prediction import (
+    PredictionMarket,
+    PredictionMarkets,
+    PredictionSide,
+    build_prediction_markets,
+)
 from .errors import (
     HyperliquidError,
     BuildError,
@@ -96,7 +102,7 @@ class HyperliquidSDK:
         "leadingVaults", "extraAgents", "subAccounts", "userFees", "userRateLimit",
         "spotDeployState", "perpDeployAuctionStatus", "delegations", "delegatorSummary",
         "maxBuilderFee", "userToMultiSigSigners", "userRole", "perpsAtOpenInterestCap",
-        "validatorL1Votes", "marginTable", "perpDexs", "webData2",
+        "validatorL1Votes", "marginTable", "perpDexs", "webData2", "outcomeMeta",
     }
 
     def __init__(
@@ -377,7 +383,7 @@ class HyperliquidSDK:
 
     def buy(
         self,
-        asset: str,
+        asset: Union[str, PredictionSide],
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
@@ -392,7 +398,7 @@ class HyperliquidSDK:
         Place a buy order.
 
         Args:
-            asset: Asset to buy ("BTC", "ETH", "xyz:SILVER")
+            asset: Asset to buy ("BTC", "ETH", "xyz:SILVER", or market.yes/no)
             size: Size in asset units
             notional: Size in USD (alternative to size)
             price: Limit price (omit for market order)
@@ -427,7 +433,7 @@ class HyperliquidSDK:
 
     def sell(
         self,
-        asset: str,
+        asset: Union[str, PredictionSide],
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
@@ -442,7 +448,7 @@ class HyperliquidSDK:
         Place a sell order.
 
         Args:
-            asset: Asset to sell ("BTC", "ETH", "xyz:SILVER")
+            asset: Asset to sell ("BTC", "ETH", "xyz:SILVER", or market.yes/no)
             size: Size in asset units
             notional: Size in USD (alternative to size)
             price: Limit price (omit for market order)
@@ -475,7 +481,7 @@ class HyperliquidSDK:
 
     def market_buy(
         self,
-        asset: str,
+        asset: Union[str, PredictionSide],
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
@@ -510,7 +516,7 @@ class HyperliquidSDK:
 
     def market_sell(
         self,
-        asset: str,
+        asset: Union[str, PredictionSide],
         *,
         size: Optional[Union[float, str]] = None,
         notional: Optional[float] = None,
@@ -556,8 +562,16 @@ class HyperliquidSDK:
                 raise ValidationError(
                     f"Could not fetch price for {order.asset}",
                     guidance="Check the asset name or try again.",
+            )
+            sz_decimals = self._get_size_decimals(order.asset)
+            if self._is_prediction_asset(order.asset):
+                size = int(
+                    (Decimal(str(order._notional)) / Decimal(str(mid))).to_integral_value(
+                        rounding="ROUND_CEILING"
+                    )
                 )
-            size = round(order._notional / mid, 6)
+            else:
+                size = round(order._notional / mid, sz_decimals)
             order._size = str(size)
 
         return self._execute_order(order)
@@ -1878,10 +1892,75 @@ class HyperliquidSDK:
             {
                 "perps": [...],
                 "spot": [...],
-                "hip3": {...}  # Grouped by DEX
+                "hip3": {...},  # Grouped by DEX
+                "hip4": [...]   # HIP-4 prediction market side symbols
             }
         """
         return self._get("/markets")
+
+    def prediction_markets(self) -> PredictionMarkets:
+        """
+        List active HIP-4 prediction markets with human-readable metadata.
+
+        Each market has tradeable ``yes`` and ``no`` sides that can be passed
+        directly to ``buy``/``sell``.
+
+        Example:
+            markets = sdk.prediction_markets()
+            market = markets.find(underlying="BTC")
+            sdk.buy(market.yes, size=20, price="0.63")
+        """
+        outcome_meta = self._post_info({"type": "outcomeMeta"})
+        mids = self._post_info({"type": "allMids"})
+        return build_prediction_markets(outcome_meta.get("outcomes", []), mids)
+
+    def predictions(self) -> PredictionMarkets:
+        """Alias for prediction_markets()."""
+        return self.prediction_markets()
+
+    def prediction_market(
+        self,
+        query: Optional[str] = None,
+        *,
+        underlying: Optional[str] = None,
+        target_price: Optional[str] = None,
+        expiry: Optional[str] = None,
+    ) -> PredictionMarket:
+        """Find one HIP-4 prediction market by text or structured fields."""
+        market = self.prediction_markets().find(
+            query,
+            underlying=underlying,
+            target_price=target_price,
+            expiry=expiry,
+        )
+        if market is None:
+            raise ValidationError(
+                "No matching prediction market found",
+                guidance="Call sdk.prediction_markets() to list active HIP-4 markets.",
+            )
+        return market
+
+    def prediction_sides(self) -> List[PredictionSide]:
+        """Return a flat list of tradeable HIP-4 sides."""
+        return [side for market in self.prediction_markets() for side in market.sides]
+
+    def buy_usdh(
+        self,
+        amount_usdc: Union[float, int, str, Decimal],
+        *,
+        slippage: Optional[float] = None,
+    ) -> PlacedOrder:
+        """Buy USDH with USDC for HIP-4 prediction markets."""
+        return self.market_buy("@230", notional=float(amount_usdc), slippage=slippage)
+
+    def sell_usdh(
+        self,
+        amount_usdh: Union[float, int, str, Decimal],
+        *,
+        slippage: Optional[float] = None,
+    ) -> PlacedOrder:
+        """Sell USDH back to USDC."""
+        return self.market_sell("@230", size=str(amount_usdh), slippage=slippage)
 
     def dexes(self) -> dict:
         """Get all HIP-3 DEXes."""
@@ -1951,7 +2030,7 @@ class HyperliquidSDK:
             user = self.address
         return self._get("/approval", params={"user": user})
 
-    def get_mid(self, asset: str) -> float:
+    def get_mid(self, asset: Union[str, PredictionSide]) -> float:
         """
         Get current mid price for an asset.
 
@@ -1961,6 +2040,10 @@ class HyperliquidSDK:
         Returns:
             Mid price as float
         """
+        asset = self._asset_name(asset)
+        if self._is_prediction_asset(asset):
+            asset = self._prediction_symbol(asset)
+
         # HIP-3 markets need dex parameter
         if ":" in asset:
             dex = asset.split(":")[0]
@@ -1976,8 +2059,13 @@ class HyperliquidSDK:
         self._markets_cache_time = time_module.time()
         return self._markets_cache
 
-    def _get_size_decimals(self, asset: str) -> int:
+    def _get_size_decimals(self, asset: Union[str, PredictionSide]) -> int:
         """Get the maximum decimal places for order size on this market (cached)."""
+        asset = self._asset_name(asset)
+        if self._is_prediction_asset(asset):
+            self._sz_decimals_cache[asset] = 0
+            return 0
+
         # Check cache first
         if asset in self._sz_decimals_cache:
             return self._sz_decimals_cache[asset]
@@ -2010,14 +2098,28 @@ class HyperliquidSDK:
                         decimals = m.get("szDecimals", 5)
                         self._sz_decimals_cache[asset] = decimals
                         return decimals
+            # Check HIP-4 prediction market side symbols
+            for m in markets.get("hip4", []):
+                if m.get("name") == asset:
+                    decimals = m.get("szDecimals", 0)
+                    self._sz_decimals_cache[asset] = decimals
+                    return decimals
         except Exception:
             pass
 
         # Default to 5 decimals (safe for most markets)
         return 5
 
-    def _resolve_asset_index(self, asset: str) -> int:
+    def _resolve_asset_index(self, asset: Union[str, PredictionSide]) -> int:
         """Resolve asset name to numeric index (required by some API endpoints)."""
+        asset = self._asset_name(asset)
+        if asset.startswith("#") and asset[1:].isdigit():
+            return 100_000_000 + int(asset[1:])
+        if asset.startswith("+") and asset[1:].isdigit():
+            return 100_000_000 + int(asset[1:])
+        if asset.isdigit():
+            return int(asset)
+
         try:
             # Use cached markets or fetch fresh (with TTL)
             now = time_module.time()
@@ -2042,6 +2144,11 @@ class HyperliquidSDK:
                 for i, m in enumerate(dex_markets):
                     if m.get("name") == asset:
                         return m.get("assetId", i)
+
+            # Check HIP-4 prediction market side symbols
+            for m in markets.get("hip4", []):
+                if m.get("name") == asset:
+                    return int(m.get("index", 0))
 
         except Exception:
             pass
@@ -2095,7 +2202,7 @@ class HyperliquidSDK:
 
     def _place_order(
         self,
-        asset: str,
+        asset: Union[str, PredictionSide],
         side: Side,
         size: Optional[Union[float, str]],
         notional: Optional[float],
@@ -2107,6 +2214,8 @@ class HyperliquidSDK:
         priority_fee: Optional[Union[int, str]] = None,
     ) -> PlacedOrder:
         """Internal order placement logic."""
+        asset = self._asset_name(asset)
+
         # Build order
         order = Order(asset=asset, side=side)
 
@@ -2117,10 +2226,17 @@ class HyperliquidSDK:
                 raise ValidationError(
                     f"Could not fetch price for {asset}",
                     guidance="Check the asset name or try again.",
-                )
+            )
             # Get size decimals for this market (default 5 for most)
             sz_decimals = self._get_size_decimals(asset)
-            size = round(notional / mid, sz_decimals)
+            if self._is_prediction_asset(asset):
+                size = int(
+                    (Decimal(str(notional)) / Decimal(str(mid))).to_integral_value(
+                        rounding="ROUND_CEILING"
+                    )
+                )
+            else:
+                size = round(notional / mid, sz_decimals)
 
         if size is None:
             raise ValidationError(
@@ -2166,6 +2282,13 @@ class HyperliquidSDK:
                 "priority_fee cannot be combined with TP/SL grouping",
                 guidance="Use priority_fee on standalone IOC/market orders, or omit grouping.",
             )
+        self._validate_prediction_order(
+            order.asset,
+            order._size,
+            order._price,
+            order._tif == TIF.MARKET,
+            effective_priority_fee,
+        )
         # Add grouping if specified
         if grouping != OrderGrouping.NA:
             action["grouping"] = grouping.value
@@ -2229,6 +2352,67 @@ class HyperliquidSDK:
         }
 
         return self._exchange(send_payload)
+
+    def _asset_name(self, asset: Union[str, PredictionSide]) -> str:
+        """Normalize a user-facing asset input into the Hyperliquid symbol."""
+        if isinstance(asset, PredictionSide):
+            return asset.symbol
+        return str(asset)
+
+    def _is_prediction_asset(self, asset: Union[str, PredictionSide]) -> bool:
+        name = self._asset_name(asset)
+        if name.startswith("#") or name.startswith("+"):
+            return name[1:].isdigit()
+        if name.isdigit():
+            return int(name) >= 100_000_000
+        return False
+
+    def _prediction_symbol(self, asset: Union[str, PredictionSide]) -> str:
+        name = self._asset_name(asset)
+        if name.startswith("+"):
+            return f"#{name[1:]}"
+        if name.isdigit() and int(name) >= 100_000_000:
+            return f"#{int(name) - 100_000_000}"
+        return name
+
+    def _validate_prediction_order(
+        self,
+        asset: Union[str, PredictionSide],
+        size: Optional[str],
+        price: Optional[str],
+        is_market: bool,
+        priority_fee: Optional[Union[int, str]],
+    ) -> None:
+        if not self._is_prediction_asset(asset):
+            return
+
+        if priority_fee is not None:
+            raise ValidationError(
+                "priority_fee is not supported for HIP-4 prediction markets",
+                guidance="Omit priority_fee when trading market.yes, market.no, or # markets.",
+            )
+
+        if size is None:
+            return
+
+        size_dec = Decimal(str(size))
+        if size_dec != size_dec.to_integral_value():
+            raise ValidationError(
+                "HIP-4 prediction market size must be a whole number of contracts",
+                guidance="Use size=20, not size=20.5.",
+            )
+
+        px = Decimal(str(price)) if price is not None else None
+        if px is None and is_market:
+            mid = self.get_mid(self._prediction_symbol(asset))
+            if mid:
+                px = Decimal(str(mid))
+
+        if px is not None and size_dec * px < Decimal("10"):
+            raise ValidationError(
+                "HIP-4 prediction market orders must have minimum value of 10 USDH",
+                guidance="Increase size or price, or call sdk.buy_usdh(...) before trading.",
+            )
 
     def _hype_to_wei(self, amount: Union[float, int, str, Decimal]) -> int:
         """Convert HYPE to Hyperliquid's 8-decimal integer wei."""

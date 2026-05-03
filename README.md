@@ -54,10 +54,32 @@ All SDKs share the same design philosophy:
 - **One-line orders** — No build-sign-send ceremony
 - **Size or notional** — Specify size in asset units or USD
 - **Order priority** — Set Hyperliquid `priorityFee` and fund it with `cDeposit`
+- **HIP-4 prediction markets** — Discover readable markets, pick `yes`/`no`, and trade without memorizing `#10`
 - **Order management** — Modify, cancel, track orders
 - **Position management** — Close positions with one call
 - **Clear errors** — Actionable error messages with guidance
 - **HIP-3 support** — Same API for HIP-3 markets
+
+## HIP-4 Prediction Markets
+
+Use discovery first, then trade the returned side object. HIP-4 markets use USDH collateral, whole-contract sizes, a 10 USDH minimum order value, and do not support order priority fees.
+
+```python
+markets = sdk.prediction_markets()
+market = markets.find(underlying="BTC", target_price="78213")
+
+sdk.buy_usdh(10.7)                         # USDC -> USDH collateral
+sdk.buy(market.yes, size=20, price="0.63") # no #10 memorization
+sdk.sell(market.yes, size=20, price="0.64")
+```
+
+```typescript
+const markets = await sdk.predictionMarkets();
+const market = markets.findMarket({ underlying: "BTC", targetPrice: "78213" });
+
+await sdk.buyUsdh(10.7);
+await sdk.buy(market!.yes, { size: 20, price: "0.63" });
+```
 
 ## Links
 
