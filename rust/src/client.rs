@@ -1574,7 +1574,11 @@ impl HyperliquidSDK {
                 .resolve_asset(asset)
                 .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
 
-            let resolved_price = price.unwrap_or(0.0);
+            let resolved_price = match price {
+                Some(px) if is_prediction_asset(asset) => px,
+                Some(px) => px.round(),
+                None => 0.0,
+            };
 
             let tif_wire = match tif {
                 TIF::Ioc => "Ioc",
@@ -2538,8 +2542,8 @@ impl MarketOrderBuilder {
             ));
         }
         if is_prediction_asset(&self.asset) {
-            let mid = self.inner.get_mid_price(&self.asset).await?;
-            if size_rounded * mid < 10.0 {
+            let mid = self.inner.get_mid_price(&self.asset).await.ok();
+            if mid.is_some_and(|mid| mid > 0.0 && size_rounded * mid < 10.0) {
                 return Err(Error::ValidationError(
                     "HIP-4 prediction market orders must have minimum value of 10 USDH. Increase size or price, or call sdk.buy_usdh(...) before trading.".to_string(),
                 ));
