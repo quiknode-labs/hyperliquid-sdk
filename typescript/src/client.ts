@@ -1882,6 +1882,7 @@ export class HyperliquidSDK {
       order.getSize(),
       order.getPrice(),
       order.isMarket(),
+      order.side === Side.BUY,
       effectivePriorityFee ?? undefined
     );
     if (grouping !== OrderGrouping.NA) {
@@ -1967,6 +1968,7 @@ export class HyperliquidSDK {
     size: string | null,
     price: string | null,
     isMarket: boolean,
+    isBuy: boolean,
     priorityFee?: number | string | null
   ): Promise<void> {
     if (!this._isPredictionAsset(asset)) return;
@@ -1992,7 +1994,7 @@ export class HyperliquidSDK {
       if (mid > 0) px = mid;
     }
 
-    if (px !== undefined && sizeValue * px < 10) {
+    if (isBuy && px !== undefined && sizeValue * px < 10) {
       throw new ValidationError('HIP-4 prediction market orders must have minimum value of 10 USDH', {
         guidance: 'Increase size or price, or call sdk.buyUsdh(...) before trading.',
       });

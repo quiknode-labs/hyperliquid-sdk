@@ -2287,6 +2287,7 @@ class HyperliquidSDK:
             order._size,
             order._price,
             order._tif == TIF.MARKET,
+            order.side == Side.BUY,
             effective_priority_fee,
         )
         # Add grouping if specified
@@ -2381,6 +2382,7 @@ class HyperliquidSDK:
         size: Optional[str],
         price: Optional[str],
         is_market: bool,
+        is_buy: bool,
         priority_fee: Optional[Union[int, str]],
     ) -> None:
         if not self._is_prediction_asset(asset):
@@ -2408,7 +2410,7 @@ class HyperliquidSDK:
             if mid:
                 px = Decimal(str(mid))
 
-        if px is not None and size_dec * px < Decimal("10"):
+        if is_buy and px is not None and size_dec * px < Decimal("10"):
             raise ValidationError(
                 "HIP-4 prediction market orders must have minimum value of 10 USDH",
                 guidance="Increase size or price, or call sdk.buy_usdh(...) before trading.",

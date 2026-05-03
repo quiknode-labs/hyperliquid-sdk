@@ -111,14 +111,17 @@ func TestPredictionSideAssetNameAndIndex(t *testing.T) {
 func TestPredictionOrderValidation(t *testing.T) {
 	sdk := &SDK{}
 	priorityFee := uint64(10000)
-	if err := sdk.validatePredictionOrder("#10", "20", "0.62", false, &priorityFee); err == nil {
+	if err := sdk.validatePredictionOrder("#10", "20", "0.62", false, true, &priorityFee); err == nil {
 		t.Fatal("priority fee validation returned nil error")
 	}
-	if err := sdk.validatePredictionOrder("#10", "20.5", "0.62", false, nil); err == nil {
+	if err := sdk.validatePredictionOrder("#10", "20.5", "0.62", false, true, nil); err == nil {
 		t.Fatal("fractional size validation returned nil error")
 	}
-	if err := sdk.validatePredictionOrder("#10", "10", "0.62", false, nil); err == nil {
+	if err := sdk.validatePredictionOrder("#10", "10", "0.62", false, true, nil); err == nil {
 		t.Fatal("minimum USDH validation returned nil error")
+	}
+	if err := sdk.validatePredictionOrder("#11", "35", "0.2655", false, false, nil); err != nil {
+		t.Fatalf("closing sell below minimum returned error: %v", err)
 	}
 }
 
