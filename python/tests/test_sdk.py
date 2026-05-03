@@ -260,6 +260,48 @@ class TestTradingHelpers:
         with pytest.raises(ValidationError, match="whole number"):
             sdk.buy(side, size="20.5", price="0.62")
 
+    def test_prediction_market_rejects_buy_below_minimum(self):
+        from hyperliquid_sdk import HyperliquidSDK, PredictionSide, ValidationError
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        side = PredictionSide(1, 0, "Yes", "#10", "+10", 100000010, "0.62")
+
+        with pytest.raises(ValidationError, match="minimum value"):
+            sdk.buy(side, size=10, price="0.62")
+
+    def test_prediction_market_allows_sell_below_minimum(self):
+        from hyperliquid_sdk import HyperliquidSDK, PredictionSide
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        side = PredictionSide(1, 1, "No", "#11", "+11", 100000011, "0.27")
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": body["action"],
+                }
+            return {
+                "exchangeResponse": {
+                    "response": {
+                        "data": {
+                            "statuses": [
+                                {"filled": {"oid": 1, "totalSz": "35", "avgPx": "0.2655"}}
+                            ]
+                        }
+                    }
+                }
+            }
+
+        sdk._exchange = fake_exchange
+        placed = sdk.sell(side, size=35, price="0.2655")
+
+        assert calls[0]["action"]["orders"][0]["asset"] == "#11"
+        assert placed.oid == 1
+
 
 # Test 3: Info API
 class TestInfoAPI:

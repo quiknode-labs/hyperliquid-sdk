@@ -1538,7 +1538,7 @@ impl HyperliquidSDK {
             ));
         }
 
-        if is_prediction_asset(asset) {
+        if side.is_buy() && is_prediction_asset(asset) {
             let px = match price {
                 Some(px) => px,
                 None if is_market => self.inner.get_mid_price(asset).await?,
@@ -2541,7 +2541,7 @@ impl MarketOrderBuilder {
                 "HIP-4 prediction market size must be a whole number of contracts".to_string(),
             ));
         }
-        if is_prediction_asset(&self.asset) {
+        if self.side.is_buy() && is_prediction_asset(&self.asset) {
             let mid = self.inner.get_mid_price(&self.asset).await.ok();
             if mid.is_some_and(|mid| mid > 0.0 && size_rounded * mid < 10.0) {
                 return Err(Error::ValidationError(

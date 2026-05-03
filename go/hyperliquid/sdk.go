@@ -490,7 +490,7 @@ func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage
 		return nil, ValidationError("priorityFee cannot be combined with TP/SL grouping").
 			WithGuidance("Use priorityFee on standalone IOC/market orders, or omit grouping.")
 	}
-	if err := s.validatePredictionOrder(order.Asset(), order.GetSize(), order.GetPrice(), order.GetTIF() == TIFMarket, priorityFee); err != nil {
+	if err := s.validatePredictionOrder(order.Asset(), order.GetSize(), order.GetPrice(), order.GetTIF() == TIFMarket, order.GetSide() == SideBuy, priorityFee); err != nil {
 		return nil, err
 	}
 	if grouping != OrderGroupingNA {
@@ -1238,7 +1238,7 @@ func (s *SDK) resolveAssetIndex(asset string) (int, error) {
 	return 0, ValidationError(fmt.Sprintf("could not resolve asset '%s' to index", asset))
 }
 
-func (s *SDK) validatePredictionOrder(asset, size, price string, isMarket bool, priorityFee *uint64) error {
+func (s *SDK) validatePredictionOrder(asset, size, price string, isMarket bool, isBuy bool, priorityFee *uint64) error {
 	if !isPredictionAsset(asset) {
 		return nil
 	}
@@ -1266,7 +1266,7 @@ func (s *SDK) validatePredictionOrder(asset, size, price string, isMarket bool, 
 		}
 	}
 
-	if px > 0 && sizeValue*px < 10 {
+	if isBuy && px > 0 && sizeValue*px < 10 {
 		return ValidationError("HIP-4 prediction market orders must have minimum value of 10 USDH").
 			WithGuidance("Increase size or price, or call sdk.BuyUSDH(...) before trading.")
 	}
