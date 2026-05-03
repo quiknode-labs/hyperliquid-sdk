@@ -41,7 +41,7 @@ var QNSupportedInfoMethods = map[string]bool{
 	"leadingVaults": true, "extraAgents": true, "subAccounts": true, "userFees": true, "userRateLimit": true,
 	"spotDeployState": true, "perpDeployAuctionStatus": true, "delegations": true, "delegatorSummary": true,
 	"maxBuilderFee": true, "userToMultiSigSigners": true, "userRole": true, "perpsAtOpenInterestCap": true,
-	"validatorL1Votes": true, "marginTable": true, "perpDexs": true, "webData2": true,
+	"validatorL1Votes": true, "marginTable": true, "perpDexs": true, "webData2": true, "outcomeMeta": true,
 }
 
 // Config holds SDK configuration options.
@@ -382,33 +382,33 @@ func WithPriorityFee(priorityFee uint64) OrderOption {
 }
 
 // Buy places a buy order.
-func (s *SDK) Buy(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) Buy(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.placeOrder(asset, SideBuy, opts...)
 }
 
 // Sell places a sell order.
-func (s *SDK) Sell(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) Sell(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.placeOrder(asset, SideSell, opts...)
 }
 
 // Long is an alias for Buy (perps terminology).
-func (s *SDK) Long(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) Long(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.Buy(asset, opts...)
 }
 
 // Short is an alias for Sell (perps terminology).
-func (s *SDK) Short(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) Short(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.Sell(asset, opts...)
 }
 
 // MarketBuy places a market buy order.
-func (s *SDK) MarketBuy(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) MarketBuy(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	opts = append(opts, WithTIF(TIFMarket))
 	return s.Buy(asset, opts...)
 }
 
 // MarketSell places a market sell order.
-func (s *SDK) MarketSell(asset string, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) MarketSell(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	opts = append(opts, WithTIF(TIFMarket))
 	return s.Sell(asset, opts...)
 }
@@ -427,14 +427,19 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		}
 		size := order.GetNotional() / mid
 		szDecimals := s.getSizeDecimals(order.Asset())
-		size = math.Round(size*math.Pow(10, float64(szDecimals))) / math.Pow(10, float64(szDecimals))
+		if isPredictionAsset(order.Asset()) {
+			size = math.Ceil(size)
+		} else {
+			size = math.Round(size*math.Pow(10, float64(szDecimals))) / math.Pow(10, float64(szDecimals))
+		}
 		order.SetSize(NewDecimal(size).String())
 	}
 
 	return s.executeOrder(order, OrderGroupingNA, nil, order.GetPriorityFee())
 }
 
-func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedOrder, error) {
+func (s *SDK) placeOrder(assetInput any, side Side, opts ...OrderOption) (*PlacedOrder, error) {
+	asset := assetName(assetInput)
 	params := &orderParams{
 		tif:      TIFIOC,
 		grouping: OrderGroupingNA,
@@ -458,7 +463,11 @@ func (s *SDK) placeOrder(asset string, side Side, opts ...OrderOption) (*PlacedO
 		}
 		szDecimals := s.getSizeDecimals(asset)
 		size := params.notional / mid
-		size = math.Round(size*math.Pow(10, float64(szDecimals))) / math.Pow(10, float64(szDecimals))
+		if isPredictionAsset(asset) {
+			size = math.Ceil(size)
+		} else {
+			size = math.Round(size*math.Pow(10, float64(szDecimals))) / math.Pow(10, float64(szDecimals))
+		}
 		order.Size(size)
 	} else if params.size != "" {
 		order.size = params.size
@@ -480,6 +489,9 @@ func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage
 	if grouping != OrderGroupingNA && priorityFee != nil {
 		return nil, ValidationError("priorityFee cannot be combined with TP/SL grouping").
 			WithGuidance("Use priorityFee on standalone IOC/market orders, or omit grouping.")
+	}
+	if err := s.validatePredictionOrder(order.Asset(), order.GetSize(), order.GetPrice(), order.GetTIF() == TIFMarket, priorityFee); err != nil {
+		return nil, err
 	}
 	if grouping != OrderGroupingNA {
 		action["grouping"] = string(grouping)
@@ -846,6 +858,7 @@ func (s *SDK) Markets() (*Markets, error) {
 		Perps: []Market{},
 		Spot:  []Market{},
 		HIP3:  make(map[string][]Market),
+		HIP4:  []Market{},
 	}
 
 	if perps, ok := result["perps"].([]any); ok {
@@ -888,6 +901,18 @@ func (s *SDK) Markets() (*Markets, error) {
 					}
 				}
 				markets.HIP3[dex] = marketList
+			}
+		}
+	}
+
+	if hip4, ok := result["hip4"].([]any); ok {
+		for _, h := range hip4 {
+			if m, ok := h.(map[string]any); ok {
+				markets.HIP4 = append(markets.HIP4, Market{
+					Name:       m["name"].(string),
+					Index:      int(m["index"].(float64)),
+					SzDecimals: int(m["szDecimals"].(float64)),
+				})
 			}
 		}
 	}
@@ -963,7 +988,11 @@ func (s *SDK) ApprovalStatus(user string) (map[string]any, error) {
 }
 
 // GetMid returns the current mid price for an asset.
-func (s *SDK) GetMid(asset string) (float64, error) {
+func (s *SDK) GetMid(assetInput any) (float64, error) {
+	asset := assetName(assetInput)
+	if isPredictionAsset(asset) {
+		asset = predictionSymbol(asset)
+	}
 	ctx := context.Background()
 
 	body := map[string]any{"type": "allMids"}
@@ -1092,6 +1121,13 @@ func (s *SDK) ensureApproved(maxFee string) error {
 }
 
 func (s *SDK) getSizeDecimals(asset string) int {
+	if isPredictionAsset(asset) {
+		s.cacheMu.Lock()
+		s.szDecimalsCache[asset] = 0
+		s.cacheMu.Unlock()
+		return 0
+	}
+
 	s.cacheMu.RLock()
 	if dec, ok := s.szDecimalsCache[asset]; ok {
 		s.cacheMu.RUnlock()
@@ -1138,10 +1174,25 @@ func (s *SDK) getSizeDecimals(asset string) int {
 		}
 	}
 
+	// Search HIP-4
+	for _, m := range s.marketsCache.HIP4 {
+		if m.Name == asset {
+			s.szDecimalsCache[asset] = m.SzDecimals
+			return m.SzDecimals
+		}
+	}
+
 	return 5 // Default
 }
 
 func (s *SDK) resolveAssetIndex(asset string) (int, error) {
+	if len(asset) > 1 && (asset[0] == '#' || asset[0] == '+') && allDecimalDigits(asset[1:]) {
+		return 100000000 + int(NewDecimal(asset[1:]).Float64()), nil
+	}
+	if allDecimalDigits(asset) {
+		return int(NewDecimal(asset).Float64()), nil
+	}
+
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
@@ -1177,5 +1228,48 @@ func (s *SDK) resolveAssetIndex(asset string) (int, error) {
 		}
 	}
 
+	// Search HIP-4
+	for _, m := range s.marketsCache.HIP4 {
+		if m.Name == asset {
+			return m.Index, nil
+		}
+	}
+
 	return 0, ValidationError(fmt.Sprintf("could not resolve asset '%s' to index", asset))
+}
+
+func (s *SDK) validatePredictionOrder(asset, size, price string, isMarket bool, priorityFee *uint64) error {
+	if !isPredictionAsset(asset) {
+		return nil
+	}
+
+	if priorityFee != nil {
+		return ValidationError("priorityFee is not supported for HIP-4 prediction markets").
+			WithGuidance("Omit priorityFee when trading market.Yes, market.No, or # markets.")
+	}
+
+	if size == "" {
+		return nil
+	}
+
+	sizeValue := NewDecimal(size).Float64()
+	if math.Trunc(sizeValue) != sizeValue {
+		return ValidationError("HIP-4 prediction market size must be a whole number of contracts").
+			WithGuidance("Use WithSize(20), not WithSize(20.5).")
+	}
+
+	px := NewDecimal(price).Float64()
+	if px == 0 && isMarket {
+		mid, err := s.GetMid(predictionSymbol(asset))
+		if err == nil {
+			px = mid
+		}
+	}
+
+	if px > 0 && sizeValue*px < 10 {
+		return ValidationError("HIP-4 prediction market orders must have minimum value of 10 USDH").
+			WithGuidance("Increase size or price, or call sdk.BuyUSDH(...) before trading.")
+	}
+
+	return nil
 }

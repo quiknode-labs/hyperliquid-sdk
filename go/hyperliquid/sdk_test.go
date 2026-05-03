@@ -71,6 +71,57 @@ func TestHypeToWei(t *testing.T) {
 	}
 }
 
+func TestPredictionMarketsFind(t *testing.T) {
+	markets := PredictionMarkets{
+		{
+			Title:       "BTC above 78213 on 2026-05-04T06:00:00Z",
+			Slug:        "btc-above-78213-on-2026-05-04t06-00-00z",
+			Underlying:  "BTC",
+			TargetPrice: "78213",
+			Expiry:      "2026-05-04T06:00:00Z",
+			Yes:         PredictionSide{Symbol: "#10", Token: "+10"},
+			No:          PredictionSide{Symbol: "#11", Token: "+11"},
+		},
+	}
+
+	market, ok := markets.Find(PredictionMarketFilter{Underlying: "BTC", TargetPrice: "78213"})
+	if !ok {
+		t.Fatal("Find did not locate BTC prediction market")
+	}
+	if market.Yes.Symbol != "#10" {
+		t.Fatalf("market.Yes.Symbol = %q, want #10", market.Yes.Symbol)
+	}
+}
+
+func TestPredictionSideAssetNameAndIndex(t *testing.T) {
+	side := PredictionSide{Symbol: "#10"}
+	if got := assetName(side); got != "#10" {
+		t.Fatalf("assetName(side) = %q, want #10", got)
+	}
+	sdk := &SDK{}
+	index, err := sdk.resolveAssetIndex("#10")
+	if err != nil {
+		t.Fatalf("resolveAssetIndex returned error: %v", err)
+	}
+	if index != 100000010 {
+		t.Fatalf("resolveAssetIndex(#10) = %d, want 100000010", index)
+	}
+}
+
+func TestPredictionOrderValidation(t *testing.T) {
+	sdk := &SDK{}
+	priorityFee := uint64(10000)
+	if err := sdk.validatePredictionOrder("#10", "20", "0.62", false, &priorityFee); err == nil {
+		t.Fatal("priority fee validation returned nil error")
+	}
+	if err := sdk.validatePredictionOrder("#10", "20.5", "0.62", false, nil); err == nil {
+		t.Fatal("fractional size validation returned nil error")
+	}
+	if err := sdk.validatePredictionOrder("#10", "10", "0.62", false, nil); err == nil {
+		t.Fatal("minimum USDH validation returned nil error")
+	}
+}
+
 // Test buildInfoURL
 func TestBuildInfoURL(t *testing.T) {
 	tests := []struct {

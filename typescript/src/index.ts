@@ -7,7 +7,7 @@
  */
 
 // Main SDK client
-export { HyperliquidSDK, HyperliquidSDKOptions } from './client';
+export { HyperliquidSDK, HyperliquidSDKOptions, PredictionMarkets } from './client';
 
 // Order builders
 export { Order, TriggerOrder, PlacedOrder, Side, TIF, TpSl, OrderGrouping } from './order';
@@ -56,3 +56,9 @@ export {
 
 // Re-export commonly used types
 export type { default as WebSocket } from 'ws';
+export type {
+  AssetInput,
+  PredictionMarket,
+  PredictionMarketFilter,
+  PredictionSide,
+} from './types';

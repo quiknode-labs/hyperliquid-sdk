@@ -372,6 +372,27 @@ await sdk.long("BTC", { size: 0.001, price: 65000 });
 await sdk.short("ETH", { notional: 500, tif: "ioc" });
 ```
 
+### HIP-4 Prediction Markets
+
+Always discover the active markets first. The returned `market.yes` and `market.no` sides are directly tradeable, so users do not need to memorize `#10` or the native asset id.
+
+```typescript
+const markets = await sdk.predictionMarkets();
+for (const market of markets) {
+  console.log(market.title, market.yes.symbol, market.yes.mid, market.no.symbol, market.no.mid);
+}
+
+const market = markets.findMarket({ underlying: "BTC", targetPrice: "78213" });
+if (!market) throw new Error("Prediction market not found");
+
+// HIP-4 uses USDH collateral and a 10 USDH minimum order value.
+await sdk.buyUsdh(10.7);
+const order = await sdk.buy(market.yes, { size: 20, price: "0.63" });
+const exitOrder = await sdk.sell(market.yes, { size: 20, price: "0.64" });
+```
+
+HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `priorityFee` when trading `market.yes`, `market.no`, or raw `#` markets.
+
 ### Order Management
 
 ```typescript

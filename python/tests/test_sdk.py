@@ -175,6 +175,91 @@ class TestTradingHelpers:
         assert result["success"] is True
         assert calls[1]["action"]["type"] == "cDeposit"
 
+    def test_prediction_markets_build_tradeable_sides(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(auto_approve=False)
+
+        def fake_post_info(body):
+            if body["type"] == "outcomeMeta":
+                return {
+                    "outcomes": [
+                        {
+                            "outcome": 1,
+                            "name": "Recurring",
+                            "description": (
+                                "class:priceBinary|underlying:BTC|expiry:20260504-0600|"
+                                "targetPrice:78213|period:1d"
+                            ),
+                            "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+                        }
+                    ],
+                    "questions": [],
+                }
+            return {"#10": "0.62", "#11": "0.38"}
+
+        sdk._post_info = fake_post_info
+        markets = sdk.prediction_markets()
+        market = markets.find(underlying="BTC", target_price="78213")
+
+        assert market is not None
+        assert market.title == "BTC above 78213 on 2026-05-04T06:00:00Z"
+        assert market.yes.symbol == "#10"
+        assert market.yes.asset_id == 100000010
+        assert market.no.symbol == "#11"
+        assert str(market.yes) == "#10"
+
+    def test_prediction_side_can_be_used_as_order_asset(self):
+        from hyperliquid_sdk import HyperliquidSDK, PredictionSide
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        side = PredictionSide(1, 0, "Yes", "#10", "+10", 100000010, "0.62")
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": body["action"],
+                }
+            return {
+                "exchangeResponse": {
+                    "response": {
+                        "data": {
+                            "statuses": [
+                                {"filled": {"oid": 1, "totalSz": "20", "avgPx": "0.62"}}
+                            ]
+                        }
+                    }
+                }
+            }
+
+        sdk._exchange = fake_exchange
+        placed = sdk.buy(side, size=20, price="0.62")
+
+        assert calls[0]["action"]["orders"][0]["asset"] == "#10"
+        assert placed.oid == 1
+
+    def test_prediction_market_rejects_priority_fee(self):
+        from hyperliquid_sdk import HyperliquidSDK, PredictionSide, ValidationError
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        side = PredictionSide(1, 0, "Yes", "#10", "+10", 100000010, "0.62")
+
+        with pytest.raises(ValidationError, match="priority_fee is not supported"):
+            sdk.buy(side, size=20, price="0.62", priority_fee=10000)
+
+    def test_prediction_market_rejects_fractional_contracts(self):
+        from hyperliquid_sdk import HyperliquidSDK, PredictionSide, ValidationError
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        side = PredictionSide(1, 0, "Yes", "#10", "+10", 100000010, "0.62")
+
+        with pytest.raises(ValidationError, match="whole number"):
+            sdk.buy(side, size="20.5", price="0.62")
+
 
 # Test 3: Info API
 class TestInfoAPI:

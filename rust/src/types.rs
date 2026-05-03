@@ -106,6 +106,91 @@ impl fmt::Display for Side {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// HIP-4 Prediction Markets
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// A tradeable HIP-4 outcome side.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PredictionSide {
+    pub outcome: u64,
+    pub side: usize,
+    pub name: String,
+    pub symbol: String,
+    pub token: String,
+    pub asset_id: usize,
+    pub mid: Option<String>,
+    pub sz_decimals: u8,
+    pub supports_priority_fee: bool,
+}
+
+impl fmt::Display for PredictionSide {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.symbol)
+    }
+}
+
+impl From<PredictionSide> for String {
+    fn from(side: PredictionSide) -> Self {
+        side.symbol
+    }
+}
+
+impl From<&PredictionSide> for String {
+    fn from(side: &PredictionSide) -> Self {
+        side.symbol.clone()
+    }
+}
+
+/// A HIP-4 prediction market with yes/no tradeable sides.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PredictionMarket {
+    pub outcome: u64,
+    pub name: String,
+    pub description: String,
+    pub title: String,
+    pub slug: String,
+    pub underlying: Option<String>,
+    pub target_price: Option<String>,
+    pub expiry: Option<String>,
+    pub period: Option<String>,
+    pub collateral: String,
+    pub min_order_value: String,
+    pub aliases: Vec<String>,
+    pub yes: PredictionSide,
+    pub no: PredictionSide,
+    pub sides: Vec<PredictionSide>,
+}
+
+impl PredictionMarket {
+    pub fn matches(&self, query: &str) -> bool {
+        let normalized = query.to_lowercase();
+        let mut values = vec![
+            self.slug.clone(),
+            self.title.to_lowercase(),
+            self.name.to_lowercase(),
+            self.underlying.clone().unwrap_or_default().to_lowercase(),
+            self.yes.symbol.to_lowercase(),
+            self.no.symbol.to_lowercase(),
+            self.yes.token.to_lowercase(),
+            self.no.token.to_lowercase(),
+        ];
+        values.extend(self.aliases.iter().map(|alias| alias.to_lowercase()));
+        values.iter().any(|value| value == &normalized || value.contains(&normalized))
+    }
+}
+
+/// Filter for selecting an active HIP-4 prediction market.
+#[derive(Debug, Clone, Default)]
+pub struct PredictionMarketFilter {
+    pub query: Option<String>,
+    pub underlying: Option<String>,
+    pub target_price: Option<String>,
+    pub expiry: Option<String>,
+}
+
 impl FromStr for Side {
     type Err = String;
 

@@ -51,6 +51,53 @@ export interface SDKOptions {
   timeout?: number;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HIP-4 PREDICTION MARKETS
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface PredictionSide {
+  outcome: number;
+  side: number;
+  name: string;
+  symbol: string;
+  token: string;
+  assetId: number;
+  mid?: string;
+  szDecimals: 0;
+  supportsPriorityFee: false;
+}
+
+export interface PredictionMarket {
+  outcome: number;
+  name: string;
+  description: string;
+  title: string;
+  slug: string;
+  underlying?: string;
+  targetPrice?: string;
+  expiry?: string;
+  period?: string;
+  collateral: 'USDH';
+  minOrderValue: '10';
+  aliases: string[];
+  yes: PredictionSide;
+  no: PredictionSide;
+  sides: PredictionSide[];
+}
+
+export interface PredictionMarketFilter {
+  query?: string;
+  underlying?: string;
+  targetPrice?: string | number;
+  expiry?: string;
+}
+
+export type AssetInput = string | PredictionSide;
+
+export function assetToString(asset: AssetInput): string {
+  return typeof asset === 'string' ? asset : asset.symbol;
+}
+
 export interface InfoOptions {
   timeout?: number;
 }

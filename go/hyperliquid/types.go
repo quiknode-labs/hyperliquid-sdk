@@ -63,8 +63,8 @@ const (
 type OrderGrouping string
 
 const (
-	OrderGroupingNA         OrderGrouping = "na"           // No grouping (standalone order)
-	OrderGroupingNormalTPSL OrderGrouping = "normalTpsl"   // Attach TP/SL to the fill of this order
+	OrderGroupingNA           OrderGrouping = "na"           // No grouping (standalone order)
+	OrderGroupingNormalTPSL   OrderGrouping = "normalTpsl"   // Attach TP/SL to the fill of this order
 	OrderGroupingPositionTPSL OrderGrouping = "positionTpsl" // Attach TP/SL to the entire position
 )
 
@@ -73,44 +73,44 @@ type StreamType string
 
 const (
 	// QuickNode-supported streams
-	StreamTypeTrades       StreamType = "trades"
-	StreamTypeOrders       StreamType = "orders"
-	StreamTypeBookUpdates  StreamType = "book_updates"
-	StreamTypeTWAP         StreamType = "twap"
-	StreamTypeEvents       StreamType = "events"
+	StreamTypeTrades        StreamType = "trades"
+	StreamTypeOrders        StreamType = "orders"
+	StreamTypeBookUpdates   StreamType = "book_updates"
+	StreamTypeTWAP          StreamType = "twap"
+	StreamTypeEvents        StreamType = "events"
 	StreamTypeWriterActions StreamType = "writer_actions"
 
 	// Public Hyperliquid API streams
-	StreamTypeL2Book                StreamType = "l2Book"
-	StreamTypeAllMids               StreamType = "allMids"
-	StreamTypeCandle                StreamType = "candle"
-	StreamTypeBBO                   StreamType = "bbo"
-	StreamTypeOpenOrders            StreamType = "openOrders"
-	StreamTypeOrderUpdates          StreamType = "orderUpdates"
-	StreamTypeUserEvents            StreamType = "userEvents"
-	StreamTypeUserFills             StreamType = "userFills"
-	StreamTypeUserFundings          StreamType = "userFundings"
-	StreamTypeUserNonFundingLedger  StreamType = "userNonFundingLedgerUpdates"
-	StreamTypeClearinghouseState    StreamType = "clearinghouseState"
-	StreamTypeActiveAssetCtx        StreamType = "activeAssetCtx"
-	StreamTypeActiveAssetData       StreamType = "activeAssetData"
-	StreamTypeTWAPStates            StreamType = "twapStates"
-	StreamTypeUserTWAPSliceFills    StreamType = "userTwapSliceFills"
-	StreamTypeUserTWAPHistory       StreamType = "userTwapHistory"
-	StreamTypeNotification          StreamType = "notification"
-	StreamTypeWebData3              StreamType = "webData3"
+	StreamTypeL2Book               StreamType = "l2Book"
+	StreamTypeAllMids              StreamType = "allMids"
+	StreamTypeCandle               StreamType = "candle"
+	StreamTypeBBO                  StreamType = "bbo"
+	StreamTypeOpenOrders           StreamType = "openOrders"
+	StreamTypeOrderUpdates         StreamType = "orderUpdates"
+	StreamTypeUserEvents           StreamType = "userEvents"
+	StreamTypeUserFills            StreamType = "userFills"
+	StreamTypeUserFundings         StreamType = "userFundings"
+	StreamTypeUserNonFundingLedger StreamType = "userNonFundingLedgerUpdates"
+	StreamTypeClearinghouseState   StreamType = "clearinghouseState"
+	StreamTypeActiveAssetCtx       StreamType = "activeAssetCtx"
+	StreamTypeActiveAssetData      StreamType = "activeAssetData"
+	StreamTypeTWAPStates           StreamType = "twapStates"
+	StreamTypeUserTWAPSliceFills   StreamType = "userTwapSliceFills"
+	StreamTypeUserTWAPHistory      StreamType = "userTwapHistory"
+	StreamTypeNotification         StreamType = "notification"
+	StreamTypeWebData3             StreamType = "webData3"
 )
 
 // GRPCStreamType represents available gRPC stream types.
 type GRPCStreamType string
 
 const (
-	GRPCStreamTypeTrades       GRPCStreamType = "TRADES"
-	GRPCStreamTypeOrders       GRPCStreamType = "ORDERS"
-	GRPCStreamTypeBookUpdates  GRPCStreamType = "BOOK_UPDATES"
-	GRPCStreamTypeTWAP         GRPCStreamType = "TWAP"
-	GRPCStreamTypeEvents       GRPCStreamType = "EVENTS"
-	GRPCStreamTypeBlocks       GRPCStreamType = "BLOCKS"
+	GRPCStreamTypeTrades        GRPCStreamType = "TRADES"
+	GRPCStreamTypeOrders        GRPCStreamType = "ORDERS"
+	GRPCStreamTypeBookUpdates   GRPCStreamType = "BOOK_UPDATES"
+	GRPCStreamTypeTWAP          GRPCStreamType = "TWAP"
+	GRPCStreamTypeEvents        GRPCStreamType = "EVENTS"
+	GRPCStreamTypeBlocks        GRPCStreamType = "BLOCKS"
 	GRPCStreamTypeWriterActions GRPCStreamType = "WRITER_ACTIONS"
 )
 
@@ -126,14 +126,14 @@ const (
 
 // PlacedOrder represents a successfully placed order with full context.
 type PlacedOrder struct {
-	OID        int64   `json:"oid,omitempty"`
-	Status     string  `json:"status"`
-	Asset      string  `json:"asset"`
-	Side       string  `json:"side"`
-	Size       string  `json:"size"`
-	Price      string  `json:"price,omitempty"`
-	FilledSize string  `json:"filled_size,omitempty"`
-	AvgPrice   string  `json:"avg_price,omitempty"`
+	OID         int64          `json:"oid,omitempty"`
+	Status      string         `json:"status"`
+	Asset       string         `json:"asset"`
+	Side        string         `json:"side"`
+	Size        string         `json:"size"`
+	Price       string         `json:"price,omitempty"`
+	FilledSize  string         `json:"filled_size,omitempty"`
+	AvgPrice    string         `json:"avg_price,omitempty"`
 	RawResponse map[string]any `json:"raw_response,omitempty"`
 
 	// Internal reference to SDK for cancel/modify operations
@@ -247,6 +247,75 @@ type Markets struct {
 	Perps []Market            `json:"perps"`
 	Spot  []Market            `json:"spot"`
 	HIP3  map[string][]Market `json:"hip3"`
+	HIP4  []Market            `json:"hip4"`
+}
+
+// PredictionSide is a tradeable HIP-4 outcome side.
+type PredictionSide struct {
+	Outcome             int    `json:"outcome"`
+	Side                int    `json:"side"`
+	Name                string `json:"name"`
+	Symbol              string `json:"symbol"`
+	Token               string `json:"token"`
+	AssetID             int    `json:"assetId"`
+	Mid                 string `json:"mid,omitempty"`
+	SzDecimals          int    `json:"szDecimals"`
+	SupportsPriorityFee bool   `json:"supportsPriorityFee"`
+}
+
+func (p PredictionSide) String() string {
+	return p.Symbol
+}
+
+// PredictionMarket is a HIP-4 prediction market with yes/no tradeable sides.
+type PredictionMarket struct {
+	Outcome       int              `json:"outcome"`
+	Name          string           `json:"name"`
+	Description   string           `json:"description"`
+	Title         string           `json:"title"`
+	Slug          string           `json:"slug"`
+	Underlying    string           `json:"underlying,omitempty"`
+	TargetPrice   string           `json:"targetPrice,omitempty"`
+	Expiry        string           `json:"expiry,omitempty"`
+	Period        string           `json:"period,omitempty"`
+	Collateral    string           `json:"collateral"`
+	MinOrderValue string           `json:"minOrderValue"`
+	Aliases       []string         `json:"aliases"`
+	Yes           PredictionSide   `json:"yes"`
+	No            PredictionSide   `json:"no"`
+	Sides         []PredictionSide `json:"sides"`
+}
+
+// PredictionMarkets is a list of active HIP-4 markets.
+type PredictionMarkets []PredictionMarket
+
+// PredictionMarketFilter filters active HIP-4 markets by readable fields.
+type PredictionMarketFilter struct {
+	Query       string
+	Underlying  string
+	TargetPrice string
+	Expiry      string
+}
+
+// Find returns the first market matching the filter.
+func (p PredictionMarkets) Find(filter PredictionMarketFilter) (*PredictionMarket, bool) {
+	for i := range p {
+		market := &p[i]
+		if filter.Query != "" && !market.matches(filter.Query) {
+			continue
+		}
+		if filter.Underlying != "" && !strings.EqualFold(market.Underlying, filter.Underlying) {
+			continue
+		}
+		if filter.TargetPrice != "" && market.TargetPrice != filter.TargetPrice {
+			continue
+		}
+		if filter.Expiry != "" && market.Expiry != filter.Expiry && market.Expiry != formatPredictionExpiry(filter.Expiry) {
+			continue
+		}
+		return market, true
+	}
+	return nil, false
 }
 
 // Signature represents an ECDSA signature.
@@ -288,21 +357,21 @@ type L2Book struct {
 
 // L4Order represents an individual order in the L4 order book.
 type L4Order struct {
-	User             string  `json:"user"`
-	Coin             string  `json:"coin"`
-	Side             string  `json:"side"`
-	LimitPx          string  `json:"limit_px"`
-	Size             string  `json:"sz"`
-	OID              int64   `json:"oid"`
-	Timestamp        int64   `json:"timestamp"`
-	TriggerCondition string  `json:"trigger_condition,omitempty"`
-	IsTrigger        bool    `json:"is_trigger,omitempty"`
-	TriggerPx        string  `json:"trigger_px,omitempty"`
-	IsPositionTPSL   bool    `json:"is_position_tpsl,omitempty"`
-	ReduceOnly       bool    `json:"reduce_only,omitempty"`
-	OrderType        string  `json:"order_type,omitempty"`
-	TIF              string  `json:"tif,omitempty"`
-	CLOID            string  `json:"cloid,omitempty"`
+	User             string `json:"user"`
+	Coin             string `json:"coin"`
+	Side             string `json:"side"`
+	LimitPx          string `json:"limit_px"`
+	Size             string `json:"sz"`
+	OID              int64  `json:"oid"`
+	Timestamp        int64  `json:"timestamp"`
+	TriggerCondition string `json:"trigger_condition,omitempty"`
+	IsTrigger        bool   `json:"is_trigger,omitempty"`
+	TriggerPx        string `json:"trigger_px,omitempty"`
+	IsPositionTPSL   bool   `json:"is_position_tpsl,omitempty"`
+	ReduceOnly       bool   `json:"reduce_only,omitempty"`
+	OrderType        string `json:"order_type,omitempty"`
+	TIF              string `json:"tif,omitempty"`
+	CLOID            string `json:"cloid,omitempty"`
 }
 
 // Decimal is a helper for precise decimal string handling.

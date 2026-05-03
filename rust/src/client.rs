@@ -67,7 +67,114 @@ const QN_SUPPORTED_INFO_TYPES: &[&str] = &[
     "marginTable",
     "perpDexs",
     "webData2",
+    "outcomeMeta",
 ];
+
+fn parse_outcome_description(description: &str) -> HashMap<String, String> {
+    description
+        .split('|')
+        .filter_map(|part| {
+            let (key, value) = part.split_once(':')?;
+            Some((key.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn format_prediction_expiry(expiry: &str) -> String {
+    if expiry.len() != 13 || expiry.as_bytes().get(8) != Some(&b'-') {
+        return expiry.to_string();
+    }
+    format!(
+        "{}-{}-{}T{}:{}:00Z",
+        &expiry[0..4],
+        &expiry[4..6],
+        &expiry[6..8],
+        &expiry[9..11],
+        &expiry[11..13]
+    )
+}
+
+fn prediction_title(fields: &HashMap<String, String>) -> String {
+    let underlying = fields.get("underlying").map(String::as_str).unwrap_or("Outcome");
+    match (fields.get("targetPrice"), fields.get("expiry")) {
+        (Some(target_price), Some(expiry)) => {
+            format!("{} above {} on {}", underlying, target_price, format_prediction_expiry(expiry))
+        }
+        (Some(target_price), None) => format!("{} above {}", underlying, target_price),
+        _ => underlying.to_string(),
+    }
+}
+
+fn prediction_slug(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in value.to_lowercase().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            last_dash = false;
+        } else if !last_dash && !out.is_empty() {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+// Only used to generate app-style slug aliases such as
+// btc-above-78213-yes-may-04-0600 from outcomeMeta expiry 20260504-0600.
+fn app_style_prediction_slug(fields: &HashMap<String, String>, side: Option<&str>) -> Option<String> {
+    let underlying = fields.get("underlying")?;
+    let target_price = fields.get("targetPrice")?;
+    let expiry = fields.get("expiry")?;
+    if expiry.len() != 13 {
+        return None;
+    }
+    let month = match &expiry[4..6] {
+        "01" => "jan",
+        "02" => "feb",
+        "03" => "mar",
+        "04" => "apr",
+        "05" => "may",
+        "06" => "jun",
+        "07" => "jul",
+        "08" => "aug",
+        "09" => "sep",
+        "10" => "oct",
+        "11" => "nov",
+        "12" => "dec",
+        _ => return None,
+    };
+    let mut parts = vec![underlying.as_str(), "above", target_price.as_str()];
+    if let Some(side) = side {
+        parts.push(side);
+    }
+    parts.extend([month, &expiry[6..8], &expiry[9..13]]);
+    Some(prediction_slug(&parts.join("-")))
+}
+
+fn is_prediction_asset(asset: &str) -> bool {
+    if let Some(rest) = asset.strip_prefix('#').or_else(|| asset.strip_prefix('+')) {
+        return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
+    }
+    asset.parse::<usize>().map(|id| id >= 100_000_000).unwrap_or(false)
+}
+
+fn prediction_symbol(asset: &str) -> String {
+    if let Some(rest) = asset.strip_prefix('+') {
+        return format!("#{}", rest);
+    }
+    if let Ok(id) = asset.parse::<usize>() {
+        if id >= 100_000_000 {
+            return format!("#{}", id - 100_000_000);
+        }
+    }
+    asset.to_string()
+}
+
+fn prediction_asset_id(asset: &str) -> Option<usize> {
+    let rest = asset.strip_prefix('#').or_else(|| asset.strip_prefix('+'))?;
+    Some(100_000_000 + rest.parse::<usize>().ok()?)
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Asset Metadata
@@ -178,6 +285,37 @@ impl MetadataCache {
         *self.assets_by_index.write() = assets_by_index;
         *self.dexes.write() = dexes.to_vec();
         *self.last_update.write() = Some(SystemTime::now());
+    }
+
+    /// Add HIP-4 prediction side symbols to the asset cache.
+    pub fn update_outcomes(&self, outcome_meta: &Value) {
+        let mut assets = self.assets.write();
+        let mut assets_by_index = self.assets_by_index.write();
+
+        if let Some(outcomes) = outcome_meta.get("outcomes").and_then(|o| o.as_array()) {
+            for outcome in outcomes {
+                let Some(outcome_id) = outcome.get("outcome").and_then(|o| o.as_u64()) else {
+                    continue;
+                };
+                let side_count = outcome
+                    .get("sideSpecs")
+                    .and_then(|s| s.as_array())
+                    .map(Vec::len)
+                    .unwrap_or(0);
+                for side_index in 0..side_count {
+                    let encoding = outcome_id as usize * 10 + side_index;
+                    let name = format!("#{}", encoding);
+                    let info = AssetInfo {
+                        index: 100_000_000 + encoding,
+                        name: name.clone(),
+                        sz_decimals: 0,
+                        is_spot: false,
+                    };
+                    assets.insert(name, info.clone());
+                    assets_by_index.insert(info.index, info);
+                }
+            }
+        }
     }
 }
 
@@ -565,6 +703,10 @@ impl HyperliquidSDKInner {
 
         self.metadata.update(&meta, spot_meta.as_ref(), &dexes);
 
+        if let Ok(outcome_meta) = self.query_info(&json!({"type": "outcomeMeta"})).await {
+            self.metadata.update_outcomes(&outcome_meta);
+        }
+
         Ok(())
     }
 
@@ -603,19 +745,26 @@ impl HyperliquidSDKInner {
 
     /// Get mid price for an asset (from cache or fetch)
     pub async fn get_mid_price(&self, asset: &str) -> Result<f64> {
-        if let Some(price) = self.mid_prices.get(asset) {
+        let asset = prediction_symbol(asset);
+        if let Some(price) = self.mid_prices.get(&asset) {
             return Ok(*price);
         }
 
         // Fetch all mids
         let mids = self.fetch_all_mids().await?;
-        mids.get(asset)
+        mids.get(&asset)
             .copied()
             .ok_or_else(|| Error::ValidationError(format!("No price found for {}", asset)))
     }
 
     /// Resolve asset name to index
     pub fn resolve_asset(&self, name: &str) -> Option<usize> {
+        if let Some(id) = prediction_asset_id(name) {
+            return Some(id);
+        }
+        if let Ok(id) = name.parse::<usize>() {
+            return Some(id);
+        }
         self.metadata.resolve_asset(name)
     }
 
@@ -960,6 +1109,141 @@ impl HyperliquidSDK {
         self.inner.query_info(&json!({"type": "meta"})).await
     }
 
+    /// List active HIP-4 prediction markets with tradeable yes/no sides.
+    pub async fn prediction_markets(&self) -> Result<Vec<PredictionMarket>> {
+        let outcome_meta = self.inner.query_info(&json!({"type": "outcomeMeta"})).await?;
+        let mids = self.inner.fetch_all_mids().await?;
+        let mut markets = Vec::new();
+
+        let Some(outcomes) = outcome_meta.get("outcomes").and_then(|o| o.as_array()) else {
+            return Ok(markets);
+        };
+
+        for outcome in outcomes {
+            let Some(outcome_id) = outcome.get("outcome").and_then(|o| o.as_u64()) else {
+                continue;
+            };
+            let description = outcome
+                .get("description")
+                .and_then(|d| d.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let fields = parse_outcome_description(&description);
+            let title = prediction_title(&fields);
+
+            let mut sides = Vec::new();
+            if let Some(side_specs) = outcome.get("sideSpecs").and_then(|s| s.as_array()) {
+                for (side_index, side_spec) in side_specs.iter().enumerate() {
+                    let encoding = outcome_id as usize * 10 + side_index;
+                    let symbol = format!("#{}", encoding);
+                    sides.push(PredictionSide {
+                        outcome: outcome_id,
+                        side: side_index,
+                        name: side_spec
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        symbol: symbol.clone(),
+                        token: format!("+{}", encoding),
+                        asset_id: 100_000_000 + encoding,
+                        mid: mids.get(&symbol).map(|m| m.to_string()),
+                        sz_decimals: 0,
+                        supports_priority_fee: false,
+                    });
+                }
+            }
+
+            if sides.len() < 2 {
+                continue;
+            }
+
+            let slug = app_style_prediction_slug(&fields, None)
+                .unwrap_or_else(|| prediction_slug(&title));
+            let mut aliases = vec![prediction_slug(&title)];
+            for side in sides.iter().take(2) {
+                if let Some(alias) = app_style_prediction_slug(&fields, Some(&side.name)) {
+                    aliases.push(alias);
+                }
+            }
+
+            markets.push(PredictionMarket {
+                outcome: outcome_id,
+                name: outcome
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                description,
+                title: title.clone(),
+                slug,
+                underlying: fields.get("underlying").cloned(),
+                target_price: fields.get("targetPrice").cloned(),
+                expiry: fields.get("expiry").map(|e| format_prediction_expiry(e)),
+                period: fields.get("period").cloned(),
+                collateral: "USDH".to_string(),
+                min_order_value: "10".to_string(),
+                aliases,
+                yes: sides[0].clone(),
+                no: sides[1].clone(),
+                sides,
+            });
+        }
+
+        Ok(markets)
+    }
+
+    /// Alias for prediction_markets().
+    pub async fn predictions(&self) -> Result<Vec<PredictionMarket>> {
+        self.prediction_markets().await
+    }
+
+    /// Find one active HIP-4 prediction market.
+    pub async fn prediction_market(&self, filter: PredictionMarketFilter) -> Result<PredictionMarket> {
+        let markets = self.prediction_markets().await?;
+        markets
+            .into_iter()
+            .find(|market| {
+                if let Some(query) = &filter.query {
+                    if !market.matches(query) {
+                        return false;
+                    }
+                }
+                if let Some(underlying) = &filter.underlying {
+                    if market.underlying.as_deref().unwrap_or_default().to_lowercase() != underlying.to_lowercase() {
+                        return false;
+                    }
+                }
+                if let Some(target_price) = &filter.target_price {
+                    if market.target_price.as_deref() != Some(target_price.as_str()) {
+                        return false;
+                    }
+                }
+                if let Some(expiry) = &filter.expiry {
+                    let formatted = format_prediction_expiry(expiry);
+                    if market.expiry.as_deref() != Some(expiry.as_str())
+                        && market.expiry.as_deref() != Some(formatted.as_str())
+                    {
+                        return false;
+                    }
+                }
+                true
+            })
+            .ok_or_else(|| Error::ValidationError(
+                "No matching prediction market found. Call sdk.prediction_markets() to list active HIP-4 markets.".to_string(),
+            ))
+    }
+
+    /// Return a flat list of tradeable HIP-4 sides.
+    pub async fn prediction_sides(&self) -> Result<Vec<PredictionSide>> {
+        Ok(self
+            .prediction_markets()
+            .await?
+            .into_iter()
+            .flat_map(|market| market.sides)
+            .collect())
+    }
+
     /// Get all DEXes (HIP-3)
     pub async fn dexes(&self) -> Result<Value> {
         self.inner.query_info(&json!({"type": "perpDexs"})).await
@@ -1005,36 +1289,38 @@ impl HyperliquidSDK {
     // ──────────────────────────────────────────────────────────────────────────
 
     /// Place a market buy order
-    pub async fn market_buy(&self, asset: &str) -> MarketOrderBuilder {
-        MarketOrderBuilder::new(self.inner.clone(), asset.to_string(), Side::Buy)
+    pub async fn market_buy(&self, asset: impl Into<String>) -> MarketOrderBuilder {
+        MarketOrderBuilder::new(self.inner.clone(), asset.into(), Side::Buy)
     }
 
     /// Place a market sell order
-    pub async fn market_sell(&self, asset: &str) -> MarketOrderBuilder {
-        MarketOrderBuilder::new(self.inner.clone(), asset.to_string(), Side::Sell)
+    pub async fn market_sell(&self, asset: impl Into<String>) -> MarketOrderBuilder {
+        MarketOrderBuilder::new(self.inner.clone(), asset.into(), Side::Sell)
     }
 
     /// Place a limit buy order
     pub async fn buy(
         &self,
-        asset: &str,
+        asset: impl Into<String>,
         size: f64,
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Buy, size, Some(price), tif, false, false, None, None)
+        let asset = asset.into();
+        self.place_order(&asset, Side::Buy, size, Some(price), tif, false, false, false, None, None)
             .await
     }
 
     /// Place a limit sell order
     pub async fn sell(
         &self,
-        asset: &str,
+        asset: impl Into<String>,
         size: f64,
         price: f64,
         tif: TIF,
     ) -> Result<PlacedOrder> {
-        self.place_order(asset, Side::Sell, size, Some(price), tif, false, false, None, None)
+        let asset = asset.into();
+        self.place_order(&asset, Side::Sell, size, Some(price), tif, false, false, false, None, None)
             .await
     }
 
@@ -1078,6 +1364,7 @@ impl HyperliquidSDK {
             if is_market { TIF::Market } else { tif },
             order.is_reduce_only(),
             is_market,
+            order.get_notional().is_some() && order.get_size().is_none(),
             None, // use constructor-level default slippage
             order.get_priority_fee(),
         )
@@ -1215,16 +1502,54 @@ impl HyperliquidSDK {
         tif: TIF,
         reduce_only: bool,
         is_market: bool,
+        size_from_notional: bool,
         slippage: Option<f64>,
         priority_fee: Option<u64>,
     ) -> Result<PlacedOrder> {
+        if is_prediction_asset(asset) && priority_fee.is_some() {
+            return Err(Error::ValidationError(
+                "priority_fee is not supported for HIP-4 prediction markets. Omit priority_fee when trading market.yes, market.no, or # markets.".to_string(),
+            ));
+        }
+
         // Get size decimals for rounding
-        let sz_decimals = self.inner.metadata.get_asset(asset)
-            .map(|a| a.sz_decimals)
-            .unwrap_or(5) as i32;
+        let sz_decimals = if is_prediction_asset(asset) {
+            0
+        } else {
+            self.inner
+                .metadata
+                .get_asset(asset)
+                .map(|a| a.sz_decimals)
+                .unwrap_or(5)
+        } as i32;
 
         // Round size to allowed decimals
-        let size_rounded = (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals);
+        let size_rounded = if is_prediction_asset(asset) {
+            size.ceil()
+        } else {
+            (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals)
+        };
+        if is_prediction_asset(asset)
+            && !size_from_notional
+            && (size_rounded - size).abs() > f64::EPSILON
+        {
+            return Err(Error::ValidationError(
+                "HIP-4 prediction market size must be a whole number of contracts".to_string(),
+            ));
+        }
+
+        if is_prediction_asset(asset) {
+            let px = match price {
+                Some(px) => px,
+                None if is_market => self.inner.get_mid_price(asset).await?,
+                None => 0.0,
+            };
+            if px > 0.0 && size_rounded * px < 10.0 {
+                return Err(Error::ValidationError(
+                    "HIP-4 prediction market orders must have minimum value of 10 USDH. Increase size or price, or call sdk.buy_usdh(...) before trading.".to_string(),
+                ));
+            }
+        }
 
         let (action, effective_slippage) = if is_market {
             // Market orders: use human-readable format, let worker compute price
@@ -1249,7 +1574,7 @@ impl HyperliquidSDK {
                 .resolve_asset(asset)
                 .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
 
-            let resolved_price = price.map(|p| p.round()).unwrap_or(0.0);
+            let resolved_price = price.unwrap_or(0.0);
 
             let tif_wire = match tif {
                 TIF::Ioc => "Ioc",
@@ -1676,6 +2001,16 @@ impl HyperliquidSDK {
         self.inner.build_sign_send(&action, None).await
     }
 
+    /// Buy USDH with USDC for HIP-4 prediction markets.
+    pub async fn buy_usdh(&self, amount_usdc: f64) -> Result<PlacedOrder> {
+        self.market_buy("@230").await.notional(amount_usdc).await
+    }
+
+    /// Sell USDH back to USDC.
+    pub async fn sell_usdh(&self, amount_usdh: f64) -> Result<PlacedOrder> {
+        self.market_sell("@230").await.size(amount_usdh).await
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Staking
     // ──────────────────────────────────────────────────────────────────────────
@@ -2079,8 +2414,9 @@ impl HyperliquidSDK {
     // ──────────────────────────────────────────────────────────────────────────
 
     /// Get mid price for an asset
-    pub async fn get_mid(&self, asset: &str) -> Result<f64> {
-        self.inner.get_mid_price(asset).await
+    pub async fn get_mid(&self, asset: impl Into<String>) -> Result<f64> {
+        let asset = asset.into();
+        self.inner.get_mid_price(&asset).await
     }
 
     /// Force refresh of market metadata cache
@@ -2159,10 +2495,22 @@ impl MarketOrderBuilder {
     /// Uses the human-readable format (`asset`, `side`, `size`, `tif: "market"`)
     /// and delegates price computation to the worker.
     pub async fn execute(self) -> Result<PlacedOrder> {
+        if is_prediction_asset(&self.asset) && self.priority_fee.is_some() {
+            return Err(Error::ValidationError(
+                "priority_fee is not supported for HIP-4 prediction markets. Omit priority_fee when trading market.yes, market.no, or # markets.".to_string(),
+            ));
+        }
+
         // Get size decimals for rounding
-        let sz_decimals = self.inner.metadata.get_asset(&self.asset)
-            .map(|a| a.sz_decimals)
-            .unwrap_or(5) as i32;
+        let sz_decimals = if is_prediction_asset(&self.asset) {
+            0
+        } else {
+            self.inner
+                .metadata
+                .get_asset(&self.asset)
+                .map(|a| a.sz_decimals)
+                .unwrap_or(5)
+        } as i32;
 
         let size = if let Some(s) = self.size {
             s
@@ -2176,7 +2524,27 @@ impl MarketOrderBuilder {
         };
 
         // Round size to allowed decimals
-        let size_rounded = (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals);
+        let size_rounded = if is_prediction_asset(&self.asset) {
+            size.ceil()
+        } else {
+            (size * 10f64.powi(sz_decimals)).round() / 10f64.powi(sz_decimals)
+        };
+        if is_prediction_asset(&self.asset)
+            && self.notional.is_none()
+            && (size_rounded - size).abs() > f64::EPSILON
+        {
+            return Err(Error::ValidationError(
+                "HIP-4 prediction market size must be a whole number of contracts".to_string(),
+            ));
+        }
+        if is_prediction_asset(&self.asset) {
+            let mid = self.inner.get_mid_price(&self.asset).await?;
+            if size_rounded * mid < 10.0 {
+                return Err(Error::ValidationError(
+                    "HIP-4 prediction market orders must have minimum value of 10 USDH. Increase size or price, or call sdk.buy_usdh(...) before trading.".to_string(),
+                ));
+            }
+        }
 
         // Use human-readable format — worker computes price from mid + slippage
         let mut order_spec = json!({

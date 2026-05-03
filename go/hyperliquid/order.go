@@ -36,26 +36,26 @@ func Order() *OrderBuilder {
 }
 
 // Buy creates a buy order for the given asset.
-func (o *OrderBuilder) Buy(asset string) *OrderBuilder {
-	o.asset = asset
+func (o *OrderBuilder) Buy(asset any) *OrderBuilder {
+	o.asset = assetName(asset)
 	o.side = SideBuy
 	return o
 }
 
 // Sell creates a sell order for the given asset.
-func (o *OrderBuilder) Sell(asset string) *OrderBuilder {
-	o.asset = asset
+func (o *OrderBuilder) Sell(asset any) *OrderBuilder {
+	o.asset = assetName(asset)
 	o.side = SideSell
 	return o
 }
 
 // Long is an alias for Buy (perps terminology).
-func (o *OrderBuilder) Long(asset string) *OrderBuilder {
+func (o *OrderBuilder) Long(asset any) *OrderBuilder {
 	return o.Buy(asset)
 }
 
 // Short is an alias for Sell (perps terminology).
-func (o *OrderBuilder) Short(asset string) *OrderBuilder {
+func (o *OrderBuilder) Short(asset any) *OrderBuilder {
 	return o.Sell(asset)
 }
 
