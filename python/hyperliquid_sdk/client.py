@@ -1962,6 +1962,75 @@ class HyperliquidSDK:
         """Sell USDH back to USDC."""
         return self.market_sell("@230", size=str(amount_usdh), slippage=slippage)
 
+    def outcomes(self) -> dict:
+        """List enriched HIP-4 outcome metadata and helper action shapes."""
+        return self._get("/outcomes")
+
+    def outcome_balances(
+        self,
+        outcome: Union[int, str],
+        user: Optional[str] = None,
+    ) -> dict:
+        """Get USDH and Yes/No balances for one HIP-4 outcome."""
+        if user is None:
+            self._require_wallet()
+            user = self.address
+        return self._get("/outcomes/balances", params={"user": user, "outcome": str(outcome)})
+
+    def outcome_split(
+        self,
+        outcome: Union[int, str],
+        amount: Union[float, int, str, Decimal],
+    ) -> dict:
+        """Spend USDH and mint equal Yes/No shares for an outcome."""
+        action = {
+            "type": "outcomeSplit",
+            "outcome": int(outcome),
+            "amount": str(amount),
+        }
+        return self._build_sign_send(action)
+
+    def outcome_merge(
+        self,
+        outcome: Union[int, str],
+        amount: Optional[Union[float, int, str, Decimal]] = None,
+    ) -> dict:
+        """Burn matching Yes/No shares and return USDH. ``amount=None`` means max."""
+        action = {
+            "type": "outcomeMerge",
+            "outcome": int(outcome),
+            "amount": None if amount is None else str(amount),
+        }
+        return self._build_sign_send(action)
+
+    def outcome_merge_question(
+        self,
+        question: Union[int, str],
+        amount: Optional[Union[float, int, str, Decimal]] = None,
+    ) -> dict:
+        """Merge every outcome in a question. ``amount=None`` means max."""
+        action = {
+            "type": "outcomeMergeQuestion",
+            "question": int(question),
+            "amount": None if amount is None else str(amount),
+        }
+        return self._build_sign_send(action)
+
+    def outcome_negate(
+        self,
+        question: Union[int, str],
+        outcome: Union[int, str],
+        amount: Union[float, int, str, Decimal],
+    ) -> dict:
+        """Negate one outcome share into the complementary outcome set."""
+        action = {
+            "type": "outcomeNegate",
+            "question": int(question),
+            "outcome": int(outcome),
+            "amount": str(amount),
+        }
+        return self._build_sign_send(action)
+
     def dexes(self) -> dict:
         """Get all HIP-3 DEXes."""
         return self._get("/dexes")

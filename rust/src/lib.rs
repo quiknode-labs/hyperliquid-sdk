@@ -67,7 +67,7 @@ pub use evm::EVM;
 pub use stream::Stream;
 pub use evm_stream::{EVMStream, EVMSubscriptionType, EVMConnectionState};
 
-pub use grpc::GRPCStream;
+pub use grpc::{GRPCStream, GRPCSubscriptionOptions};
 
 // Re-export serde_json::Value for convenience since many API methods return it
 pub use serde_json::Value;

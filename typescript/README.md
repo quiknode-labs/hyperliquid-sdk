@@ -389,6 +389,11 @@ if (!market) throw new Error("Prediction market not found");
 await sdk.buyUsdh(10.7);
 const order = await sdk.buy(market.yes, { size: 20, price: "0.63" });
 const exitOrder = await sdk.sell(market.yes, { size: 20, price: "0.64" });
+
+// Mint/burn equal Yes and No shares without hand-building userOutcome actions.
+const balances = await sdk.outcomeBalances(market.outcome);
+const minted = await sdk.outcomeSplit(market.outcome, "1.0");
+const merged = await sdk.outcomeMerge(market.outcome); // max matching shares
 ```
 
 HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `priorityFee` when trading `market.yes`, `market.no`, or raw `#` markets.

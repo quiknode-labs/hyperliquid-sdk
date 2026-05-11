@@ -522,6 +522,24 @@ impl HyperliquidSDKInner {
         serde_json::from_str(&text).map_err(|e| Error::JsonError(e.to_string()))
     }
 
+    /// Make a GET request to a public worker endpoint.
+    pub async fn query_worker_get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+        let url = format!("{}{}", DEFAULT_WORKER_URL, path);
+        let response = self.http_client.get(&url).query(query).send().await?;
+
+        let status = response.status();
+        let text = response.text().await?;
+
+        if !status.is_success() {
+            return Err(Error::NetworkError(format!(
+                "Worker endpoint returned {}: {}",
+                status, text
+            )));
+        }
+
+        serde_json::from_str(&text).map_err(|e| Error::JsonError(e.to_string()))
+    }
+
     /// Build an action (get hash without sending)
     pub async fn build_action(&self, action: &Value, slippage: Option<f64>) -> Result<BuildResponse> {
         self.build_action_with_priority(action, slippage, None).await
@@ -2013,6 +2031,103 @@ impl HyperliquidSDK {
     /// Sell USDH back to USDC.
     pub async fn sell_usdh(&self, amount_usdh: f64) -> Result<PlacedOrder> {
         self.market_sell("@230").await.size(amount_usdh).await
+    }
+
+    /// List enriched HIP-4 outcome metadata and helper action shapes.
+    pub async fn outcomes(&self) -> Result<Value> {
+        self.inner.query_worker_get("/outcomes", &[]).await
+    }
+
+    /// Get USDH and Yes/No balances for one HIP-4 outcome.
+    pub async fn outcome_balances(&self, outcome: u64, user: Option<&str>) -> Result<Value> {
+        let user = match user {
+            Some(user) => user.to_string(),
+            None => {
+                let address = self
+                    .inner
+                    .address
+                    .ok_or_else(|| Error::ConfigError("No address configured".to_string()))?;
+                format!("{:?}", address)
+            }
+        };
+        self.inner
+            .query_worker_get(
+                "/outcomes/balances",
+                &[("user", user), ("outcome", outcome.to_string())],
+            )
+            .await
+    }
+
+    /// Spend USDH and mint equal Yes/No shares for an outcome.
+    pub async fn outcome_split(&self, outcome: u64, amount: impl ToString) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeSplit",
+            "outcome": outcome,
+            "amount": amount.to_string(),
+        });
+
+        self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Burn matching Yes/No shares and return USDH.
+    pub async fn outcome_merge(&self, outcome: u64, amount: impl ToString) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeMerge",
+            "outcome": outcome,
+            "amount": amount.to_string(),
+        });
+
+        self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Burn all matching Yes/No shares and return USDH.
+    pub async fn outcome_merge_max(&self, outcome: u64) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeMerge",
+            "outcome": outcome,
+            "amount": Value::Null,
+        });
+
+        self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Merge every outcome in a question.
+    pub async fn outcome_merge_question(&self, question: u64, amount: impl ToString) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeMergeQuestion",
+            "question": question,
+            "amount": amount.to_string(),
+        });
+
+        self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Merge all matching shares in a question.
+    pub async fn outcome_merge_question_max(&self, question: u64) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeMergeQuestion",
+            "question": question,
+            "amount": Value::Null,
+        });
+
+        self.inner.build_sign_send(&action, None).await
+    }
+
+    /// Negate one outcome share into the complementary outcome set.
+    pub async fn outcome_negate(
+        &self,
+        question: u64,
+        outcome: u64,
+        amount: impl ToString,
+    ) -> Result<Value> {
+        let action = json!({
+            "type": "outcomeNegate",
+            "question": question,
+            "outcome": outcome,
+            "amount": amount.to_string(),
+        });
+
+        self.inner.build_sign_send(&action, None).await
     }
 
     // ──────────────────────────────────────────────────────────────────────────

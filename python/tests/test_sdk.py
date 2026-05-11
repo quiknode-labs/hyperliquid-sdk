@@ -209,6 +209,79 @@ class TestTradingHelpers:
         assert market.no.symbol == "#11"
         assert str(market.yes) == "#10"
 
+    def test_outcome_helpers_use_worker_endpoints(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_get(path, params=None):
+            calls.append((path, params))
+            return {"ok": True}
+
+        sdk._get = fake_get
+
+        assert sdk.outcomes() == {"ok": True}
+        assert sdk.outcome_balances(10) == {"ok": True}
+
+        assert calls[0] == ("/outcomes", None)
+        assert calls[1] == (
+            "/outcomes/balances",
+            {"user": sdk.address, "outcome": "10"},
+        )
+
+    def test_outcome_split_builds_signed_helper_action(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": body["action"],
+                }
+            return {"success": True}
+
+        sdk._exchange = fake_exchange
+        result = sdk.outcome_split(10, Decimal("1.5"))
+
+        assert result["success"] is True
+        assert calls[0]["action"] == {
+            "type": "outcomeSplit",
+            "outcome": 10,
+            "amount": "1.5",
+        }
+        assert calls[1]["action"]["type"] == "outcomeSplit"
+
+    def test_outcome_merge_defaults_to_max_amount(self):
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": body["action"],
+                }
+            return {"success": True}
+
+        sdk._exchange = fake_exchange
+        sdk.outcome_merge(10)
+
+        assert calls[0]["action"] == {
+            "type": "outcomeMerge",
+            "outcome": 10,
+            "amount": None,
+        }
+
     def test_prediction_side_can_be_used_as_order_asset(self):
         from hyperliquid_sdk import HyperliquidSDK, PredictionSide
 

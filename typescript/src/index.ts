@@ -58,6 +58,7 @@ export {
 export type { default as WebSocket } from 'ws';
 export type {
   AssetInput,
+  OutcomeAmount,
   PredictionMarket,
   PredictionMarketFilter,
   PredictionSide,

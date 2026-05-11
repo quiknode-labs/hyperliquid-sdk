@@ -26,6 +26,9 @@ message SubscribeRequest {
 message StreamSubscribe {
   StreamType stream_type = 1;
 
+  // Optional block number to resume the stream from.
+  uint64 start_block = 2;
+
   // Generic filters - field name to allowed values
   // Recursively searches each event for matching field/value pairs
   // Example: {"coin": ["ETH", "BTC"], "user": ["0x123..."], "type": ["deposit"]}
