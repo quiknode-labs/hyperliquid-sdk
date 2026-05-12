@@ -24,6 +24,7 @@ import { HyperCore } from './hypercore';
 import { EVM } from './evm';
 import {
   AssetInput,
+  OutcomeAmount,
   PredictionMarket,
   PredictionMarketFilter,
   PredictionSide,
@@ -1579,6 +1580,79 @@ export class HyperliquidSDK {
    */
   async sellUsdh(amountUsdh: number | string, options: { slippage?: number } = {}): Promise<PlacedOrder> {
     return this.marketSell('@230', { size: String(amountUsdh), slippage: options.slippage });
+  }
+
+  /**
+   * List enriched HIP-4 outcome metadata and helper action shapes.
+   */
+  async outcomes(): Promise<Record<string, unknown>> {
+    return this._get('/outcomes');
+  }
+
+  /**
+   * Get USDH and Yes/No balances for one HIP-4 outcome.
+   */
+  async outcomeBalances(outcome: number | string, user?: string): Promise<Record<string, unknown>> {
+    if (user === undefined) {
+      this._requireWallet();
+      user = this.address!;
+    }
+    return this._get('/outcomes/balances', { user, outcome: String(outcome) });
+  }
+
+  /**
+   * Spend USDH and mint equal Yes/No shares for an outcome.
+   */
+  async outcomeSplit(outcome: number | string, amount: OutcomeAmount): Promise<Record<string, unknown>> {
+    return this._buildSignSend({
+      type: 'outcomeSplit',
+      outcome: Number(outcome),
+      amount: String(amount),
+    });
+  }
+
+  /**
+   * Burn matching Yes/No shares and return USDH. amount null/undefined means max.
+   */
+  async outcomeMerge(
+    outcome: number | string,
+    amount?: OutcomeAmount | null
+  ): Promise<Record<string, unknown>> {
+    return this._buildSignSend({
+      type: 'outcomeMerge',
+      outcome: Number(outcome),
+      amount: amount == null ? null : String(amount),
+    });
+  }
+
+  /**
+   * Merge every outcome in a question. amount null/undefined means max.
+   */
+  async outcomeMergeQuestion(
+    question: number | string,
+    amount?: OutcomeAmount | null
+  ): Promise<Record<string, unknown>> {
+    return this._buildSignSend({
+      type: 'outcomeMergeQuestion',
+      question: Number(question),
+      amount: amount == null ? null : String(amount),
+    });
+  }
+
+  /**
+   * Negate one outcome share into the complementary outcome set.
+   */
+  async outcomeNegate(
+    question: number | string,
+    outcome: number | string,
+    amount: OutcomeAmount
+  ): Promise<Record<string, unknown>> {
+    return this._buildSignSend({
+      type: 'outcomeNegate',
+      question: Number(question),
+      outcome: Number(outcome),
+      amount: String(amount),
+    });
   }
 
   /**

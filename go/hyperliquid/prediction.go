@@ -157,6 +157,13 @@ func predictionSymbol(asset string) string {
 	return asset
 }
 
+func outcomeAmount(amount any) any {
+	if amount == nil {
+		return nil
+	}
+	return NewDecimal(amount).String()
+}
+
 // PredictionMarkets lists active HIP-4 prediction markets with tradeable yes/no sides.
 func (s *SDK) PredictionMarkets() (PredictionMarkets, error) {
 	ctx := context.Background()
@@ -286,4 +293,60 @@ func (s *SDK) BuyUSDH(amountUSDC any, opts ...OrderOption) (*PlacedOrder, error)
 func (s *SDK) SellUSDH(amountUSDH any, opts ...OrderOption) (*PlacedOrder, error) {
 	opts = append(opts, WithSize(amountUSDH), WithTIF(TIFMarket))
 	return s.Sell("@230", opts...)
+}
+
+// Outcomes lists enriched HIP-4 outcome metadata and helper action shapes.
+func (s *SDK) Outcomes() (map[string]any, error) {
+	ctx := context.Background()
+	return s.http.Get(ctx, s.publicWorkerURL+"/outcomes", nil)
+}
+
+// OutcomeBalances returns USDH and Yes/No balances for one HIP-4 outcome.
+func (s *SDK) OutcomeBalances(outcome int, user string) (map[string]any, error) {
+	if user == "" {
+		s.requireWallet()
+		user = s.Address()
+	}
+	ctx := context.Background()
+	return s.http.Get(ctx, s.publicWorkerURL+"/outcomes/balances", map[string]string{
+		"user":    user,
+		"outcome": fmt.Sprintf("%d", outcome),
+	})
+}
+
+// OutcomeSplit spends USDH and mints equal Yes/No shares for an outcome.
+func (s *SDK) OutcomeSplit(outcome int, amount any) (map[string]any, error) {
+	return s.buildSignSend(map[string]any{
+		"type":    "outcomeSplit",
+		"outcome": outcome,
+		"amount":  outcomeAmount(amount),
+	}, nil)
+}
+
+// OutcomeMerge burns matching Yes/No shares and returns USDH. Pass nil for amount to merge max.
+func (s *SDK) OutcomeMerge(outcome int, amount any) (map[string]any, error) {
+	return s.buildSignSend(map[string]any{
+		"type":    "outcomeMerge",
+		"outcome": outcome,
+		"amount":  outcomeAmount(amount),
+	}, nil)
+}
+
+// OutcomeMergeQuestion merges every outcome in a question. Pass nil for amount to merge max.
+func (s *SDK) OutcomeMergeQuestion(question int, amount any) (map[string]any, error) {
+	return s.buildSignSend(map[string]any{
+		"type":     "outcomeMergeQuestion",
+		"question": question,
+		"amount":   outcomeAmount(amount),
+	}, nil)
+}
+
+// OutcomeNegate negates one outcome share into the complementary outcome set.
+func (s *SDK) OutcomeNegate(question int, outcome int, amount any) (map[string]any, error) {
+	return s.buildSignSend(map[string]any{
+		"type":     "outcomeNegate",
+		"question": question,
+		"outcome":  outcome,
+		"amount":   outcomeAmount(amount),
+	}, nil)
 }

@@ -92,6 +92,8 @@ export interface PredictionMarketFilter {
   expiry?: string;
 }
 
+export type OutcomeAmount = number | string;
+
 export type AssetInput = string | PredictionSide;
 
 export function assetToString(asset: AssetInput): string {

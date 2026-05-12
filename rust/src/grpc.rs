@@ -29,6 +29,16 @@ use tonic::Request;
 use crate::error::Result;
 use crate::stream::ConnectionState;
 
+fn is_permanent_stream_error(status: &tonic::Status) -> bool {
+    matches!(
+        status.code(),
+        tonic::Code::InvalidArgument
+            | tonic::Code::Unimplemented
+            | tonic::Code::PermissionDenied
+            | tonic::Code::Unauthenticated
+    )
+}
+
 // Include generated protobuf code
 pub mod proto {
     tonic::include_proto!("hyperliquid");
@@ -151,6 +161,14 @@ struct GRPCSubscriptionInfo {
     coin: Option<String>,
     n_levels: Option<u32>,
     n_sig_figs: Option<u32>,
+    start_block: Option<u64>,
+}
+
+/// Options for resumable gRPC data subscriptions.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GRPCSubscriptionOptions {
+    /// Start streaming from this Hyperliquid block number when supported.
+    pub start_block: Option<u64>,
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -295,6 +313,19 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.trades_with_options(coins, GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to trades with options.
+    pub fn trades_with_options<F>(
+        &mut self,
+        coins: &[&str],
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -305,6 +336,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -320,6 +352,19 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.orders_with_options(coins, GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to orders with options.
+    pub fn orders_with_options<F>(
+        &mut self,
+        coins: &[&str],
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -330,6 +375,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -345,6 +391,19 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.book_updates_with_options(coins, GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to book updates with options.
+    pub fn book_updates_with_options<F>(
+        &mut self,
+        coins: &[&str],
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -355,6 +414,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -394,6 +454,7 @@ impl GRPCStream {
                 coin: Some(coin.to_string()),
                 n_levels: Some(n_levels),
                 n_sig_figs,
+                start_block: None,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -419,6 +480,7 @@ impl GRPCStream {
                 coin: Some(coin.to_string()),
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: None,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -444,6 +506,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: None,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -459,6 +522,19 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.twap_with_options(coins, GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to TWAP updates with options.
+    pub fn twap_with_options<F>(
+        &mut self,
+        coins: &[&str],
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -469,6 +545,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -484,6 +561,18 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.events_with_options(GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to events with options.
+    pub fn events_with_options<F>(
+        &mut self,
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -494,6 +583,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -509,6 +599,18 @@ impl GRPCStream {
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
+        self.writer_actions_with_options(GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to writer actions with options.
+    pub fn writer_actions_with_options<F>(
+        &mut self,
+        options: GRPCSubscriptionOptions,
+        callback: F,
+    ) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
         let id = self.next_subscription_id();
         self.subscriptions.write().insert(
             id,
@@ -519,6 +621,7 @@ impl GRPCStream {
                 coin: None,
                 n_levels: None,
                 n_sig_figs: None,
+                start_block: options.start_block,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -783,6 +886,7 @@ impl GRPCStream {
                             coin: v.coin.clone(),
                             n_levels: v.n_levels,
                             n_sig_figs: v.n_sig_figs,
+                            start_block: v.start_block,
                         },
                     )
                 })
@@ -800,16 +904,16 @@ impl GRPCStream {
             let handle = tokio::spawn(async move {
                 match sub_info.stream_type {
                     GRPCStreamType::L2Book => {
-                        Self::stream_l2_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await;
+                        Self::stream_l2_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await
                     }
                     GRPCStreamType::L4Book => {
-                        Self::stream_l4_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await;
+                        Self::stream_l4_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await
                     }
                     GRPCStreamType::Blocks => {
-                        Self::stream_blocks(channel, &token, sub_id, &callbacks, &running).await;
+                        Self::stream_blocks(channel, &token, sub_id, &callbacks, &running).await
                     }
                     _ => {
-                        Self::stream_data(channel, &token, sub_id, &sub_info, &callbacks, &running).await;
+                        Self::stream_data(channel, &token, sub_id, &sub_info, &callbacks, &running).await
                     }
                 }
             });
@@ -839,7 +943,25 @@ impl GRPCStream {
             }
         }
 
-        Ok(())
+        let mut stream_error = None;
+        for handle in handles {
+            match handle.await {
+                Ok(Err(e)) if stream_error.is_none() => stream_error = Some(e),
+                Ok(_) => {}
+                Err(e) if stream_error.is_none() => {
+                    stream_error = Some(crate::error::Error::NetworkError(format!(
+                        "gRPC stream task failed: {e}"
+                    )));
+                }
+                Err(_) => {}
+            }
+        }
+
+        if let Some(err) = stream_error {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     async fn stream_data(
@@ -849,7 +971,7 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         callbacks: &Arc<RwLock<HashMap<u32, Box<dyn Fn(Value) + Send + Sync>>>>,
         running: &Arc<AtomicBool>,
-    ) {
+    ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = StreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
             req.metadata_mut().insert("x-token", token_value.clone());
@@ -878,6 +1000,7 @@ impl GRPCStream {
         let subscribe_req = SubscribeRequest {
             request: Some(proto::subscribe_request::Request::Subscribe(StreamSubscribe {
                 stream_type: sub_info.stream_type.to_proto(),
+                start_block: sub_info.start_block.unwrap_or_default(),
                 filters,
                 filter_name: String::new(),
             })),
@@ -889,7 +1012,7 @@ impl GRPCStream {
 
         // Send initial subscribe
         if tx.send(subscribe_req).await.is_err() {
-            return;
+            return Ok(());
         }
 
         // Start ping task
@@ -917,7 +1040,10 @@ impl GRPCStream {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("StreamData error: {}", e);
-                return;
+                if is_permanent_stream_error(&e) {
+                    running.store(false, Ordering::SeqCst);
+                }
+                return Err(crate::error::Error::NetworkError(format!("StreamData error: {e}")));
             }
         };
 
@@ -967,10 +1093,15 @@ impl GRPCStream {
                 Ok(None) => break,
                 Err(e) => {
                     tracing::error!("Stream error: {}", e);
-                    break;
+                    if is_permanent_stream_error(&e) {
+                        running.store(false, Ordering::SeqCst);
+                    }
+                    return Err(crate::error::Error::NetworkError(format!("Stream error: {e}")));
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn stream_blocks(
@@ -979,7 +1110,7 @@ impl GRPCStream {
         sub_id: u32,
         callbacks: &Arc<RwLock<HashMap<u32, Box<dyn Fn(Value) + Send + Sync>>>>,
         running: &Arc<AtomicBool>,
-    ) {
+    ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = BlockStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
             req.metadata_mut().insert("x-token", token_value.clone());
@@ -994,7 +1125,10 @@ impl GRPCStream {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("StreamBlocks error: {}", e);
-                return;
+                if is_permanent_stream_error(&e) {
+                    running.store(false, Ordering::SeqCst);
+                }
+                return Err(crate::error::Error::NetworkError(format!("StreamBlocks error: {e}")));
             }
         };
 
@@ -1012,10 +1146,15 @@ impl GRPCStream {
                 Ok(None) => break,
                 Err(e) => {
                     tracing::error!("Block stream error: {}", e);
-                    break;
+                    if is_permanent_stream_error(&e) {
+                        running.store(false, Ordering::SeqCst);
+                    }
+                    return Err(crate::error::Error::NetworkError(format!("Block stream error: {e}")));
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn stream_l2_book(
@@ -1025,7 +1164,7 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         callbacks: &Arc<RwLock<HashMap<u32, Box<dyn Fn(Value) + Send + Sync>>>>,
         running: &Arc<AtomicBool>,
-    ) {
+    ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
             req.metadata_mut().insert("x-token", token_value.clone());
@@ -1043,7 +1182,10 @@ impl GRPCStream {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("StreamL2Book error: {}", e);
-                return;
+                if is_permanent_stream_error(&e) {
+                    running.store(false, Ordering::SeqCst);
+                }
+                return Err(crate::error::Error::NetworkError(format!("StreamL2Book error: {e}")));
             }
         };
 
@@ -1078,10 +1220,15 @@ impl GRPCStream {
                 Ok(None) => break,
                 Err(e) => {
                     tracing::error!("L2 book stream error: {}", e);
-                    break;
+                    if is_permanent_stream_error(&e) {
+                        running.store(false, Ordering::SeqCst);
+                    }
+                    return Err(crate::error::Error::NetworkError(format!("L2 book stream error: {e}")));
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn stream_l4_book(
@@ -1091,7 +1238,7 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         callbacks: &Arc<RwLock<HashMap<u32, Box<dyn Fn(Value) + Send + Sync>>>>,
         running: &Arc<AtomicBool>,
-    ) {
+    ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
             req.metadata_mut().insert("x-token", token_value.clone());
@@ -1106,7 +1253,10 @@ impl GRPCStream {
             Ok(r) => r,
             Err(e) => {
                 tracing::error!("StreamL4Book error: {}", e);
-                return;
+                if is_permanent_stream_error(&e) {
+                    running.store(false, Ordering::SeqCst);
+                }
+                return Err(crate::error::Error::NetworkError(format!("StreamL4Book error: {e}")));
             }
         };
 
@@ -1115,28 +1265,32 @@ impl GRPCStream {
         while running.load(Ordering::SeqCst) {
             match stream.message().await {
                 Ok(Some(update)) => {
-                    let data = if let Some(proto::l4_book_update::Update::Snapshot(snapshot)) = update.update {
-                        let bids: Vec<Value> = snapshot.bids.iter().map(l4_order_to_json).collect();
-                        let asks: Vec<Value> = snapshot.asks.iter().map(l4_order_to_json).collect();
-
-                        serde_json::json!({
-                            "type": "snapshot",
-                            "coin": snapshot.coin,
-                            "time": snapshot.time,
-                            "height": snapshot.height,
-                            "bids": bids,
-                            "asks": asks,
-                        })
-                    } else if let Some(proto::l4_book_update::Update::Diff(diff)) = update.update {
-                        let diff_data: Value = serde_json::from_str(&diff.data).unwrap_or(Value::Null);
-                        serde_json::json!({
-                            "type": "diff",
-                            "time": diff.time,
-                            "height": diff.height,
-                            "data": diff_data,
-                        })
-                    } else {
+                    let Some(update) = update.update else {
                         continue;
+                    };
+                    let data = match update {
+                        proto::l4_book_update::Update::Snapshot(snapshot) => {
+                            let bids: Vec<Value> = snapshot.bids.iter().map(l4_order_to_json).collect();
+                            let asks: Vec<Value> = snapshot.asks.iter().map(l4_order_to_json).collect();
+
+                            serde_json::json!({
+                                "type": "snapshot",
+                                "coin": snapshot.coin,
+                                "time": snapshot.time,
+                                "height": snapshot.height,
+                                "bids": bids,
+                                "asks": asks,
+                            })
+                        }
+                        proto::l4_book_update::Update::Diff(diff) => {
+                            let diff_data: Value = serde_json::from_str(&diff.data).unwrap_or(Value::Null);
+                            serde_json::json!({
+                                "type": "diff",
+                                "time": diff.time,
+                                "height": diff.height,
+                                "data": diff_data,
+                            })
+                        }
                     };
 
                     if let Some(cb) = callbacks.read().get(&sub_id) {
@@ -1146,10 +1300,15 @@ impl GRPCStream {
                 Ok(None) => break,
                 Err(e) => {
                     tracing::error!("L4 book stream error: {}", e);
-                    break;
+                    if is_permanent_stream_error(&e) {
+                        running.store(false, Ordering::SeqCst);
+                    }
+                    return Err(crate::error::Error::NetworkError(format!("L4 book stream error: {e}")));
                 }
             }
         }
+
+        Ok(())
     }
 }
 

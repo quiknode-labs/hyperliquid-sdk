@@ -405,6 +405,11 @@ market = markets.find(underlying="BTC", target_price="78213")
 sdk.buy_usdh(10.7)
 order = sdk.buy(market.yes, size=20, price="0.63")
 exit_order = sdk.sell(market.yes, size=20, price="0.64")
+
+# Mint/burn equal Yes and No shares without hand-building userOutcome actions.
+balances = sdk.outcome_balances(market.outcome)
+minted = sdk.outcome_split(market.outcome, "1.0")
+merged = sdk.outcome_merge(market.outcome)  # max matching shares
 ```
 
 HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `priority_fee` when trading `market.yes`, `market.no`, or raw `#` markets.

@@ -466,6 +466,11 @@ if !ok {
 sdk.BuyUSDH(10.7)
 order, _ := sdk.Buy(market.Yes, hyperliquid.WithSize(20), hyperliquid.WithPrice("0.63"))
 exitOrder, _ := sdk.Sell(market.Yes, hyperliquid.WithSize(20), hyperliquid.WithPrice("0.64"))
+
+// Mint/burn equal Yes and No shares without hand-building userOutcome actions.
+balances, _ := sdk.OutcomeBalances(market.Outcome, "")
+minted, _ := sdk.OutcomeSplit(market.Outcome, "1.0")
+merged, _ := sdk.OutcomeMerge(market.Outcome, nil) // max matching shares
 ```
 
 HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `WithPriorityFee` when trading `market.Yes`, `market.No`, or raw `#` markets.

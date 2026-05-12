@@ -71,6 +71,9 @@ market = markets.find(underlying="BTC", target_price="78213")
 sdk.buy_usdh(10.7)                         # USDC -> USDH collateral
 sdk.buy(market.yes, size=20, price="0.63") # no #10 memorization
 sdk.sell(market.yes, size=20, price="0.64")
+
+sdk.outcome_split(market.outcome, "1.0")    # mint equal Yes/No shares
+sdk.outcome_merge(market.outcome)           # merge max matching shares
 ```
 
 ```typescript
@@ -79,6 +82,9 @@ const market = markets.findMarket({ underlying: "BTC", targetPrice: "78213" });
 
 await sdk.buyUsdh(10.7);
 await sdk.buy(market!.yes, { size: 20, price: "0.63" });
+
+await sdk.outcomeSplit(market!.outcome, "1.0");
+await sdk.outcomeMerge(market!.outcome);    // max matching shares
 ```
 
 ## Links

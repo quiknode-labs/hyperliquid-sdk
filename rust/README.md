@@ -491,6 +491,11 @@ let market = markets
 sdk.buy_usdh(10.7).await?;
 let order = sdk.buy(&market.yes, 20.0, 0.63, TIF::Ioc).await?;
 let exit_order = sdk.sell(&market.yes, 20.0, 0.64, TIF::Ioc).await?;
+
+// Mint/burn equal Yes and No shares without hand-building userOutcome actions.
+let balances = sdk.outcome_balances(market.outcome, None).await?;
+let minted = sdk.outcome_split(market.outcome, "1.0").await?;
+let merged = sdk.outcome_merge_max(market.outcome).await?;
 ```
 
 HIP-4 sizes must be whole contracts. Priority fees are not supported for HIP-4, so omit `priority_fee` when trading `market.yes`, `market.no`, or raw `#` markets.
