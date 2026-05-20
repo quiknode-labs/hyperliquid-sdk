@@ -285,6 +285,9 @@ sdk.grpc.l4Book("BTC", (b) => console.log(`L4: ${JSON.stringify(b)}`));
 // Subscribe to blocks
 sdk.grpc.blocks((b) => console.log(`Block: ${JSON.stringify(b)}`));
 
+// Subscribe to raw event blocks
+sdk.grpc.eventsRaw((b) => console.log(`Events block: ${JSON.stringify(b)}`));
+
 // Start streaming
 await sdk.grpc.start();
 
@@ -305,6 +308,7 @@ sdk.grpc.stop();
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `string[]` | TWAP execution updates |
 | `events(callback)` | - | System events (funding, liquidations) |
+| `eventsRaw(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writerActions(callback)` | - | Writer actions |
 
 ### L4 Order Book (Critical for Trading)

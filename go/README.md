@@ -353,6 +353,11 @@ stream.Blocks(func(b map[string]any) {
     fmt.Printf("Block: %v\n", b)
 })
 
+// Subscribe to raw event blocks
+stream.EventsRaw(func(b map[string]any) {
+    fmt.Printf("Events block: %v\n", b)
+})
+
 // Run in background
 if err := stream.Start(); err != nil {
     log.Fatal(err)
@@ -376,6 +381,7 @@ stream.Run()
 | `Blocks(callback)` | - | Block data |
 | `TWAP(coins, callback)` | coins: `[]string` | TWAP execution updates |
 | `Events(callback)` | - | System events (funding, liquidations) |
+| `EventsRaw(callback)` | - | Raw system event blocks with `events: [...]` |
 | `WriterActions(callback)` | - | Writer actions |
 
 ### L4 Order Book (Critical for Trading)

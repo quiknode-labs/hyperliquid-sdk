@@ -44,9 +44,9 @@ pub mod proto {
     tonic::include_proto!("hyperliquid");
 }
 
-use proto::streaming_client::StreamingClient;
 use proto::block_streaming_client::BlockStreamingClient;
 use proto::order_book_streaming_client::OrderBookStreamingClient;
+use proto::streaming_client::StreamingClient;
 use proto::{
     FilterValues, L2BookRequest, L4BookRequest, Ping, PingRequest, StreamSubscribe,
     SubscribeRequest, Timestamp,
@@ -162,6 +162,7 @@ struct GRPCSubscriptionInfo {
     n_levels: Option<u32>,
     n_sig_figs: Option<u32>,
     start_block: Option<u64>,
+    raw: bool,
 }
 
 /// Options for resumable gRPC data subscriptions.
@@ -337,6 +338,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -376,6 +378,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -415,6 +418,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -455,6 +459,7 @@ impl GRPCStream {
                 n_levels: Some(n_levels),
                 n_sig_figs,
                 start_block: None,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -481,6 +486,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: None,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -507,6 +513,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: None,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -546,6 +553,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -584,6 +592,34 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::Events,
+        }
+    }
+
+    /// Subscribe to raw event blocks.
+    pub fn events_raw<F>(&mut self, callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::Events,
+                coins: vec![],
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -622,6 +658,7 @@ impl GRPCStream {
                 n_levels: None,
                 n_sig_figs: None,
                 start_block: options.start_block,
+                raw: false,
             },
         );
         self.callbacks.write().insert(id, Box::new(callback));
@@ -734,12 +771,10 @@ impl GRPCStream {
         };
 
         let token: MetadataValue<_> = self.token.parse().unwrap();
-        let mut client =
-            StreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
-                req.metadata_mut()
-                    .insert("x-token", token.clone());
-                Ok(req)
-            });
+        let mut client = StreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
+            req.metadata_mut().insert("x-token", token.clone());
+            Ok(req)
+        });
 
         match client.ping(PingRequest { count: 1 }).await {
             Ok(resp) => resp.into_inner().count == 1,
@@ -832,7 +867,8 @@ impl GRPCStream {
             }
 
             backoff = Duration::from_secs_f64(
-                (backoff.as_secs_f64() * RECONNECT_BACKOFF_FACTOR).min(MAX_RECONNECT_DELAY.as_secs_f64())
+                (backoff.as_secs_f64() * RECONNECT_BACKOFF_FACTOR)
+                    .min(MAX_RECONNECT_DELAY.as_secs_f64()),
             );
         }
 
@@ -856,7 +892,9 @@ impl GRPCStream {
         stop_rx: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         if host.is_empty() {
-            return Err(crate::error::Error::ConfigError("No gRPC endpoint configured".to_string()));
+            return Err(crate::error::Error::ConfigError(
+                "No gRPC endpoint configured".to_string(),
+            ));
         }
 
         let target = format!("https://{}:{}", host, GRPC_PORT);
@@ -887,6 +925,7 @@ impl GRPCStream {
                             n_levels: v.n_levels,
                             n_sig_figs: v.n_sig_figs,
                             start_block: v.start_block,
+                            raw: v.raw,
                         },
                     )
                 })
@@ -904,16 +943,23 @@ impl GRPCStream {
             let handle = tokio::spawn(async move {
                 match sub_info.stream_type {
                     GRPCStreamType::L2Book => {
-                        Self::stream_l2_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await
+                        Self::stream_l2_book(
+                            channel, &token, sub_id, &sub_info, &callbacks, &running,
+                        )
+                        .await
                     }
                     GRPCStreamType::L4Book => {
-                        Self::stream_l4_book(channel, &token, sub_id, &sub_info, &callbacks, &running).await
+                        Self::stream_l4_book(
+                            channel, &token, sub_id, &sub_info, &callbacks, &running,
+                        )
+                        .await
                     }
                     GRPCStreamType::Blocks => {
                         Self::stream_blocks(channel, &token, sub_id, &callbacks, &running).await
                     }
                     _ => {
-                        Self::stream_data(channel, &token, sub_id, &sub_info, &callbacks, &running).await
+                        Self::stream_data(channel, &token, sub_id, &sub_info, &callbacks, &running)
+                            .await
                     }
                 }
             });
@@ -998,12 +1044,14 @@ impl GRPCStream {
         }
 
         let subscribe_req = SubscribeRequest {
-            request: Some(proto::subscribe_request::Request::Subscribe(StreamSubscribe {
-                stream_type: sub_info.stream_type.to_proto(),
-                start_block: sub_info.start_block.unwrap_or_default(),
-                filters,
-                filter_name: String::new(),
-            })),
+            request: Some(proto::subscribe_request::Request::Subscribe(
+                StreamSubscribe {
+                    stream_type: sub_info.stream_type.to_proto(),
+                    start_block: sub_info.start_block.unwrap_or_default(),
+                    filters,
+                    filter_name: String::new(),
+                },
+            )),
         };
 
         // Create bidirectional stream
@@ -1043,7 +1091,9 @@ impl GRPCStream {
                 if is_permanent_stream_error(&e) {
                     running.store(false, Ordering::SeqCst);
                 }
-                return Err(crate::error::Error::NetworkError(format!("StreamData error: {e}")));
+                return Err(crate::error::Error::NetworkError(format!(
+                    "StreamData error: {e}"
+                )));
             }
         };
 
@@ -1055,33 +1105,95 @@ impl GRPCStream {
                     if let Some(proto::subscribe_update::Update::Data(data)) = update.update {
                         // Parse the JSON data
                         if let Ok(parsed) = serde_json::from_str::<Value>(&data.data) {
+                            if sub_info.raw {
+                                let mut data_with_meta =
+                                    parsed.as_object().cloned().unwrap_or_default();
+                                data_with_meta.insert(
+                                    "_block_number".to_string(),
+                                    Value::Number(data.block_number.into()),
+                                );
+                                data_with_meta.insert(
+                                    "_timestamp".to_string(),
+                                    Value::Number(data.timestamp.into()),
+                                );
+
+                                if let Some(cb) = callbacks.read().get(&sub_id) {
+                                    cb(Value::Object(data_with_meta));
+                                }
+                                continue;
+                            }
+
                             // Extract events if present
                             if let Some(events) = parsed.get("events").and_then(|e| e.as_array()) {
-                                for event in events {
+                                let mut emitted_events = false;
+                                for (index, event) in events.iter().enumerate() {
+                                    let mut user: Option<Value> = None;
+                                    let mut event_data = None;
+
                                     if let Some(arr) = event.as_array() {
                                         if arr.len() >= 2 {
-                                            let user = arr[0].as_str().unwrap_or("");
-                                            if let Some(event_data) = arr[1].as_object() {
-                                                let mut data_with_meta = serde_json::Map::new();
-                                                for (k, v) in event_data {
-                                                    data_with_meta.insert(k.clone(), v.clone());
-                                                }
-                                                data_with_meta.insert("_block_number".to_string(), Value::Number(data.block_number.into()));
-                                                data_with_meta.insert("_timestamp".to_string(), Value::Number(data.timestamp.into()));
-                                                data_with_meta.insert("_user".to_string(), Value::String(user.to_string()));
-
-                                                if let Some(cb) = callbacks.read().get(&sub_id) {
-                                                    cb(Value::Object(data_with_meta));
-                                                }
-                                            }
+                                            user = Some(arr[0].clone());
+                                            event_data = arr[1].as_object();
                                         }
+                                    } else {
+                                        event_data = event.as_object();
+                                    }
+
+                                    if let Some(event_data) = event_data {
+                                        let mut data_with_meta = serde_json::Map::new();
+                                        for (k, v) in event_data {
+                                            data_with_meta.insert(k.clone(), v.clone());
+                                        }
+                                        data_with_meta.insert(
+                                            "_block_number".to_string(),
+                                            Value::Number(data.block_number.into()),
+                                        );
+                                        data_with_meta.insert(
+                                            "_timestamp".to_string(),
+                                            Value::Number(data.timestamp.into()),
+                                        );
+                                        data_with_meta.insert(
+                                            "_event_index".to_string(),
+                                            Value::Number((index as u64).into()),
+                                        );
+                                        if let Some(user) = user {
+                                            data_with_meta.insert("_user".to_string(), user);
+                                        }
+
+                                        if let Some(cb) = callbacks.read().get(&sub_id) {
+                                            cb(Value::Object(data_with_meta));
+                                        }
+                                        emitted_events = true;
+                                    }
+                                }
+                                if !emitted_events {
+                                    let mut data_with_meta =
+                                        parsed.as_object().cloned().unwrap_or_default();
+                                    data_with_meta.insert(
+                                        "_block_number".to_string(),
+                                        Value::Number(data.block_number.into()),
+                                    );
+                                    data_with_meta.insert(
+                                        "_timestamp".to_string(),
+                                        Value::Number(data.timestamp.into()),
+                                    );
+
+                                    if let Some(cb) = callbacks.read().get(&sub_id) {
+                                        cb(Value::Object(data_with_meta));
                                     }
                                 }
                             } else {
                                 // No events, return raw data
-                                let mut data_with_meta = parsed.as_object().cloned().unwrap_or_default();
-                                data_with_meta.insert("_block_number".to_string(), Value::Number(data.block_number.into()));
-                                data_with_meta.insert("_timestamp".to_string(), Value::Number(data.timestamp.into()));
+                                let mut data_with_meta =
+                                    parsed.as_object().cloned().unwrap_or_default();
+                                data_with_meta.insert(
+                                    "_block_number".to_string(),
+                                    Value::Number(data.block_number.into()),
+                                );
+                                data_with_meta.insert(
+                                    "_timestamp".to_string(),
+                                    Value::Number(data.timestamp.into()),
+                                );
 
                                 if let Some(cb) = callbacks.read().get(&sub_id) {
                                     cb(Value::Object(data_with_meta));
@@ -1096,7 +1208,9 @@ impl GRPCStream {
                     if is_permanent_stream_error(&e) {
                         running.store(false, Ordering::SeqCst);
                     }
-                    return Err(crate::error::Error::NetworkError(format!("Stream error: {e}")));
+                    return Err(crate::error::Error::NetworkError(format!(
+                        "Stream error: {e}"
+                    )));
                 }
             }
         }
@@ -1112,10 +1226,11 @@ impl GRPCStream {
         running: &Arc<AtomicBool>,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
-        let mut client = BlockStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
-            req.metadata_mut().insert("x-token", token_value.clone());
-            Ok(req)
-        });
+        let mut client =
+            BlockStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
+                req.metadata_mut().insert("x-token", token_value.clone());
+                Ok(req)
+            });
 
         let request = Timestamp {
             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -1128,7 +1243,9 @@ impl GRPCStream {
                 if is_permanent_stream_error(&e) {
                     running.store(false, Ordering::SeqCst);
                 }
-                return Err(crate::error::Error::NetworkError(format!("StreamBlocks error: {e}")));
+                return Err(crate::error::Error::NetworkError(format!(
+                    "StreamBlocks error: {e}"
+                )));
             }
         };
 
@@ -1149,7 +1266,9 @@ impl GRPCStream {
                     if is_permanent_stream_error(&e) {
                         running.store(false, Ordering::SeqCst);
                     }
-                    return Err(crate::error::Error::NetworkError(format!("Block stream error: {e}")));
+                    return Err(crate::error::Error::NetworkError(format!(
+                        "Block stream error: {e}"
+                    )));
                 }
             }
         }
@@ -1166,10 +1285,11 @@ impl GRPCStream {
         running: &Arc<AtomicBool>,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
-        let mut client = OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
-            req.metadata_mut().insert("x-token", token_value.clone());
-            Ok(req)
-        });
+        let mut client =
+            OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
+                req.metadata_mut().insert("x-token", token_value.clone());
+                Ok(req)
+            });
 
         let request = L2BookRequest {
             coin: sub_info.coin.clone().unwrap_or_default(),
@@ -1185,7 +1305,9 @@ impl GRPCStream {
                 if is_permanent_stream_error(&e) {
                     running.store(false, Ordering::SeqCst);
                 }
-                return Err(crate::error::Error::NetworkError(format!("StreamL2Book error: {e}")));
+                return Err(crate::error::Error::NetworkError(format!(
+                    "StreamL2Book error: {e}"
+                )));
             }
         };
 
@@ -1223,7 +1345,9 @@ impl GRPCStream {
                     if is_permanent_stream_error(&e) {
                         running.store(false, Ordering::SeqCst);
                     }
-                    return Err(crate::error::Error::NetworkError(format!("L2 book stream error: {e}")));
+                    return Err(crate::error::Error::NetworkError(format!(
+                        "L2 book stream error: {e}"
+                    )));
                 }
             }
         }
@@ -1240,10 +1364,11 @@ impl GRPCStream {
         running: &Arc<AtomicBool>,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
-        let mut client = OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
-            req.metadata_mut().insert("x-token", token_value.clone());
-            Ok(req)
-        });
+        let mut client =
+            OrderBookStreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
+                req.metadata_mut().insert("x-token", token_value.clone());
+                Ok(req)
+            });
 
         let request = L4BookRequest {
             coin: sub_info.coin.clone().unwrap_or_default(),
@@ -1256,7 +1381,9 @@ impl GRPCStream {
                 if is_permanent_stream_error(&e) {
                     running.store(false, Ordering::SeqCst);
                 }
-                return Err(crate::error::Error::NetworkError(format!("StreamL4Book error: {e}")));
+                return Err(crate::error::Error::NetworkError(format!(
+                    "StreamL4Book error: {e}"
+                )));
             }
         };
 
@@ -1270,8 +1397,10 @@ impl GRPCStream {
                     };
                     let data = match update {
                         proto::l4_book_update::Update::Snapshot(snapshot) => {
-                            let bids: Vec<Value> = snapshot.bids.iter().map(l4_order_to_json).collect();
-                            let asks: Vec<Value> = snapshot.asks.iter().map(l4_order_to_json).collect();
+                            let bids: Vec<Value> =
+                                snapshot.bids.iter().map(l4_order_to_json).collect();
+                            let asks: Vec<Value> =
+                                snapshot.asks.iter().map(l4_order_to_json).collect();
 
                             serde_json::json!({
                                 "type": "snapshot",
@@ -1283,7 +1412,8 @@ impl GRPCStream {
                             })
                         }
                         proto::l4_book_update::Update::Diff(diff) => {
-                            let diff_data: Value = serde_json::from_str(&diff.data).unwrap_or(Value::Null);
+                            let diff_data: Value =
+                                serde_json::from_str(&diff.data).unwrap_or(Value::Null);
                             serde_json::json!({
                                 "type": "diff",
                                 "time": diff.time,
@@ -1303,7 +1433,9 @@ impl GRPCStream {
                     if is_permanent_stream_error(&e) {
                         running.store(false, Ordering::SeqCst);
                     }
-                    return Err(crate::error::Error::NetworkError(format!("L4 book stream error: {e}")));
+                    return Err(crate::error::Error::NetworkError(format!(
+                        "L4 book stream error: {e}"
+                    )));
                 }
             }
         }

@@ -304,6 +304,9 @@ sdk.grpc.l4_book("BTC", lambda b: print(f"L4: {b}"))
 # Subscribe to blocks
 sdk.grpc.blocks(lambda b: print(f"Block: {b}"))
 
+# Subscribe to raw event blocks
+sdk.grpc.events_raw(lambda b: print(f"Events block: {b}"))
+
 # Run in background
 sdk.grpc.start()
 # ... do other work ...
@@ -325,6 +328,7 @@ sdk.grpc.run()
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `List[str]` | TWAP execution updates |
 | `events(callback)` | - | System events (funding, liquidations) |
+| `events_raw(callback)` | - | Raw system event blocks with `events: [...]` |
 
 ### L4 Order Book (Critical for Trading)
 

@@ -54,6 +54,7 @@ interface Subscription {
   coin?: string;
   nSigFigs?: number;
   nLevels?: number;
+  raw?: boolean;
 }
 
 // Stream type enum values matching proto
@@ -199,6 +200,7 @@ export class GRPCStream {
       coin?: string;
       nSigFigs?: number;
       nLevels?: number;
+      raw?: boolean;
     } = {}
   ): void {
     this._subscriptions.push({
@@ -209,6 +211,7 @@ export class GRPCStream {
       coin: options.coin,
       nSigFigs: options.nSigFigs,
       nLevels: options.nLevels ?? 20,
+      raw: options.raw ?? false,
     });
   }
 
@@ -249,6 +252,14 @@ export class GRPCStream {
    */
   events(callback: Callback): GRPCStream {
     this._addSubscription(GRPCStreamType.EVENTS, callback);
+    return this;
+  }
+
+  /**
+   * Subscribe to raw system event blocks.
+   */
+  eventsRaw(callback: Callback): GRPCStream {
+    this._addSubscription(GRPCStreamType.EVENTS, callback, { raw: true });
     return this;
   }
 
@@ -413,22 +424,57 @@ export class GRPCStream {
           const blockNumber = response.data.block_number;
           const timestamp = response.data.timestamp;
 
+          if (sub.raw) {
+            parsed._block_number = blockNumber;
+            parsed._timestamp = timestamp;
+            try {
+              sub.callback(parsed);
+            } catch {
+              // Ignore callback errors
+            }
+            return;
+          }
+
           // Extract events if present
           const events = parsed.events;
           if (events && Array.isArray(events) && events.length > 0) {
-            for (const event of events) {
+            let emittedEvents = false;
+            for (let index = 0; index < events.length; index += 1) {
+              const event = events[index];
+              let user: unknown;
+              let eventData: Record<string, unknown> | null = null;
+
               if (Array.isArray(event) && event.length >= 2) {
-                const [user, eventData] = event;
-                if (typeof eventData === 'object' && eventData !== null) {
-                  eventData._block_number = blockNumber;
-                  eventData._timestamp = timestamp;
-                  eventData._user = user;
-                  try {
-                    sub.callback(eventData);
-                  } catch {
-                    // Ignore callback errors
-                  }
+                user = event[0];
+                if (typeof event[1] === 'object' && event[1] !== null) {
+                  eventData = event[1] as Record<string, unknown>;
                 }
+              } else if (typeof event === 'object' && event !== null) {
+                eventData = event as Record<string, unknown>;
+              }
+
+              if (eventData) {
+                eventData._block_number = blockNumber;
+                eventData._timestamp = timestamp;
+                eventData._event_index = index;
+                if (user !== undefined) {
+                  eventData._user = user;
+                }
+                try {
+                  sub.callback(eventData);
+                } catch {
+                  // Ignore callback errors
+                }
+                emittedEvents = true;
+              }
+            }
+            if (!emittedEvents) {
+              parsed._block_number = blockNumber;
+              parsed._timestamp = timestamp;
+              try {
+                sub.callback(parsed);
+              } catch {
+                // Ignore callback errors
               }
             }
           } else {

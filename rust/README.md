@@ -345,6 +345,9 @@ stream.l4_book("BTC", |b| println!("L4: {:?}", b));
 // Subscribe to blocks
 stream.blocks(|b| println!("Block: {:?}", b));
 
+// Subscribe to raw event blocks
+stream.events_raw(|b| println!("Events block: {:?}", b));
+
 // Run in background
 stream.start()?;
 // ... do other work ...
@@ -368,6 +371,7 @@ The SDK automatically connects to port 10000 with your token.
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `&[&str]` | TWAP execution updates |
 | `events(callback)` | - | System events (funding, liquidations) |
+| `events_raw(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writer_actions(callback)` | - | Writer actions |
 
 ### L4 Order Book (Critical for Trading)
