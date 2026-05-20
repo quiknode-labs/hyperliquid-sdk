@@ -314,6 +314,17 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins)
         return self
 
+    def raw_trades(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw trade blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw trade block
+        """
+        self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins, raw=True)
+        return self
+
     def orders(
         self,
         coins: List[str],
@@ -334,6 +345,24 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users)
         return self
 
+    def raw_orders(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        users: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to raw order blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw order block
+            users: Optional list of user addresses to filter
+        """
+        self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users, raw=True)
+        return self
+
     def book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
         """
         Subscribe to order book updates.
@@ -343,6 +372,17 @@ class GRPCStream:
             callback: Function called for each book update
         """
         self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins)
+        return self
+
+    def raw_book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw order book update blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw book update block
+        """
+        self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins, raw=True)
         return self
 
     def twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
@@ -356,6 +396,17 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins)
         return self
 
+    def raw_twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw TWAP execution blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw TWAP block
+        """
+        self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins, raw=True)
+        return self
+
     def events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
         """
         Subscribe to system events (funding, liquidations, governance).
@@ -366,7 +417,7 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.EVENTS.value, callback)
         return self
 
-    def events_raw(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
         """
         Subscribe to raw system event blocks.
 
@@ -394,6 +445,16 @@ class GRPCStream:
             callback: Function called for each writer action
         """
         self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback)
+        return self
+
+    def raw_writer_actions(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw writer action blocks.
+
+        Args:
+            callback: Function called for each raw writer action block
+        """
+        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback, raw=True)
         return self
 
     def l2_book(

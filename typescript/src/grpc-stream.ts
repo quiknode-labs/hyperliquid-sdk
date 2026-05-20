@@ -224,10 +224,26 @@ export class GRPCStream {
   }
 
   /**
+   * Subscribe to raw trade blocks.
+   */
+  rawTrades(coins: string[], callback: Callback): GRPCStream {
+    this._addSubscription(GRPCStreamType.TRADES, callback, { coins, raw: true });
+    return this;
+  }
+
+  /**
    * Subscribe to order stream.
    */
   orders(coins: string[], callback: Callback, options: { users?: string[] } = {}): GRPCStream {
     this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users });
+    return this;
+  }
+
+  /**
+   * Subscribe to raw order blocks.
+   */
+  rawOrders(coins: string[], callback: Callback, options: { users?: string[] } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users, raw: true });
     return this;
   }
 
@@ -240,10 +256,26 @@ export class GRPCStream {
   }
 
   /**
+   * Subscribe to raw order book update blocks.
+   */
+  rawBookUpdates(coins: string[], callback: Callback): GRPCStream {
+    this._addSubscription(GRPCStreamType.BOOK_UPDATES, callback, { coins, raw: true });
+    return this;
+  }
+
+  /**
    * Subscribe to TWAP execution stream.
    */
   twap(coins: string[], callback: Callback): GRPCStream {
     this._addSubscription(GRPCStreamType.TWAP, callback, { coins });
+    return this;
+  }
+
+  /**
+   * Subscribe to raw TWAP execution blocks.
+   */
+  rawTwap(coins: string[], callback: Callback): GRPCStream {
+    this._addSubscription(GRPCStreamType.TWAP, callback, { coins, raw: true });
     return this;
   }
 
@@ -258,7 +290,7 @@ export class GRPCStream {
   /**
    * Subscribe to raw system event blocks.
    */
-  eventsRaw(callback: Callback): GRPCStream {
+  rawEvents(callback: Callback): GRPCStream {
     this._addSubscription(GRPCStreamType.EVENTS, callback, { raw: true });
     return this;
   }
@@ -276,6 +308,14 @@ export class GRPCStream {
    */
   writerActions(callback: Callback): GRPCStream {
     this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback);
+    return this;
+  }
+
+  /**
+   * Subscribe to raw writer action blocks.
+   */
+  rawWriterActions(callback: Callback): GRPCStream {
+    this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback, { raw: true });
     return this;
   }
 

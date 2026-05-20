@@ -346,7 +346,7 @@ stream.l4_book("BTC", |b| println!("L4: {:?}", b));
 stream.blocks(|b| println!("Block: {:?}", b));
 
 // Subscribe to raw event blocks
-stream.events_raw(|b| println!("Events block: {:?}", b));
+stream.raw_events(|b| println!("Events block: {:?}", b));
 
 // Run in background
 stream.start()?;
@@ -364,15 +364,20 @@ The SDK automatically connects to port 10000 with your token.
 | Method | Parameters | Description |
 |--------|-----------|-------------|
 | `trades(coins, callback)` | coins: `&[&str]` | Executed trades with price, size, direction |
+| `raw_trades(coins, callback)` | coins: `&[&str]` | Raw trade blocks |
 | `orders(coins, callback, users)` | coins: `&[&str]`, users: `Option<&[&str]>` | Order lifecycle events |
+| `raw_orders(coins, callback)` | coins: `&[&str]` | Raw order blocks |
 | `book_updates(coins, callback)` | coins: `&[&str]` | Order book changes (deltas) |
+| `raw_book_updates(coins, callback)` | coins: `&[&str]` | Raw order book update blocks |
 | `l2_book(coin, callback, n_sig_figs)` | coin: `&str`, n_sig_figs: `Option<u8>` (3-5) | L2 order book (aggregated by price) |
 | `l4_book(coin, callback)` | coin: `&str` | **L4 order book (individual orders)** |
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `&[&str]` | TWAP execution updates |
+| `raw_twap(coins, callback)` | coins: `&[&str]` | Raw TWAP execution blocks |
 | `events(callback)` | - | System events (funding, liquidations) |
-| `events_raw(callback)` | - | Raw system event blocks with `events: [...]` |
+| `raw_events(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writer_actions(callback)` | - | Writer actions |
+| `raw_writer_actions(callback)` | - | Raw writer action blocks |
 
 ### L4 Order Book (Critical for Trading)
 

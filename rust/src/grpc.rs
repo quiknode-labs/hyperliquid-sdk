@@ -317,6 +317,33 @@ impl GRPCStream {
         self.trades_with_options(coins, GRPCSubscriptionOptions::default(), callback)
     }
 
+    /// Subscribe to raw trade blocks.
+    pub fn raw_trades<F>(&mut self, coins: &[&str], callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::Trades,
+                coins: coins.iter().map(|s| s.to_string()).collect(),
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::Trades,
+        }
+    }
+
     /// Subscribe to trades with options.
     pub fn trades_with_options<F>(
         &mut self,
@@ -357,6 +384,33 @@ impl GRPCStream {
         self.orders_with_options(coins, GRPCSubscriptionOptions::default(), callback)
     }
 
+    /// Subscribe to raw order blocks.
+    pub fn raw_orders<F>(&mut self, coins: &[&str], callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::Orders,
+                coins: coins.iter().map(|s| s.to_string()).collect(),
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::Orders,
+        }
+    }
+
     /// Subscribe to orders with options.
     pub fn orders_with_options<F>(
         &mut self,
@@ -395,6 +449,33 @@ impl GRPCStream {
         F: Fn(Value) + Send + Sync + 'static,
     {
         self.book_updates_with_options(coins, GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to raw book update blocks.
+    pub fn raw_book_updates<F>(&mut self, coins: &[&str], callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::BookUpdates,
+                coins: coins.iter().map(|s| s.to_string()).collect(),
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::BookUpdates,
+        }
     }
 
     /// Subscribe to book updates with options.
@@ -532,6 +613,33 @@ impl GRPCStream {
         self.twap_with_options(coins, GRPCSubscriptionOptions::default(), callback)
     }
 
+    /// Subscribe to raw TWAP execution blocks.
+    pub fn raw_twap<F>(&mut self, coins: &[&str], callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::Twap,
+                coins: coins.iter().map(|s| s.to_string()).collect(),
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::Twap,
+        }
+    }
+
     /// Subscribe to TWAP updates with options.
     pub fn twap_with_options<F>(
         &mut self,
@@ -604,7 +712,7 @@ impl GRPCStream {
     }
 
     /// Subscribe to raw event blocks.
-    pub fn events_raw<F>(&mut self, callback: F) -> GRPCSubscription
+    pub fn raw_events<F>(&mut self, callback: F) -> GRPCSubscription
     where
         F: Fn(Value) + Send + Sync + 'static,
     {
@@ -636,6 +744,33 @@ impl GRPCStream {
         F: Fn(Value) + Send + Sync + 'static,
     {
         self.writer_actions_with_options(GRPCSubscriptionOptions::default(), callback)
+    }
+
+    /// Subscribe to raw writer action blocks.
+    pub fn raw_writer_actions<F>(&mut self, callback: F) -> GRPCSubscription
+    where
+        F: Fn(Value) + Send + Sync + 'static,
+    {
+        let id = self.next_subscription_id();
+        self.subscriptions.write().insert(
+            id,
+            GRPCSubscriptionInfo {
+                stream_type: GRPCStreamType::WriterActions,
+                coins: vec![],
+                users: vec![],
+                coin: None,
+                n_levels: None,
+                n_sig_figs: None,
+                start_block: None,
+                raw: true,
+            },
+        );
+        self.callbacks.write().insert(id, Box::new(callback));
+
+        GRPCSubscription {
+            id,
+            stream_type: GRPCStreamType::WriterActions,
+        }
     }
 
     /// Subscribe to writer actions with options.

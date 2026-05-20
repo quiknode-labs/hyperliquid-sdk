@@ -354,7 +354,7 @@ stream.Blocks(func(b map[string]any) {
 })
 
 // Subscribe to raw event blocks
-stream.EventsRaw(func(b map[string]any) {
+stream.RawEvents(func(b map[string]any) {
     fmt.Printf("Events block: %v\n", b)
 })
 
@@ -374,15 +374,20 @@ stream.Run()
 | Method | Parameters | Description |
 |--------|-----------|-------------|
 | `Trades(coins, callback)` | coins: `[]string` | Executed trades with price, size, direction |
+| `RawTrades(coins, callback)` | coins: `[]string` | Raw trade blocks |
 | `Orders(coins, callback, users...)` | coins: `[]string`, users: `...string` | Order lifecycle events |
+| `RawOrders(coins, callback, users...)` | coins: `[]string`, users: `...string` | Raw order blocks |
 | `BookUpdates(coins, callback)` | coins: `[]string` | Order book changes (deltas) |
+| `RawBookUpdates(coins, callback)` | coins: `[]string` | Raw order book update blocks |
 | `L2Book(coin, callback, opts...)` | coin: `string`, opts: `L2BookOption` | L2 order book (aggregated by price) |
 | `L4Book(coin, callback)` | coin: `string` | **L4 order book (individual orders)** |
 | `Blocks(callback)` | - | Block data |
 | `TWAP(coins, callback)` | coins: `[]string` | TWAP execution updates |
+| `RawTWAP(coins, callback)` | coins: `[]string` | Raw TWAP execution blocks |
 | `Events(callback)` | - | System events (funding, liquidations) |
-| `EventsRaw(callback)` | - | Raw system event blocks with `events: [...]` |
+| `RawEvents(callback)` | - | Raw system event blocks with `events: [...]` |
 | `WriterActions(callback)` | - | Writer actions |
+| `RawWriterActions(callback)` | - | Raw writer action blocks |
 
 ### L4 Order Book (Critical for Trading)
 

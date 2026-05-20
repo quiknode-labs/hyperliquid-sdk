@@ -305,7 +305,7 @@ sdk.grpc.l4_book("BTC", lambda b: print(f"L4: {b}"))
 sdk.grpc.blocks(lambda b: print(f"Block: {b}"))
 
 # Subscribe to raw event blocks
-sdk.grpc.events_raw(lambda b: print(f"Events block: {b}"))
+sdk.grpc.raw_events(lambda b: print(f"Events block: {b}"))
 
 # Run in background
 sdk.grpc.start()
@@ -321,14 +321,20 @@ sdk.grpc.run()
 | Method | Parameters | Description |
 |--------|-----------|-------------|
 | `trades(coins, callback)` | coins: `List[str]` | Executed trades with price, size, direction |
+| `raw_trades(coins, callback)` | coins: `List[str]` | Raw trade blocks |
 | `orders(coins, callback, users=None)` | coins: `List[str]`, users: `List[str]` (optional) | Order lifecycle events |
+| `raw_orders(coins, callback, users=None)` | coins: `List[str]`, users: `List[str]` (optional) | Raw order blocks |
 | `book_updates(coins, callback)` | coins: `List[str]` | Order book changes (deltas) |
+| `raw_book_updates(coins, callback)` | coins: `List[str]` | Raw order book update blocks |
 | `l2_book(coin, callback, n_sig_figs=None)` | coin: `str`, n_sig_figs: `int` (3-5) | L2 order book (aggregated by price) |
 | `l4_book(coin, callback)` | coin: `str` | **L4 order book (individual orders)** |
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `List[str]` | TWAP execution updates |
+| `raw_twap(coins, callback)` | coins: `List[str]` | Raw TWAP execution blocks |
 | `events(callback)` | - | System events (funding, liquidations) |
-| `events_raw(callback)` | - | Raw system event blocks with `events: [...]` |
+| `raw_events(callback)` | - | Raw system event blocks with `events: [...]` |
+| `writer_actions(callback)` | - | Writer actions |
+| `raw_writer_actions(callback)` | - | Raw writer action blocks |
 
 ### L4 Order Book (Critical for Trading)
 

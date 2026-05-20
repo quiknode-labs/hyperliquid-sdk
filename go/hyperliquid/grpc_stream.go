@@ -254,6 +254,19 @@ func (s *GRPCStream) Trades(coins []string, callback func(map[string]any)) *GRPC
 	return s
 }
 
+// RawTrades subscribes to raw trade blocks.
+func (s *GRPCStream) RawTrades(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "TRADES",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
 // Orders subscribes to order stream.
 func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
 	s.subMu.Lock()
@@ -262,6 +275,20 @@ func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users
 		callback:   callback,
 		coins:      coins,
 		users:      users,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawOrders subscribes to raw order blocks.
+func (s *GRPCStream) RawOrders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "ORDERS",
+		callback:   callback,
+		coins:      coins,
+		users:      users,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s
@@ -279,6 +306,19 @@ func (s *GRPCStream) BookUpdates(coins []string, callback func(map[string]any)) 
 	return s
 }
 
+// RawBookUpdates subscribes to raw order book update blocks.
+func (s *GRPCStream) RawBookUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "BOOK_UPDATES",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
 // TWAP subscribes to TWAP execution stream.
 func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any)) *GRPCStream {
 	s.subMu.Lock()
@@ -286,6 +326,19 @@ func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any)) *GRPCSt
 		streamType: "TWAP",
 		callback:   callback,
 		coins:      coins,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawTWAP subscribes to raw TWAP execution blocks.
+func (s *GRPCStream) RawTWAP(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "TWAP",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s
@@ -302,8 +355,8 @@ func (s *GRPCStream) Events(callback func(map[string]any)) *GRPCStream {
 	return s
 }
 
-// EventsRaw subscribes to raw system event blocks.
-func (s *GRPCStream) EventsRaw(callback func(map[string]any)) *GRPCStream {
+// RawEvents subscribes to raw system event blocks.
+func (s *GRPCStream) RawEvents(callback func(map[string]any)) *GRPCStream {
 	s.subMu.Lock()
 	s.subscriptions = append(s.subscriptions, grpcSubscription{
 		streamType: "EVENTS",
@@ -331,6 +384,18 @@ func (s *GRPCStream) WriterActions(callback func(map[string]any)) *GRPCStream {
 	s.subscriptions = append(s.subscriptions, grpcSubscription{
 		streamType: "WRITER_ACTIONS",
 		callback:   callback,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawWriterActions subscribes to raw writer action blocks.
+func (s *GRPCStream) RawWriterActions(callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "WRITER_ACTIONS",
+		callback:   callback,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s

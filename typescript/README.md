@@ -286,7 +286,7 @@ sdk.grpc.l4Book("BTC", (b) => console.log(`L4: ${JSON.stringify(b)}`));
 sdk.grpc.blocks((b) => console.log(`Block: ${JSON.stringify(b)}`));
 
 // Subscribe to raw event blocks
-sdk.grpc.eventsRaw((b) => console.log(`Events block: ${JSON.stringify(b)}`));
+sdk.grpc.rawEvents((b) => console.log(`Events block: ${JSON.stringify(b)}`));
 
 // Start streaming
 await sdk.grpc.start();
@@ -301,15 +301,20 @@ sdk.grpc.stop();
 | Method | Parameters | Description |
 |--------|-----------|-------------|
 | `trades(coins, callback)` | coins: `string[]` | Executed trades with price, size, direction |
+| `rawTrades(coins, callback)` | coins: `string[]` | Raw trade blocks |
 | `orders(coins, callback, options)` | coins: `string[]`, users?: `string[]` | Order lifecycle events |
+| `rawOrders(coins, callback, options)` | coins: `string[]`, users?: `string[]` | Raw order blocks |
 | `bookUpdates(coins, callback)` | coins: `string[]` | Order book changes (deltas) |
+| `rawBookUpdates(coins, callback)` | coins: `string[]` | Raw order book update blocks |
 | `l2Book(coin, callback, options)` | coin: `string`, nSigFigs?: `number` | L2 order book (aggregated by price) |
 | `l4Book(coin, callback)` | coin: `string` | **L4 order book (individual orders)** |
 | `blocks(callback)` | - | Block data |
 | `twap(coins, callback)` | coins: `string[]` | TWAP execution updates |
+| `rawTwap(coins, callback)` | coins: `string[]` | Raw TWAP execution blocks |
 | `events(callback)` | - | System events (funding, liquidations) |
-| `eventsRaw(callback)` | - | Raw system event blocks with `events: [...]` |
+| `rawEvents(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writerActions(callback)` | - | Writer actions |
+| `rawWriterActions(callback)` | - | Raw writer action blocks |
 
 ### L4 Order Book (Critical for Trading)
 
