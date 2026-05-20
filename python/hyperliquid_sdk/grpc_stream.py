@@ -280,6 +280,7 @@ class GRPCStream:
         coin: Optional[str] = None,
         n_sig_figs: Optional[int] = None,
         n_levels: int = 20,
+        raw: bool = False,
     ) -> None:
         """Add a subscription to be started when run() is called."""
         with self._lock:
@@ -296,6 +297,7 @@ class GRPCStream:
             if n_sig_figs is not None:
                 sub["n_sig_figs"] = n_sig_figs
             sub["n_levels"] = n_levels
+            sub["raw"] = raw
 
             self._subscriptions.append(sub)
 
@@ -310,6 +312,17 @@ class GRPCStream:
             callback: Function called for each trade
         """
         self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins)
+        return self
+
+    def raw_trades(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw trade blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw trade block
+        """
+        self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins, raw=True)
         return self
 
     def orders(
@@ -332,6 +345,24 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users)
         return self
 
+    def raw_orders(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        users: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to raw order blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw order block
+            users: Optional list of user addresses to filter
+        """
+        self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users, raw=True)
+        return self
+
     def book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
         """
         Subscribe to order book updates.
@@ -341,6 +372,17 @@ class GRPCStream:
             callback: Function called for each book update
         """
         self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins)
+        return self
+
+    def raw_book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw order book update blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw book update block
+        """
+        self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins, raw=True)
         return self
 
     def twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
@@ -354,6 +396,17 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins)
         return self
 
+    def raw_twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw TWAP execution blocks.
+
+        Args:
+            coins: List of coin symbols ["BTC", "ETH"]
+            callback: Function called for each raw TWAP block
+        """
+        self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins, raw=True)
+        return self
+
     def events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
         """
         Subscribe to system events (funding, liquidations, governance).
@@ -362,6 +415,16 @@ class GRPCStream:
             callback: Function called for each event
         """
         self._add_subscription(GRPCStreamType.EVENTS.value, callback)
+        return self
+
+    def raw_events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw system event blocks.
+
+        Args:
+            callback: Function called for each raw event block
+        """
+        self._add_subscription(GRPCStreamType.EVENTS.value, callback, raw=True)
         return self
 
     def blocks(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
@@ -382,6 +445,16 @@ class GRPCStream:
             callback: Function called for each writer action
         """
         self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback)
+        return self
+
+    def raw_writer_actions(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to raw writer action blocks.
+
+        Args:
+            callback: Function called for each raw writer action block
+        """
+        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback, raw=True)
         return self
 
     def l2_book(
@@ -470,19 +543,40 @@ class GRPCStream:
                             block_number = response.data.block_number
                             timestamp = response.data.timestamp
 
-                            # Data structure: {"block_number":..., "events":[[user, {...}], ...]}
-                            # Extract events and call callback for each
-                            events = data.get("events", [])
-                            if events:
-                                for event in events:
+                            if sub.get("raw"):
+                                data['_block_number'] = block_number
+                                data['_timestamp'] = timestamp
+                                self._safe_callback(callback, data)
+                                continue
+
+                            # Data can contain events as objects or legacy [user, event] tuples.
+                            events = data.get("events")
+                            if isinstance(events, list) and events:
+                                emitted_events = False
+                                for index, event in enumerate(events):
+                                    user = None
+                                    event_data = None
+
                                     if isinstance(event, list) and len(event) >= 2:
-                                        user, event_data = event[0], event[1]
-                                        if isinstance(event_data, dict):
-                                            # Add metadata
-                                            event_data['_block_number'] = block_number
-                                            event_data['_timestamp'] = timestamp
+                                        user, candidate = event[0], event[1]
+                                        if isinstance(candidate, dict):
+                                            event_data = candidate
+                                    elif isinstance(event, dict):
+                                        event_data = event
+
+                                    if event_data is not None:
+                                        event_data['_block_number'] = block_number
+                                        event_data['_timestamp'] = timestamp
+                                        event_data['_event_index'] = index
+                                        if user is not None:
                                             event_data['_user'] = user
-                                            self._safe_callback(callback, event_data)
+                                        self._safe_callback(callback, event_data)
+                                        emitted_events = True
+
+                                if not emitted_events:
+                                    data['_block_number'] = block_number
+                                    data['_timestamp'] = timestamp
+                                    self._safe_callback(callback, data)
                             else:
                                 # Fallback: return raw data if no events structure
                                 data['_block_number'] = block_number

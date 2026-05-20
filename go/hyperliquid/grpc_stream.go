@@ -59,10 +59,10 @@ type GRPCStream struct {
 	subscriptions []grpcSubscription
 	subMu         sync.RWMutex
 
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	stopOnce   sync.Once
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	stopOnce sync.Once
 }
 
 type grpcSubscription struct {
@@ -73,17 +73,18 @@ type grpcSubscription struct {
 	coin       string
 	nSigFigs   *int
 	nLevels    int
+	raw        bool
 }
 
 const (
-	grpcPort                   = 10000
-	grpcInitialReconnectDelay  = 1 * time.Second
-	grpcMaxReconnectDelay      = 60 * time.Second
-	grpcReconnectBackoff       = 2.0
-	grpcKeepaliveTime          = 30 * time.Second
-	grpcKeepaliveTimeout       = 10 * time.Second
-	grpcMaxRecvMsgSize         = 100 * 1024 * 1024 // 100MB
-	grpcMaxSendMsgSize         = 100 * 1024 * 1024 // 100MB
+	grpcPort                  = 10000
+	grpcInitialReconnectDelay = 1 * time.Second
+	grpcMaxReconnectDelay     = 60 * time.Second
+	grpcReconnectBackoff      = 2.0
+	grpcKeepaliveTime         = 30 * time.Second
+	grpcKeepaliveTimeout      = 10 * time.Second
+	grpcMaxRecvMsgSize        = 100 * 1024 * 1024 // 100MB
+	grpcMaxSendMsgSize        = 100 * 1024 * 1024 // 100MB
 )
 
 // NewGRPCStream creates a new gRPC stream client.
@@ -253,6 +254,19 @@ func (s *GRPCStream) Trades(coins []string, callback func(map[string]any)) *GRPC
 	return s
 }
 
+// RawTrades subscribes to raw trade blocks.
+func (s *GRPCStream) RawTrades(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "TRADES",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
 // Orders subscribes to order stream.
 func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
 	s.subMu.Lock()
@@ -261,6 +275,20 @@ func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users
 		callback:   callback,
 		coins:      coins,
 		users:      users,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawOrders subscribes to raw order blocks.
+func (s *GRPCStream) RawOrders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "ORDERS",
+		callback:   callback,
+		coins:      coins,
+		users:      users,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s
@@ -278,6 +306,19 @@ func (s *GRPCStream) BookUpdates(coins []string, callback func(map[string]any)) 
 	return s
 }
 
+// RawBookUpdates subscribes to raw order book update blocks.
+func (s *GRPCStream) RawBookUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "BOOK_UPDATES",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
 // TWAP subscribes to TWAP execution stream.
 func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any)) *GRPCStream {
 	s.subMu.Lock()
@@ -290,12 +331,37 @@ func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any)) *GRPCSt
 	return s
 }
 
+// RawTWAP subscribes to raw TWAP execution blocks.
+func (s *GRPCStream) RawTWAP(coins []string, callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "TWAP",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
 // Events subscribes to system events.
 func (s *GRPCStream) Events(callback func(map[string]any)) *GRPCStream {
 	s.subMu.Lock()
 	s.subscriptions = append(s.subscriptions, grpcSubscription{
 		streamType: "EVENTS",
 		callback:   callback,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawEvents subscribes to raw system event blocks.
+func (s *GRPCStream) RawEvents(callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "EVENTS",
+		callback:   callback,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s
@@ -318,6 +384,18 @@ func (s *GRPCStream) WriterActions(callback func(map[string]any)) *GRPCStream {
 	s.subscriptions = append(s.subscriptions, grpcSubscription{
 		streamType: "WRITER_ACTIONS",
 		callback:   callback,
+	})
+	s.subMu.Unlock()
+	return s
+}
+
+// RawWriterActions subscribes to raw writer action blocks.
+func (s *GRPCStream) RawWriterActions(callback func(map[string]any)) *GRPCStream {
+	s.subMu.Lock()
+	s.subscriptions = append(s.subscriptions, grpcSubscription{
+		streamType: "WRITER_ACTIONS",
+		callback:   callback,
+		raw:        true,
 	})
 	s.subMu.Unlock()
 	return s
@@ -488,19 +566,43 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 					continue
 				}
 
+				if sub.raw {
+					parsed["_block_number"] = data.BlockNumber
+					parsed["_timestamp"] = data.Timestamp
+					sub.callback(parsed)
+					continue
+				}
+
 				// Extract events
 				events, _ := parsed["events"].([]any)
 				if len(events) > 0 {
-					for _, event := range events {
+					emittedEvents := false
+					for i, event := range events {
+						var user any
+						var eventData map[string]any
+
 						if eventArr, ok := event.([]any); ok && len(eventArr) >= 2 {
-							user, _ := eventArr[0].(string)
-							if eventData, ok := eventArr[1].(map[string]any); ok {
-								eventData["_block_number"] = data.BlockNumber
-								eventData["_timestamp"] = data.Timestamp
-								eventData["_user"] = user
-								sub.callback(eventData)
-							}
+							user = eventArr[0]
+							eventData, _ = eventArr[1].(map[string]any)
+						} else if obj, ok := event.(map[string]any); ok {
+							eventData = obj
 						}
+
+						if eventData != nil {
+							eventData["_block_number"] = data.BlockNumber
+							eventData["_timestamp"] = data.Timestamp
+							eventData["_event_index"] = i
+							if user != nil {
+								eventData["_user"] = user
+							}
+							sub.callback(eventData)
+							emittedEvents = true
+						}
+					}
+					if !emittedEvents {
+						parsed["_block_number"] = data.BlockNumber
+						parsed["_timestamp"] = data.Timestamp
+						sub.callback(parsed)
 					}
 				} else {
 					parsed["_block_number"] = data.BlockNumber
@@ -734,19 +836,19 @@ func (s *GRPCStream) streamL4Book(sub grpcSubscription) {
 
 func l4OrderToMap(order *pb.L4Order) map[string]any {
 	m := map[string]any{
-		"user":             order.User,
-		"coin":             order.Coin,
-		"side":             order.Side,
-		"limit_px":         order.LimitPx,
-		"sz":               order.Sz,
-		"oid":              order.Oid,
-		"timestamp":        order.Timestamp,
+		"user":              order.User,
+		"coin":              order.Coin,
+		"side":              order.Side,
+		"limit_px":          order.LimitPx,
+		"sz":                order.Sz,
+		"oid":               order.Oid,
+		"timestamp":         order.Timestamp,
 		"trigger_condition": order.TriggerCondition,
-		"is_trigger":       order.IsTrigger,
-		"trigger_px":       order.TriggerPx,
-		"is_position_tpsl": order.IsPositionTpsl,
-		"reduce_only":      order.ReduceOnly,
-		"order_type":       order.OrderType,
+		"is_trigger":        order.IsTrigger,
+		"trigger_px":        order.TriggerPx,
+		"is_position_tpsl":  order.IsPositionTpsl,
+		"reduce_only":       order.ReduceOnly,
+		"order_type":        order.OrderType,
 	}
 	if order.Tif != nil {
 		m["tif"] = *order.Tif
