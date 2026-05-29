@@ -103,6 +103,31 @@ def test_signer_failure_raises_signer_error_not_signature_error(monkeypatch):
     assert isinstance(exc_info.value.__cause__, RuntimeError)
 
 
+@pytest.mark.parametrize(
+    "bad_return",
+    [
+        None,
+        "not-a-dict",
+        {"r": "", "s": "0x2", "v": 27},  # empty r
+        {"r": "0x1", "s": "0x2"},  # missing v
+        {"r": "0x1", "s": "0x2", "v": 0},  # bad v (raw recovery id)
+    ],
+)
+def test_malformed_signer_result_raises_signer_error(monkeypatch, bad_return):
+    monkeypatch.delenv("PRIVATE_KEY", raising=False)
+
+    sdk = HyperliquidSDK(signer=lambda h: bad_return, auto_approve=False)
+
+    def fake_exchange(body):
+        return {"hash": "0x" + "00" * 32, "nonce": 1, "action": body["action"]}
+
+    sdk._exchange = fake_exchange
+
+    with pytest.raises(SignerError) as exc_info:
+        sdk._build_sign_send({"type": "order"})
+    assert exc_info.value.code == "SIGNER_FAILED"
+
+
 def test_auto_approve_skipped_under_external_signer(monkeypatch):
     monkeypatch.delenv("PRIVATE_KEY", raising=False)
     approvals = []

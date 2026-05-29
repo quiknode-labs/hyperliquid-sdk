@@ -2561,7 +2561,7 @@ class HyperliquidSDK:
         """
         if self._signer is not None:
             try:
-                return self._signer(hash_hex)
+                sig = self._signer(hash_hex)
             except SignerError:
                 raise
             except Exception as exc:  # noqa: BLE001 — wrap any signer failure
@@ -2572,6 +2572,30 @@ class HyperliquidSDK:
                         "service). This is not a venue rejection; check your signer."
                     ),
                 ) from exc
+            # The signer is user-supplied and may return a malformed value
+            # without raising. Validate it so a None/incomplete result surfaces
+            # as a clear SignerError instead of a confusing venue rejection.
+            guidance = (
+                "The signer callback returned a malformed signature (KMS/HSM/"
+                "remote signing service). This is not a venue rejection; check "
+                "your signer."
+            )
+            if not isinstance(sig, dict):
+                raise SignerError(
+                    f"external signer returned a non-dict signature: {type(sig).__name__}",
+                    guidance=guidance,
+                )
+            if not sig.get("r") or not sig.get("s"):
+                raise SignerError(
+                    "external signer returned a signature with empty r or s",
+                    guidance=guidance,
+                )
+            if sig.get("v") not in (27, 28):
+                raise SignerError(
+                    f"external signer returned invalid v={sig.get('v')!r} (must be 27 or 28)",
+                    guidance=guidance,
+                )
+            return sig
 
         hash_bytes = bytes.fromhex(hash_hex.removeprefix("0x"))
         signed = self._wallet.unsafe_sign_hash(hash_bytes)

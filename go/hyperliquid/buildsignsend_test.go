@@ -92,6 +92,64 @@ func TestBuildSignSend_SignerErrorIsSignerError(t *testing.T) {
 	}
 }
 
+func TestBuildSignSend_NilSignatureIsSignerError(t *testing.T) {
+	srv := newFakeExchange(t, "0xabc123", 42)
+	defer srv.Close()
+
+	// A signer that returns (nil, nil) — no error, but no signature either.
+	signer := func(context.Context, string) (*Signature, error) {
+		return nil, nil
+	}
+
+	s := newTestSDK(srv.URL, signer)
+	_, err := s.buildSignSend(map[string]any{"type": "order"}, nil)
+	if err == nil {
+		t.Fatal("expected an error when the signer returns a nil signature")
+	}
+	if !IsSignerError(err) {
+		t.Fatalf("IsSignerError = false, want true (err: %v)", err)
+	}
+}
+
+func TestBuildSignSend_MalformedSignatureIsSignerError(t *testing.T) {
+	srv := newFakeExchange(t, "0xabc123", 42)
+	defer srv.Close()
+
+	cases := map[string]*Signature{
+		"empty r/s":   {R: "", S: "", V: 27},
+		"bad v (0/1)": {R: "0x1", S: "0x2", V: 0},
+	}
+	for name, sig := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newTestSDK(srv.URL, func(context.Context, string) (*Signature, error) {
+				return sig, nil
+			})
+			_, err := s.buildSignSend(map[string]any{"type": "order"}, nil)
+			if !IsSignerError(err) {
+				t.Fatalf("IsSignerError = false, want true (err: %v)", err)
+			}
+		})
+	}
+}
+
+func TestValidateSignerSignature(t *testing.T) {
+	if err := validateSignerSignature(&Signature{R: "0x1", S: "0x2", V: 27}); err != nil {
+		t.Fatalf("valid signature rejected: %v", err)
+	}
+	if err := validateSignerSignature(&Signature{R: "0x1", S: "0x2", V: 28}); err != nil {
+		t.Fatalf("valid signature (v=28) rejected: %v", err)
+	}
+	if validateSignerSignature(nil) == nil {
+		t.Fatal("nil signature accepted")
+	}
+	if validateSignerSignature(&Signature{R: "", S: "0x2", V: 27}) == nil {
+		t.Fatal("empty r accepted")
+	}
+	if validateSignerSignature(&Signature{R: "0x1", S: "0x2", V: 1}) == nil {
+		t.Fatal("invalid v accepted")
+	}
+}
+
 func TestSignerErrorUnwrap(t *testing.T) {
 	sentinel := errors.New("boom")
 	err := SignerError(sentinel)

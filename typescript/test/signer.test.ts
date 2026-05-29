@@ -113,6 +113,31 @@ describe('external signer', () => {
     expect((err as Error).cause).toBe(boom);
   });
 
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['missing v', { r: '0x1', s: '0x2' }],
+    ['empty r', { r: '', s: '0x2', v: 27 }],
+    ['bad v (raw recovery id)', { r: '0x1', s: '0x2', v: 0 }],
+  ])('wraps a malformed signer return (%s) in SignerError, never sending it', async (_label, bad) => {
+    delete process.env.PRIVATE_KEY;
+    const signer = (() => bad) as unknown as Signer;
+    const sdk = new HyperliquidSDK('https://x.quiknode.pro/T', { signer, autoApprove: false });
+
+    const { calls, restore } = mockExchangeFetch();
+    let err: unknown;
+    try {
+      err = await (sdk as any)._buildSignSend({ type: 'order' }).catch((e: unknown) => e);
+    } finally {
+      restore();
+    }
+
+    expect(err).toBeInstanceOf(SignerError);
+    expect((err as SignerError).code).toBe('SIGNER_FAILED');
+    // Only the build call happened; the malformed signature never reached send.
+    expect(calls).toHaveLength(1);
+  });
+
   it('skips builder-fee auto-approve under an external signer', async () => {
     delete process.env.PRIVATE_KEY;
     const sdk = new HyperliquidSDK('https://x.quiknode.pro/T', {

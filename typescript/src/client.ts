@@ -206,6 +206,21 @@ export type Signer = (
   options?: { signal?: AbortSignal }
 ) => Signature | Promise<Signature>;
 
+/**
+ * Runtime guard for a signature returned by a user-supplied {@link Signer}.
+ * The callback has no compile-time guarantee at runtime (callers may be plain
+ * JS), so a nil/malformed result is rejected before it reaches the venue.
+ */
+function isValidSignature(sig: unknown): sig is Signature {
+  if (typeof sig !== 'object' || sig === null) return false;
+  const s = sig as Signature;
+  return (
+    typeof s.r === 'string' && s.r !== '' &&
+    typeof s.s === 'string' && s.s !== '' &&
+    (s.v === 27 || s.v === 28)
+  );
+}
+
 export interface HyperliquidSDKOptions {
   /** Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var. */
   privateKey?: string;
@@ -2072,6 +2087,15 @@ export class HyperliquidSDK {
         );
       } finally {
         clearTimeout(signTimeout);
+      }
+      // The signer is user-supplied and may resolve to a malformed value
+      // without throwing. Validate it so a null/incomplete result surfaces as
+      // a clear SignerError instead of a confusing venue rejection.
+      if (!isValidSignature(sig)) {
+        throw new SignerError(
+          `signer returned an invalid signature (expected { r, s, v in {27,28} }): ${JSON.stringify(sig)}`,
+          { guidance: 'The signer callback returned a malformed signature (KMS/HSM/remote signing service). This is not a venue rejection; check your signer.' }
+        );
       }
     } else {
       sig = this._signHash(buildResult.hash as string);

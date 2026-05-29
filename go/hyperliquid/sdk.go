@@ -1088,6 +1088,23 @@ func (s *SDK) requireWallet() {
 	}
 }
 
+// validateSignerSignature checks that an external Signer returned a usable
+// signature: non-nil, with non-empty r/s, and v ∈ {27,28} (the documented
+// contract, matching Wallet.SignHash). It exists because the callback is
+// user-supplied and may return a nil or malformed value without erroring.
+func validateSignerSignature(sig *Signature) error {
+	if sig == nil {
+		return fmt.Errorf("signer returned a nil signature")
+	}
+	if sig.R == "" || sig.S == "" {
+		return fmt.Errorf("signer returned a signature with empty r or s")
+	}
+	if sig.V != 27 && sig.V != 28 {
+		return fmt.Errorf("signer returned invalid v=%d (must be 27 or 28)", sig.V)
+	}
+	return nil
+}
+
 func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
 	s.requireWallet()
 
@@ -1144,6 +1161,13 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 		sig, err = s.signer(signCtx, hash)
 		if err != nil {
 			return nil, SignerError(err)
+		}
+		// The signer is user-supplied and has no compile-time guarantee of
+		// returning a valid *Signature (unlike Wallet.SignHash). Validate it
+		// here so a nil/malformed result surfaces as a clear SignerError rather
+		// than a confusing venue rejection downstream.
+		if verr := validateSignerSignature(sig); verr != nil {
+			return nil, SignerError(verr)
 		}
 	} else {
 		sig, err = s.wallet.SignHash(hash)
