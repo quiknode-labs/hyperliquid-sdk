@@ -716,6 +716,14 @@ impl HyperliquidSDKInner {
             }
         })?;
 
+        // The external signer is user-supplied and (unlike LocalSigner) has no
+        // guarantee of returning a usable signature value. Validate it so a
+        // malformed result surfaces as a clear SignerError instead of a
+        // confusing venue rejection — matching the Go/Python/TS SDKs.
+        if self.is_external_signer {
+            validate_signer_signature(&signature)?;
+        }
+
         // Step 3: Send
         self.send_action(&build_result.action, build_result.nonce, &signature)
             .await
@@ -934,9 +942,45 @@ fn all_decimal_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Validate a signature returned by an external `HyperliquidSigner`.
+///
+/// The callback is user-supplied and may return a semantically invalid
+/// signature (zero `r`/`s`, or a raw recovery id in `v` instead of 27/28).
+/// Rejecting it here yields a clear `SignerError` rather than a confusing
+/// venue rejection. The in-process `LocalSigner` always produces a valid
+/// signature, so this is only applied on the external-signer path.
+fn validate_signer_signature(sig: &Signature) -> Result<()> {
+    if sig.r == alloy::primitives::U256::ZERO || sig.s == alloy::primitives::U256::ZERO {
+        return Err(Error::SignerError(
+            "signer returned a signature with zero r or s".to_string(),
+        ));
+    }
+    if sig.v != 27 && sig.v != 28 {
+        return Err(Error::SignerError(format!(
+            "signer returned invalid v={} (must be 27 or 28)",
+            sig.v
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod client_tests {
     use super::*;
+
+    #[test]
+    fn validate_signer_signature_enforces_v_and_nonzero_rs() {
+        use alloy::primitives::U256;
+        let ok = Signature { r: U256::from(1), s: U256::from(2), v: 27 };
+        assert!(validate_signer_signature(&ok).is_ok());
+        assert!(validate_signer_signature(&Signature { v: 28, ..ok }).is_ok());
+        // Raw recovery id (0/1) instead of 27/28.
+        assert!(validate_signer_signature(&Signature { v: 0, ..ok }).is_err());
+        assert!(validate_signer_signature(&Signature { v: 1, ..ok }).is_err());
+        // Zero r / zero s.
+        assert!(validate_signer_signature(&Signature { r: U256::ZERO, ..ok }).is_err());
+        assert!(validate_signer_signature(&Signature { s: U256::ZERO, ..ok }).is_err());
+    }
 
     #[test]
     fn hype_to_wei_uses_decimal_string_arithmetic() {
