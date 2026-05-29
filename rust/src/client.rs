@@ -695,38 +695,48 @@ impl HyperliquidSDKInner {
 
         let hash = alloy::primitives::B256::from_slice(&hash_bytes);
 
-        // Sign, optionally bounded by a per-sign deadline. A failure from an
-        // external signer is surfaced as Error::SignerError (SIGNER_FAILED) so
-        // callers can tell a signer fault apart from a venue rejection; the
-        // in-process LocalSigner keeps returning Error::SigningError.
+        // The in-process LocalSigner path is byte-for-byte the original wallet
+        // path: no deadline, no error remapping, no extra validation. It returns
+        // Error::SigningError on failure. All external-signer-only policy lives in
+        // sign_external() so it can never leak into the local key path again.
+        let signature = if self.is_external_signer {
+            self.sign_external(signer, hash).await?
+        } else {
+            signer.sign_hash(hash).await?
+        };
+
+        // Step 3: Send
+        self.send_action(&build_result.action, build_result.nonce, &signature)
+            .await
+    }
+
+    /// Sign with a user-supplied external signer (KMS/HSM/remote service).
+    ///
+    /// Bounds the call by `signer_deadline` (if set), maps any failure to
+    /// `Error::SignerError` (`SIGNER_FAILED`) so a signer fault is distinct from
+    /// a venue rejection, and validates the returned signature value. None of
+    /// these apply to the in-process `LocalSigner` path — keeping every
+    /// external-signer-only concern in one place so it cannot leak into the
+    /// local key path. Mirrors the Go/TypeScript SDKs.
+    async fn sign_external(
+        &self,
+        signer: &Arc<dyn HyperliquidSigner>,
+        hash: alloy::primitives::B256,
+    ) -> Result<Signature> {
         let sign_result = match self.signer_deadline {
             Some(deadline) => tokio::time::timeout(deadline, signer.sign_hash(hash))
                 .await
                 .unwrap_or_else(|_| Err(Error::SignerError("signer timed out".to_string()))),
             None => signer.sign_hash(hash).await,
         };
-        let signature = sign_result.map_err(|e| {
-            if self.is_external_signer {
-                match e {
-                    Error::SignerError(_) => e,
-                    other => Error::SignerError(other.to_string()),
-                }
-            } else {
-                e
-            }
+
+        let signature = sign_result.map_err(|e| match e {
+            Error::SignerError(_) => e,
+            other => Error::SignerError(other.to_string()),
         })?;
 
-        // The external signer is user-supplied and (unlike LocalSigner) has no
-        // guarantee of returning a usable signature value. Validate it so a
-        // malformed result surfaces as a clear SignerError instead of a
-        // confusing venue rejection — matching the Go/Python/TS SDKs.
-        if self.is_external_signer {
-            validate_signer_signature(&signature)?;
-        }
-
-        // Step 3: Send
-        self.send_action(&build_result.action, build_result.nonce, &signature)
-            .await
+        validate_signer_signature(&signature)?;
+        Ok(signature)
     }
 
     /// Refresh metadata cache
@@ -980,6 +990,110 @@ mod client_tests {
         // Zero r / zero s.
         assert!(validate_signer_signature(&Signature { r: U256::ZERO, ..ok }).is_err());
         assert!(validate_signer_signature(&Signature { s: U256::ZERO, ..ok }).is_err());
+    }
+
+    // ── External-signer policy (sign_external) ──────────────────────────────
+    //
+    // All external-signer-only behavior (deadline, error remapping, signature
+    // validation) lives in sign_external(). The in-process LocalSigner path is a
+    // separate `else` arm in build_sign_send and is structurally unable to enter
+    // any of this — that's the permanent fix for the recurring "external-only
+    // behavior leaks into the local key path" class of bug.
+
+    use alloy::primitives::{B256, U256};
+
+    /// Build a minimal inner for exercising sign_external in isolation (no
+    /// network: sign_external never touches HTTP).
+    fn test_inner(signer_deadline: Option<Duration>) -> HyperliquidSDKInner {
+        HyperliquidSDKInner {
+            http_client: Client::new(),
+            signer: None,
+            is_external_signer: true,
+            signer_deadline,
+            address: None,
+            chain: Chain::Mainnet,
+            endpoint: None,
+            endpoint_info: None,
+            slippage: 0.0,
+            metadata: MetadataCache::default(),
+            mid_prices: DashMap::new(),
+        }
+    }
+
+    struct SleepySigner(Duration);
+
+    #[async_trait::async_trait]
+    impl HyperliquidSigner for SleepySigner {
+        fn address(&self) -> Address {
+            Address::ZERO
+        }
+        async fn sign_hash(&self, _hash: B256) -> Result<Signature> {
+            tokio::time::sleep(self.0).await;
+            Ok(Signature { r: U256::from(1), s: U256::from(2), v: 27 })
+        }
+    }
+
+    /// Returns a signature with a caller-chosen `v` (so we can feed an invalid one).
+    struct InvalidSigner(u64);
+
+    #[async_trait::async_trait]
+    impl HyperliquidSigner for InvalidSigner {
+        fn address(&self) -> Address {
+            Address::ZERO
+        }
+        async fn sign_hash(&self, _hash: B256) -> Result<Signature> {
+            Ok(Signature { r: U256::from(1), s: U256::from(2), v: self.0 })
+        }
+    }
+
+    /// Fails with a non-SignerError variant to exercise error remapping.
+    struct SigningErrorSigner;
+
+    #[async_trait::async_trait]
+    impl HyperliquidSigner for SigningErrorSigner {
+        fn address(&self) -> Address {
+            Address::ZERO
+        }
+        async fn sign_hash(&self, _hash: B256) -> Result<Signature> {
+            Err(Error::SigningError("boom".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn sign_external_times_out_past_deadline() {
+        let inner = test_inner(Some(Duration::from_millis(10)));
+        let signer: Arc<dyn HyperliquidSigner> = Arc::new(SleepySigner(Duration::from_secs(5)));
+        let err = inner.sign_external(&signer, B256::ZERO).await.unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::SignerFailed);
+        assert!(err.to_string().contains("signer timed out"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn sign_external_allows_signer_within_deadline() {
+        let inner = test_inner(Some(Duration::from_secs(5)));
+        let signer: Arc<dyn HyperliquidSigner> = Arc::new(SleepySigner(Duration::from_millis(1)));
+        let sig = inner.sign_external(&signer, B256::ZERO).await.expect("should sign");
+        assert_eq!(sig.v, 27);
+    }
+
+    #[tokio::test]
+    async fn sign_external_validates_returned_signature() {
+        let inner = test_inner(None);
+        // Raw recovery id (v=0) must be rejected before it reaches the venue.
+        let signer: Arc<dyn HyperliquidSigner> = Arc::new(InvalidSigner(0));
+        let err = inner.sign_external(&signer, B256::ZERO).await.unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::SignerFailed);
+    }
+
+    #[tokio::test]
+    async fn sign_external_remaps_non_signer_errors() {
+        let inner = test_inner(None);
+        // A signer that fails with a non-SignerError variant must still surface
+        // as SignerError so callers can distinguish a signer fault from a venue
+        // rejection.
+        let signer: Arc<dyn HyperliquidSigner> = Arc::new(SigningErrorSigner);
+        let err = inner.sign_external(&signer, B256::ZERO).await.unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::SignerFailed);
     }
 
     #[test]
