@@ -49,8 +49,9 @@ var QNSupportedInfoMethods = map[string]bool{
 // external-signing analog of Wallet.SignHash, letting callers sign via a
 // remote KMS/HSM/signing service without exposing a private key to the SDK.
 //
-// The ctx carries the SDK's request deadline/cancellation (bounded by the
-// configured Timeout); a remote signer should honour it. Returning an error
+// The ctx bounds the signer call itself by the configured Timeout (it does not
+// govern the build/send HTTP calls, which keep their own per-request timeout);
+// a remote signer should honour it for cancellation. Returning an error
 // surfaces to the caller as a *Error with code SIGNER_FAILED (see SignerError).
 type Signer func(ctx context.Context, hashHex string) (*Signature, error)
 
@@ -83,7 +84,8 @@ func WithPrivateKey(pk string) Option {
 // sign-capable without an in-process wallet and no private key is read.
 //
 // The callback receives a context bounded by the configured Timeout, so a slow
-// remote signer is cancelled along with the rest of the request. Builder-fee
+// remote signer is cancelled; the build/send HTTP calls keep their own
+// per-request timeout, so their behaviour is unchanged. Builder-fee
 // auto-approval is skipped under an external signer (there is no in-process
 // wallet to sign the approval); call ApproveBuilderFee yourself if you need it.
 func WithSigner(fn Signer) Option {
@@ -1089,15 +1091,11 @@ func (s *SDK) requireWallet() {
 func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
 	s.requireWallet()
 
-	// Bound the whole build→sign→send operation (including the external signer)
-	// by the configured Timeout, so a slow remote signer is cancelled with the
-	// rest of the request. A non-positive Timeout means "no deadline".
+	// Each HTTP call below relies on the client's own per-request timeout
+	// (http.Client.Timeout), unchanged from the wallet-only path. The external
+	// signer gets its own scoped deadline at Step 2 so a slow remote signer is
+	// bounded without shrinking the build/send HTTP budgets.
 	ctx := context.Background()
-	if s.config.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, s.config.Timeout)
-		defer cancel()
-	}
 
 	// Step 1: Build
 	buildPayload := map[string]any{"action": action}
@@ -1133,7 +1131,17 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 	// rejection or an in-process wallet fault (SignatureError).
 	var sig *Signature
 	if s.signer != nil {
-		sig, err = s.signer(ctx, hash)
+		// Bound only the external signer call by the configured Timeout, so a
+		// slow remote signer is cancelled. A non-positive Timeout means "no
+		// deadline". The build/send HTTP calls keep their own per-request
+		// timeout, so existing behaviour is unchanged for them.
+		signCtx := ctx
+		if s.config.Timeout > 0 {
+			var cancel context.CancelFunc
+			signCtx, cancel = context.WithTimeout(ctx, s.config.Timeout)
+			defer cancel()
+		}
+		sig, err = s.signer(signCtx, hash)
 		if err != nil {
 			return nil, SignerError(err)
 		}
