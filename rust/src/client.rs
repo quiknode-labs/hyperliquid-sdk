@@ -16,7 +16,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::{Error, Result};
 use crate::order::{Order, PlacedOrder, TriggerOrder};
-use crate::signing::sign_hash;
+use crate::signing::{HyperliquidSigner, LocalSigner};
 use crate::types::*;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -405,7 +405,9 @@ impl EndpointInfo {
 /// Shared SDK state
 pub struct HyperliquidSDKInner {
     pub(crate) http_client: Client,
-    pub(crate) signer: Option<PrivateKeySigner>,
+    pub(crate) signer: Option<Arc<dyn HyperliquidSigner>>,
+    pub(crate) is_external_signer: bool,
+    pub(crate) signer_deadline: Option<Duration>,
     pub(crate) address: Option<Address>,
     pub(crate) chain: Chain,
     pub(crate) endpoint: Option<String>,
@@ -671,7 +673,7 @@ impl HyperliquidSDKInner {
         let signer = self
             .signer
             .as_ref()
-            .ok_or_else(|| Error::ConfigError("No private key configured".to_string()))?;
+            .ok_or_else(|| Error::ConfigError("No private key or signer configured".to_string()))?;
 
         // Resolve effective slippage: per-call override > constructor default > omit
         let effective_slippage = slippage.or_else(|| {
@@ -692,7 +694,27 @@ impl HyperliquidSDKInner {
             .map_err(|e| Error::SigningError(format!("Invalid hash: {}", e)))?;
 
         let hash = alloy::primitives::B256::from_slice(&hash_bytes);
-        let signature = sign_hash(signer, hash).await?;
+
+        // Sign, optionally bounded by a per-sign deadline. A failure from an
+        // external signer is surfaced as Error::SignerError (SIGNER_FAILED) so
+        // callers can tell a signer fault apart from a venue rejection; the
+        // in-process LocalSigner keeps returning Error::SigningError.
+        let sign_result = match self.signer_deadline {
+            Some(deadline) => tokio::time::timeout(deadline, signer.sign_hash(hash))
+                .await
+                .unwrap_or_else(|_| Err(Error::SignerError("signer timed out".to_string()))),
+            None => signer.sign_hash(hash).await,
+        };
+        let signature = sign_result.map_err(|e| {
+            if self.is_external_signer {
+                match e {
+                    Error::SignerError(_) => e,
+                    other => Error::SignerError(other.to_string()),
+                }
+            } else {
+                e
+            }
+        })?;
 
         // Step 3: Send
         self.send_action(&build_result.action, build_result.nonce, &signature)
@@ -936,6 +958,8 @@ mod client_tests {
 pub struct HyperliquidSDKBuilder {
     endpoint: Option<String>,
     private_key: Option<String>,
+    signer: Option<Arc<dyn HyperliquidSigner>>,
+    signer_deadline: Option<Duration>,
     testnet: bool,
     auto_approve: bool,
     max_fee: String,
@@ -949,6 +973,8 @@ impl HyperliquidSDKBuilder {
         Self {
             endpoint: None,
             private_key: None,
+            signer: None,
+            signer_deadline: None,
             testnet: false,
             auto_approve: true,
             max_fee: "1%".to_string(),
@@ -966,6 +992,24 @@ impl HyperliquidSDKBuilder {
     /// Set the private key
     pub fn private_key(mut self, key: impl Into<String>) -> Self {
         self.private_key = Some(key.into());
+        self
+    }
+
+    /// Set an external signer (KMS/HSM/remote signing service).
+    ///
+    /// Takes precedence over `private_key`/the `PRIVATE_KEY` env var: when set,
+    /// the SDK is sign-capable without an in-process key and the acting address
+    /// is taken from the signer. Builder-fee auto-approval is skipped under an
+    /// external signer (call `approve_builder_fee` yourself if you need it).
+    pub fn signer(mut self, signer: Arc<dyn HyperliquidSigner>) -> Self {
+        self.signer = Some(signer);
+        self
+    }
+
+    /// Bound each external-signer call by this deadline (in addition to the
+    /// caller's own future cancellation). A timeout surfaces as SIGNER_FAILED.
+    pub fn signer_deadline(mut self, deadline: Duration) -> Self {
+        self.signer_deadline = Some(deadline);
         self
     }
 
@@ -1001,19 +1045,30 @@ impl HyperliquidSDKBuilder {
 
     /// Build the SDK
     pub async fn build(self) -> Result<HyperliquidSDK> {
-        // Get private key from builder or environment
-        let private_key = self
-            .private_key
-            .or_else(|| std::env::var("PRIVATE_KEY").ok());
-
-        // Parse signer if key provided
-        let (signer, address) = if let Some(key) = private_key {
-            let key = key.trim_start_matches("0x");
-            let signer = PrivateKeySigner::from_str(key)?;
-            let address = signer.address();
-            (Some(signer), Some(address))
+        // An external signer takes precedence and means no private key is read
+        // (the key must never enter the SDK process). Otherwise fall back to the
+        // builder key or the PRIVATE_KEY env var, wrapped in a LocalSigner.
+        let (signer, address, is_external_signer): (
+            Option<Arc<dyn HyperliquidSigner>>,
+            Option<Address>,
+            bool,
+        ) = if let Some(external) = self.signer {
+            let address = external.address();
+            (Some(external), Some(address), true)
         } else {
-            (None, None)
+            let private_key = self
+                .private_key
+                .or_else(|| std::env::var("PRIVATE_KEY").ok());
+
+            if let Some(key) = private_key {
+                let key = key.trim_start_matches("0x");
+                let local = PrivateKeySigner::from_str(key)?;
+                let address = local.address();
+                let signer: Arc<dyn HyperliquidSigner> = Arc::new(LocalSigner(local));
+                (Some(signer), Some(address), false)
+            } else {
+                (None, None, false)
+            }
         };
 
         // Build HTTP client
@@ -1034,6 +1089,8 @@ impl HyperliquidSDKBuilder {
         let inner = Arc::new(HyperliquidSDKInner {
             http_client,
             signer,
+            is_external_signer,
+            signer_deadline: self.signer_deadline,
             address,
             chain,
             endpoint: self.endpoint,

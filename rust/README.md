@@ -81,6 +81,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Advanced: external signing (KMS/HSM/remote signer)
+
+Keep the private key out of the SDK process: implement `HyperliquidSigner`, pass it to `.signer()` instead of a private key, and sign the build hash wherever the key lives.
+
+```rust
+use std::sync::Arc;
+use std::time::Duration;
+use async_trait::async_trait;
+use alloy::primitives::{Address, B256};
+use hyperliquid_sdk::{HyperliquidSDK, HyperliquidSigner, Signature, Result};
+
+struct KmsSigner { /* ... */ }
+
+#[async_trait]
+impl HyperliquidSigner for KmsSigner {
+    fn address(&self) -> Address { /* acting agent address */ }
+    async fn sign_hash(&self, hash: B256) -> Result<Signature> {
+        // sign hash with your KMS/HSM/remote signer, return r, s, v (v in {27, 28})
+    }
+}
+
+let sdk = HyperliquidSDK::new()
+    .signer(Arc::new(KmsSigner { /* ... */ }))
+    .signer_deadline(Duration::from_secs(5)) // optional: bound each remote call
+    .build()
+    .await?;
+```
+
+Builder-fee auto-approval is skipped with a signer, so call `sdk.approve_builder_fee("1%")` once per agent if you need it. Signer failures surface as `Error::SignerError` (code `SIGNER_FAILED`).
+
 ---
 
 ## Data APIs

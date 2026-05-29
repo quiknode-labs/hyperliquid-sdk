@@ -19,6 +19,7 @@ const (
 	ErrorCodeInvalidPriceTick  ErrorCode = "INVALID_PRICE_TICK"
 	ErrorCodeInvalidSize       ErrorCode = "INVALID_SIZE"
 	ErrorCodeSignatureInvalid  ErrorCode = "SIGNATURE_INVALID"
+	ErrorCodeSignerFailed      ErrorCode = "SIGNER_FAILED"
 	ErrorCodeNoPosition        ErrorCode = "NO_POSITION"
 	ErrorCodeOrderNotFound     ErrorCode = "ORDER_NOT_FOUND"
 	ErrorCodeGeoBlocked        ErrorCode = "GEO_BLOCKED"
@@ -45,6 +46,10 @@ type Error struct {
 	Message  string         `json:"message"`
 	Guidance string         `json:"guidance,omitempty"`
 	Raw      map[string]any `json:"raw,omitempty"`
+
+	// cause is an optional wrapped error, exposed via Unwrap so callers can use
+	// errors.Is/As (e.g. to inspect an external signer's underlying failure).
+	cause error
 }
 
 // Error implements the error interface.
@@ -60,9 +65,11 @@ func (e *Error) Error() string {
 	return strings.Join(parts, " ")
 }
 
-// Unwrap returns nil (Error is the root error type).
+// Unwrap returns the wrapped cause if one was set via WithCause, otherwise nil.
+// This lets errors.Is/As traverse into an underlying error (e.g. a signer's
+// failure) while leaving errors without a cause as standalone root errors.
 func (e *Error) Unwrap() error {
-	return nil
+	return e.cause
 }
 
 // NewError creates a new Error.
@@ -82,6 +89,12 @@ func (e *Error) WithGuidance(guidance string) *Error {
 // WithRaw adds raw response data to the error.
 func (e *Error) WithRaw(raw map[string]any) *Error {
 	e.Raw = raw
+	return e
+}
+
+// WithCause attaches an underlying error, exposed via Unwrap for errors.Is/As.
+func (e *Error) WithCause(cause error) *Error {
+	e.cause = cause
 	return e
 }
 
@@ -194,6 +207,17 @@ func InvalidNonceError(rawError string) *Error {
 func SignatureError(message string) *Error {
 	return NewError(ErrorCodeSignatureInvalid, message).
 		WithGuidance("Signature verification failed. This is usually an SDK bug — please report it.")
+}
+
+// SignerError creates an external-signer failure error, wrapping the cause so
+// callers can use errors.Is/As. It is distinct from SignatureError (a venue
+// rejection or in-process wallet fault): SIGNER_FAILED means the external
+// Signer callback — your KMS/HSM/remote signing service — failed, timed out,
+// or returned an invalid result before the request was sent to the venue.
+func SignerError(cause error) *Error {
+	return NewError(ErrorCodeSignerFailed, fmt.Sprintf("external signer failed: %v", cause)).
+		WithGuidance("The WithSigner callback returned an error (KMS/HSM/remote signing service). This is not a venue rejection; check your signer.").
+		WithCause(cause)
 }
 
 // ParseAPIError parses an API error response into an appropriate Error.
@@ -319,6 +343,12 @@ func IsErrorCode(err error, code ErrorCode) bool {
 // IsApprovalError checks if the error is an approval-related error.
 func IsApprovalError(err error) bool {
 	return IsErrorCode(err, ErrorCodeNotApproved) || IsErrorCode(err, ErrorCodeFeeExceedsApproved)
+}
+
+// IsSignerError checks if the error is an external-signer failure (the
+// WithSigner callback failed), as opposed to a venue-side signature rejection.
+func IsSignerError(err error) bool {
+	return IsErrorCode(err, ErrorCodeSignerFailed)
 }
 
 // IsValidationError checks if the error is a validation error.

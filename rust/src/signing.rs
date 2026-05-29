@@ -69,6 +69,40 @@ pub async fn sign_hash(signer: &PrivateKeySigner, hash: B256) -> crate::Result<S
     Ok(sig.into())
 }
 
+/// External signing abstraction.
+///
+/// Implement this to sign Hyperliquid action hashes via a remote KMS/HSM or
+/// signing service, without giving the SDK a raw private key. Supply it through
+/// `HyperliquidSDKBuilder::signer`. The in-process key path uses [`LocalSigner`].
+///
+/// `sign_hash` is awaited inside the build→sign→send pipeline, so it is cancelled
+/// when the caller drops the future; an optional per-sign deadline can be set via
+/// `HyperliquidSDKBuilder::signer_deadline`. Returned errors surface to callers as
+/// [`crate::Error::SignerError`] (code `SIGNER_FAILED`), distinct from a venue
+/// rejection.
+#[async_trait::async_trait]
+pub trait HyperliquidSigner: Send + Sync {
+    /// The acting agent address this signer signs as.
+    fn address(&self) -> Address;
+
+    /// Sign the 32-byte Hyperliquid build hash, returning r/s/v.
+    async fn sign_hash(&self, hash: B256) -> crate::Result<Signature>;
+}
+
+/// In-process signer backed by a local private key (the default path).
+pub struct LocalSigner(pub PrivateKeySigner);
+
+#[async_trait::async_trait]
+impl HyperliquidSigner for LocalSigner {
+    fn address(&self) -> Address {
+        self.0.address()
+    }
+
+    async fn sign_hash(&self, hash: B256) -> crate::Result<Signature> {
+        sign_hash(&self.0, hash).await
+    }
+}
+
 /// Sign an action for the Hyperliquid exchange.
 pub async fn sign_action<T: Serialize>(
     signer: &PrivateKeySigner,
@@ -150,5 +184,48 @@ mod tests {
         let hash_with_vault = rmp_hash(&action, 1000, Some(vault), None).unwrap();
         // Vault should change the hash
         assert_ne!(hash_no_vault, hash_with_vault);
+    }
+
+    #[tokio::test]
+    async fn test_local_signer_address_matches_key() {
+        let key = PrivateKeySigner::random();
+        let expected = key.address();
+        let local = LocalSigner(key);
+        assert_eq!(HyperliquidSigner::address(&local), expected);
+    }
+
+    #[tokio::test]
+    async fn test_local_signer_sign_hash_recovers_to_address() {
+        let key = PrivateKeySigner::random();
+        let address = key.address();
+        let local = LocalSigner(key);
+
+        let hash = B256::repeat_byte(0x42);
+        let sig = local.sign_hash(hash).await.expect("local signer should sign");
+
+        let recovered = recover_signer(hash, &sig).expect("should recover");
+        assert_eq!(recovered, address);
+    }
+
+    /// A trait object can be backed by an arbitrary external signer.
+    #[tokio::test]
+    async fn test_external_signer_trait_object() {
+        struct FailingSigner;
+
+        #[async_trait::async_trait]
+        impl HyperliquidSigner for FailingSigner {
+            fn address(&self) -> Address {
+                Address::ZERO
+            }
+            async fn sign_hash(&self, _hash: B256) -> crate::Result<Signature> {
+                Err(crate::Error::SignerError("kms unavailable".to_string()))
+            }
+        }
+
+        let signer: std::sync::Arc<dyn HyperliquidSigner> = std::sync::Arc::new(FailingSigner);
+        assert_eq!(signer.address(), Address::ZERO);
+
+        let err = signer.sign_hash(B256::ZERO).await.unwrap_err();
+        assert_eq!(err.code(), crate::ErrorCode::SignerFailed);
     }
 }

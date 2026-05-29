@@ -67,26 +67,19 @@ fmt.Println(order.OID)     // Order ID
 
 ### Advanced: external signing (KMS/HSM/remote signer)
 
-If you don't want the private key to live inside the SDK process, supply a
-signing callback instead of a private key. The SDK forwards the 32-byte build
-hash to your callback and never sees the key — the key stays in your KMS/HSM or
-remote signing service. The callback must return `r`, `s`, and `v` (with `v`
-as 27 or 28, exactly like `Wallet.SignHash`).
+Keep the private key out of the SDK process: supply a signing callback instead of a private key and sign the build hash wherever the key lives.
 
 ```go
 sdk, _ := hyperliquid.New(endpoint,
-	hyperliquid.WithSigner(func(hashHex string) (*hyperliquid.Signature, error) {
-		// forward hashHex to your KMS/HSM/remote signer, return r,s,v (v ∈ {27,28})
+	hyperliquid.WithSigner(func(ctx context.Context, hashHex string) (*hyperliquid.Signature, error) {
+		// sign hashHex with your KMS/HSM/remote signer, return r, s, v (v in {27, 28}).
+		// ctx is bounded by the SDK Timeout; honour it for cancellation.
 	}),
-	// Provide the acting agent address so sdk.Address() and address-defaulting
-	// methods work without an in-process wallet.
-	hyperliquid.WithSignerAddress("0xYOUR_AGENT_ADDRESS"),
+	hyperliquid.WithSignerAddress("0xYOUR_AGENT_ADDRESS"), // acting agent address
 )
 ```
 
-When a signer is set, the SDK is sign-capable without an in-process wallet, no
-private key is read (including the `PRIVATE_KEY` env var), and builder-fee
-auto-approval is skipped.
+Builder-fee auto-approval is skipped with a signer, so call `sdk.ApproveBuilderFee("1%")` once per agent if you need it. Callback failures surface as a `*Error` with code `SIGNER_FAILED` (detect via `hyperliquid.IsSignerError(err)`).
 
 ---
 

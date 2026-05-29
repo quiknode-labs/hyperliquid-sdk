@@ -22,6 +22,7 @@ path = "src/lib.rs"
 # Async runtime
 tokio = { version = "1.47", features = ["full"] }
 tokio-stream = "0.1"
+async-trait = "0.1"
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
 

@@ -38,6 +38,17 @@
 //! - **HyperCore**: Real-time block data, trades, order book updates
 //! - **Streaming**: WebSocket and gRPC (optional) for real-time data
 //! - **HyperEVM**: Ethereum JSON-RPC compatibility
+//!
+//! # External signing (KMS/HSM/remote signer)
+//!
+//! Implement [`HyperliquidSigner`] and pass it via
+//! [`HyperliquidSDKBuilder::signer`] to sign action hashes without giving the
+//! SDK a raw private key. It takes precedence over `private_key`/`PRIVATE_KEY`,
+//! the acting address is taken from the signer, and builder-fee auto-approval is
+//! skipped (call `approve_builder_fee` yourself if you need it). A signer failure
+//! surfaces as [`Error::SignerError`] (code `SIGNER_FAILED`), distinct from a
+//! venue rejection ([`Error::ApiError`]). Bound each call with
+//! [`HyperliquidSDKBuilder::signer_deadline`] if your remote signer can stall.
 
 pub mod types;
 pub mod signing;
@@ -59,7 +70,8 @@ pub use types::{
     Action, ActionRequest, PredictionMarket, PredictionMarketFilter, PredictionSide,
 };
 pub use order::{Order, TriggerOrder, PlacedOrder};
-pub use error::{Error, Result};
+pub use error::{Error, ErrorCode, Result};
+pub use signing::{HyperliquidSigner, LocalSigner};
 pub use client::{HyperliquidSDK, HyperliquidSDKBuilder, EndpointInfo};
 pub use info::Info;
 pub use hypercore::HyperCore;

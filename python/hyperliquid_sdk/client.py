@@ -12,7 +12,7 @@ One class to rule them all:
 from __future__ import annotations
 import os
 import time as time_module
-from typing import Optional, Union, List, Dict, Any, TYPE_CHECKING
+from typing import Callable, Optional, Union, List, Dict, Any, TYPE_CHECKING
 from decimal import Decimal
 from urllib.parse import urlparse
 
@@ -33,8 +33,16 @@ from .errors import (
     ApprovalError,
     ValidationError,
     NoPositionError,
+    SignerError,
     parse_api_error,
 )
+
+# Signs the 32-byte order hash (0x-prefixed hex) produced by the build step and
+# returns the {"r", "s", "v"} signature dict (v in {27, 28}). The external-
+# signing analog of eth_account's unsafe_sign_hash, letting callers sign via a
+# remote KMS/HSM/signing service without exposing a private key to the SDK. The
+# SDK calls it synchronously; the signer should honour its own deadline.
+Signer = Callable[[str], Dict[str, Any]]
 
 if TYPE_CHECKING:
     from .info import Info
@@ -110,6 +118,8 @@ class HyperliquidSDK:
         endpoint: Optional[str] = None,
         *,
         private_key: Optional[str] = None,
+        signer: Optional[Signer] = None,
+        signer_address: Optional[str] = None,
         testnet: bool = False,
         auto_approve: bool = True,
         max_fee: str = "1%",
@@ -125,8 +135,16 @@ class HyperliquidSDK:
                      the public worker (send.hyperliquidapi.com).
             private_key: Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var.
                         Required for trading. Optional for read-only operations.
+            signer: External signing callback (KMS/HSM/remote service). When set, the SDK
+                    is sign-capable without an in-process wallet, no private key is read
+                    (including the PRIVATE_KEY env var), and builder-fee auto-approval is
+                    skipped (call approve_builder_fee() yourself if you need it). Mutually
+                    exclusive with private_key.
+            signer_address: Acting agent address used when signing via an external signer
+                    (there is no in-process wallet to derive it from). Exposed as sdk.address.
             testnet: Use testnet (default: False). When True, uses testnet chain identifiers.
-            auto_approve: Automatically approve builder fee for trading (default: True)
+            auto_approve: Automatically approve builder fee for trading (default: True).
+                    Skipped when an external signer is used.
             max_fee: Max builder fee to approve (default: "1%")
             slippage: Default slippage for market orders (default: 3%)
             timeout: Request timeout in seconds (default: 30)
@@ -156,16 +174,26 @@ class HyperliquidSDK:
         self._chain = "Testnet" if testnet else "Mainnet"
         self._chain_id = "0x66eee" if testnet else "0xa4b1"
 
-        # Get private key (optional for read-only operations)
-        pk = private_key or os.environ.get("PRIVATE_KEY")
+        # External signer takes precedence: when set, the SDK is sign-capable
+        # without an in-process wallet and never reads a private key (a signer
+        # means the key must never enter the SDK process).
+        self._signer = signer
+        self._signer_address = signer_address
 
-        # Initialize wallet if key provided
-        if pk:
-            self._wallet = Account.from_key(pk)
-            self.address = self._wallet.address
-        else:
+        if signer is not None:
             self._wallet = None
-            self.address = None
+            self.address = signer_address
+        else:
+            # Get private key (optional for read-only operations)
+            pk = private_key or os.environ.get("PRIVATE_KEY")
+
+            # Initialize wallet if key provided
+            if pk:
+                self._wallet = Account.from_key(pk)
+                self.address = self._wallet.address
+            else:
+                self._wallet = None
+                self.address = None
 
         # Build URLs for different APIs
         # Worker-only endpoints (/approval, /markets, /dexes, /preflight) always go to the worker
@@ -198,8 +226,10 @@ class HyperliquidSDK:
         self._grpc: Optional[GRPCStream] = None
         self._evm_stream: Optional[EVMStream] = None
 
-        # Auto-approve if requested and wallet available
-        if auto_approve and self._wallet:
+        # Auto-approve if requested and an in-process wallet is available.
+        # Skipped under an external signer (no wallet to sign the approval) —
+        # call approve_builder_fee() yourself if you need builder fees.
+        if auto_approve and self._wallet and self._signer is None:
             self._ensure_approved(max_fee)
 
     def _build_base_url(self, url: str) -> str:
@@ -2374,11 +2404,11 @@ class HyperliquidSDK:
         )
 
     def _require_wallet(self) -> None:
-        """Ensure a wallet is configured for signing operations."""
-        if self._wallet is None:
+        """Ensure a wallet or external signer is configured for signing operations."""
+        if self._wallet is None and self._signer is None:
             raise ValueError(
-                "Private key required for this operation. "
-                "Pass private_key to HyperliquidSDK() or set PRIVATE_KEY env var."
+                "Private key or signer required for this operation. "
+                "Pass private_key/signer to HyperliquidSDK() or set PRIVATE_KEY env var."
             )
 
     def _build_sign_send(
@@ -2523,7 +2553,26 @@ class HyperliquidSDK:
         return value
 
     def _sign_hash(self, hash_hex: str) -> dict:
-        """Sign a hash with the wallet."""
+        """Sign a hash with the external signer if configured, else the wallet.
+
+        An external-signer failure is raised as SignerError (the caller's
+        KMS/HSM/service erred), distinct from SignatureError, which the venue
+        path uses to mean the exchange rejected the signature.
+        """
+        if self._signer is not None:
+            try:
+                return self._signer(hash_hex)
+            except SignerError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — wrap any signer failure
+                raise SignerError(
+                    f"external signer failed: {exc}",
+                    guidance=(
+                        "The signer callback raised (KMS/HSM/remote signing "
+                        "service). This is not a venue rejection; check your signer."
+                    ),
+                ) from exc
+
         hash_bytes = bytes.fromhex(hash_hex.removeprefix("0x"))
         signed = self._wallet.unsafe_sign_hash(hash_bytes)
         return {

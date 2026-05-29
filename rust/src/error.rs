@@ -24,9 +24,15 @@ pub enum Error {
     #[error("JSON error: {0}")]
     JsonError(String),
 
-    /// Signing error
+    /// Signing error (in-process/local crypto or encoding failure)
     #[error("Signing error: {0}")]
     SigningError(String),
+
+    /// External signer failure (the user-supplied HyperliquidSigner failed,
+    /// timed out, or returned an invalid result). Distinct from SigningError
+    /// (local crypto) and ApiError (the venue rejected the signature).
+    #[error("External signer error: {0}")]
+    SignerError(String),
 
     /// Validation error
     #[error("Validation error: {0}")]
@@ -98,6 +104,7 @@ impl Error {
             Error::NetworkError(_) => ErrorCode::NetworkError,
             Error::JsonError(_) => ErrorCode::JsonError,
             Error::SigningError(_) => ErrorCode::SignatureInvalid,
+            Error::SignerError(_) => ErrorCode::SignerFailed,
             Error::ValidationError(_) => ErrorCode::InvalidParams,
             Error::OrderError(_) => ErrorCode::OrderError,
             Error::ApiError { code, .. } => *code,
@@ -125,6 +132,10 @@ impl Error {
             }
             Error::SigningError(_) => {
                 "Signature verification failed. Ensure you're using the correct private key."
+            }
+            Error::SignerError(_) => {
+                "The external signer (KMS/HSM/remote signing service) failed. \
+                 This is not a venue rejection; check your signer."
             }
             Error::ValidationError(_) => {
                 "Order validation failed. Check size, price, and asset parameters."
@@ -168,6 +179,7 @@ pub enum ErrorCode {
     NetworkError,
     JsonError,
     SignatureInvalid,
+    SignerFailed,
     InvalidParams,
     OrderError,
     WebSocketError,
@@ -201,6 +213,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::NetworkError => write!(f, "NETWORK_ERROR"),
             ErrorCode::JsonError => write!(f, "JSON_ERROR"),
             ErrorCode::SignatureInvalid => write!(f, "SIGNATURE_INVALID"),
+            ErrorCode::SignerFailed => write!(f, "SIGNER_FAILED"),
             ErrorCode::InvalidParams => write!(f, "INVALID_PARAMS"),
             ErrorCode::OrderError => write!(f, "ORDER_ERROR"),
             ErrorCode::WebSocketError => write!(f, "WEBSOCKET_ERROR"),

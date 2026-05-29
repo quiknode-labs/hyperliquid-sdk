@@ -1,6 +1,7 @@
 package hyperliquid
 
 import (
+	"context"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestWithSignerSetsSignerAndNewSucceedsWithoutKey(t *testing.T) {
 	t.Setenv("PRIVATE_KEY", "")
 
 	called := false
-	signer := func(hashHex string) (*Signature, error) {
+	signer := func(_ context.Context, hashHex string) (*Signature, error) {
 		called = true
 		return &Signature{R: "0x1", S: "0x2", V: 27}, nil
 	}
@@ -42,7 +43,7 @@ func TestWithSignerSetsSignerAndNewSucceedsWithoutKey(t *testing.T) {
 	}
 
 	// The configured callback must be the one we passed.
-	if _, err := sdk.signer("0x" + "00"); err != nil {
+	if _, err := sdk.signer(context.Background(), "0x"+"00"); err != nil {
 		t.Fatalf("signer callback returned error: %v", err)
 	}
 	if !called {
@@ -55,7 +56,7 @@ func TestWithSignerAddressBackfillsAddress(t *testing.T) {
 
 	const addr = "0x1234567890123456789012345678901234567890"
 	sdk, err := New(testEndpoint,
-		WithSigner(func(string) (*Signature, error) { return &Signature{}, nil }),
+		WithSigner(func(context.Context, string) (*Signature, error) { return &Signature{}, nil }),
 		WithSignerAddress(addr),
 	)
 	if err != nil {
@@ -73,7 +74,7 @@ func TestRequireWalletWithSignerDoesNotPanic(t *testing.T) {
 		}
 	}()
 
-	s := &SDK{signer: func(string) (*Signature, error) { return &Signature{}, nil }}
+	s := &SDK{signer: func(context.Context, string) (*Signature, error) { return &Signature{}, nil }}
 	s.requireWallet()
 }
 

@@ -48,7 +48,11 @@ var QNSupportedInfoMethods = map[string]bool{
 // and returns the signature components. hashHex may be 0x-prefixed. It is the
 // external-signing analog of Wallet.SignHash, letting callers sign via a
 // remote KMS/HSM/signing service without exposing a private key to the SDK.
-type Signer func(hashHex string) (*Signature, error)
+//
+// The ctx carries the SDK's request deadline/cancellation (bounded by the
+// configured Timeout); a remote signer should honour it. Returning an error
+// surfaces to the caller as a *Error with code SIGNER_FAILED (see SignerError).
+type Signer func(ctx context.Context, hashHex string) (*Signature, error)
 
 // Config holds SDK configuration options.
 type Config struct {
@@ -77,6 +81,11 @@ func WithPrivateKey(pk string) Option {
 // caller sign Hyperliquid actions via a remote KMS/HSM/signing service without
 // exposing a private key to the SDK. When a signer is set, the SDK is
 // sign-capable without an in-process wallet and no private key is read.
+//
+// The callback receives a context bounded by the configured Timeout, so a slow
+// remote signer is cancelled along with the rest of the request. Builder-fee
+// auto-approval is skipped under an external signer (there is no in-process
+// wallet to sign the approval); call ApproveBuilderFee yourself if you need it.
 func WithSigner(fn Signer) Option {
 	return func(c *Config) {
 		c.Signer = fn
@@ -472,7 +481,7 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		order.SetSize(NewDecimal(size).String())
 	}
 
-	return s.executeOrder(order, OrderGroupingNA, nil, order.GetPriorityFee())
+	return s.executeOrder(order, OrderGroupingNA, order.GetSlippage(), order.GetPriorityFee())
 }
 
 func (s *SDK) placeOrder(assetInput any, side Side, opts ...OrderOption) (*PlacedOrder, error) {
@@ -1079,7 +1088,16 @@ func (s *SDK) requireWallet() {
 
 func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
 	s.requireWallet()
+
+	// Bound the whole build→sign→send operation (including the external signer)
+	// by the configured Timeout, so a slow remote signer is cancelled with the
+	// rest of the request. A non-positive Timeout means "no deadline".
 	ctx := context.Background()
+	if s.config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.config.Timeout)
+		defer cancel()
+	}
 
 	// Step 1: Build
 	buildPayload := map[string]any{"action": action}
@@ -1110,15 +1128,20 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 
 	// Step 2: Sign
 	// Prefer the external signer when configured; otherwise sign in-process
-	// with the wallet's private key.
+	// with the wallet's private key. An external signer failure is reported as
+	// SignerError (the caller's KMS/HSM/service erred), distinct from a venue
+	// rejection or an in-process wallet fault (SignatureError).
 	var sig *Signature
 	if s.signer != nil {
-		sig, err = s.signer(hash)
+		sig, err = s.signer(ctx, hash)
+		if err != nil {
+			return nil, SignerError(err)
+		}
 	} else {
 		sig, err = s.wallet.SignHash(hash)
-	}
-	if err != nil {
-		return nil, SignatureError(fmt.Sprintf("failed to sign: %v", err))
+		if err != nil {
+			return nil, SignatureError(fmt.Sprintf("failed to sign: %v", err))
+		}
 	}
 
 	// Get action from build response (may have been normalized)

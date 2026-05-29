@@ -7,7 +7,7 @@
  */
 
 // Main SDK client
-export { HyperliquidSDK, HyperliquidSDKOptions, PredictionMarkets } from './client';
+export { HyperliquidSDK, HyperliquidSDKOptions, PredictionMarkets, Signer, Signature } from './client';
 
 // Order builders
 export { Order, TriggerOrder, PlacedOrder, Side, TIF, TpSl, OrderGrouping } from './order';
@@ -38,6 +38,7 @@ export {
   ApprovalError,
   ValidationError,
   SignatureError,
+  SignerError,
   NoPositionError,
   OrderNotFoundError,
   GeoBlockedError,

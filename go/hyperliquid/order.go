@@ -26,6 +26,7 @@ type OrderBuilder struct {
 	notional    float64
 	cloid       string
 	priorityFee *uint64
+	slippage    *float64
 }
 
 // Order creates a new order builder.
@@ -133,6 +134,16 @@ func (o *OrderBuilder) PriorityFee(priorityFee uint64) *OrderBuilder {
 	return o
 }
 
+// Slippage overrides the default market-order slippage for this order,
+// expressed as a fraction (e.g. 0.05 = 5%). Only applies to market orders;
+// ignored for limit orders. When unset, the SDK's configured default applies.
+// This is the OrderBuilder equivalent of the WithOrderSlippage OrderOption,
+// letting PlaceOrder honour a per-order slippage bound.
+func (o *OrderBuilder) Slippage(slippage float64) *OrderBuilder {
+	o.slippage = &slippage
+	return o
+}
+
 // Asset returns the order's asset.
 func (o *OrderBuilder) Asset() string {
 	return o.asset
@@ -171,6 +182,11 @@ func (o *OrderBuilder) IsReduceOnly() bool {
 // GetPriorityFee returns the order priority fee if set.
 func (o *OrderBuilder) GetPriorityFee() *uint64 {
 	return o.priorityFee
+}
+
+// GetSlippage returns the per-order slippage fraction if set, else nil.
+func (o *OrderBuilder) GetSlippage() *float64 {
+	return o.slippage
 }
 
 // SetSize sets the computed size (used internally for notional orders).
@@ -266,6 +282,9 @@ func (o *OrderBuilder) String() string {
 	}
 	if o.priorityFee != nil {
 		s += fmt.Sprintf(".PriorityFee(%d)", *o.priorityFee)
+	}
+	if o.slippage != nil {
+		s += fmt.Sprintf(".Slippage(%g)", *o.slippage)
 	}
 	return s
 }
