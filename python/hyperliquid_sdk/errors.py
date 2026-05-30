@@ -64,8 +64,21 @@ class ValidationError(HyperliquidError):
 
 
 class SignatureError(HyperliquidError):
-    """Signature verification failed."""
+    """Signature verification failed (venue-side rejection of the signature)."""
     pass
+
+
+class SignerError(HyperliquidError):
+    """The external signer callback failed to produce a signature.
+
+    Distinct from SignatureError, which means the venue REJECTED the signature.
+    SignerError means the client-side signer (KMS/HSM/remote service) errored,
+    timed out, or returned an invalid result before the request was sent.
+    """
+
+    def __init__(self, message: str, **kwargs):
+        kwargs.setdefault("code", "SIGNER_FAILED")
+        super().__init__(message, **kwargs)
 
 
 class NoPositionError(HyperliquidError):

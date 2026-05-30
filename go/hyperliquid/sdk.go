@@ -44,15 +44,28 @@ var QNSupportedInfoMethods = map[string]bool{
 	"validatorL1Votes": true, "marginTable": true, "perpDexs": true, "webData2": true, "outcomeMeta": true,
 }
 
+// Signer signs the 32-byte order hash produced by the Hyperliquid build step
+// and returns the signature components. hashHex may be 0x-prefixed. It is the
+// external-signing analog of Wallet.SignHash, letting callers sign via a
+// remote KMS/HSM/signing service without exposing a private key to the SDK.
+//
+// The ctx bounds the signer call itself by the configured Timeout (it does not
+// govern the build/send HTTP calls, which keep their own per-request timeout);
+// a remote signer should honour it for cancellation. Returning an error
+// surfaces to the caller as a *Error with code SIGNER_FAILED (see SignerError).
+type Signer func(ctx context.Context, hashHex string) (*Signature, error)
+
 // Config holds SDK configuration options.
 type Config struct {
-	Endpoint    string
-	PrivateKey  string
-	Testnet     bool
-	AutoApprove bool
-	MaxFee      string
-	Slippage    float64
-	Timeout     time.Duration
+	Endpoint      string
+	PrivateKey    string
+	Signer        Signer
+	SignerAddress string
+	Testnet       bool
+	AutoApprove   bool
+	MaxFee        string
+	Slippage      float64
+	Timeout       time.Duration
 }
 
 // Option is a functional option for configuring the SDK.
@@ -62,6 +75,31 @@ type Option func(*Config)
 func WithPrivateKey(pk string) Option {
 	return func(c *Config) {
 		c.PrivateKey = pk
+	}
+}
+
+// WithSigner sets an external signing callback for transactions, letting the
+// caller sign Hyperliquid actions via a remote KMS/HSM/signing service without
+// exposing a private key to the SDK. When a signer is set, the SDK is
+// sign-capable without an in-process wallet and no private key is read.
+//
+// The callback receives a context bounded by the configured Timeout, so a slow
+// remote signer is cancelled; the build/send HTTP calls keep their own
+// per-request timeout, so their behaviour is unchanged. Builder-fee
+// auto-approval is skipped under an external signer (there is no in-process
+// wallet to sign the approval); call ApproveBuilderFee yourself if you need it.
+func WithSigner(fn Signer) Option {
+	return func(c *Config) {
+		c.Signer = fn
+	}
+}
+
+// WithSignerAddress sets the acting agent address used by the SDK when signing
+// through an external Signer (there is no in-process wallet to derive it from).
+// Address() returns this value when no wallet is present.
+func WithSignerAddress(addr string) Option {
+	return func(c *Config) {
+		c.SignerAddress = addr
 	}
 }
 
@@ -102,9 +140,11 @@ func WithTimeout(timeout time.Duration) Option {
 
 // SDK is the main Hyperliquid SDK client.
 type SDK struct {
-	config *Config
-	http   *HTTPClient
-	wallet *Wallet
+	config        *Config
+	http          *HTTPClient
+	wallet        *Wallet
+	signer        Signer
+	signerAddress string
 
 	// URLs
 	endpoint        string
@@ -152,14 +192,18 @@ func New(endpoint string, opts ...Option) (*SDK, error) {
 		opt(config)
 	}
 
-	// Get private key from env if not provided
-	if config.PrivateKey == "" {
+	// Get private key from env if not provided.
+	// Only fall back to the env key when no external signer was supplied —
+	// a signer means the SDK must never hold a private key.
+	if config.PrivateKey == "" && config.Signer == nil {
 		config.PrivateKey = os.Getenv("PRIVATE_KEY")
 	}
 
 	sdk := &SDK{
 		config:          config,
 		http:            NewHTTPClient(config.Timeout),
+		signer:          config.Signer,
+		signerAddress:   config.SignerAddress,
 		endpoint:        endpoint,
 		publicWorkerURL: DefaultWorkerURL,
 		szDecimalsCache: make(map[string]int),
@@ -185,8 +229,10 @@ func New(endpoint string, opts ...Option) (*SDK, error) {
 	// QuickNode /send endpoint is not used for trading
 	sdk.exchangeURL = DefaultWorkerURL + "/exchange"
 
-	// Initialize wallet if private key provided
-	if config.PrivateKey != "" {
+	// Initialize wallet if private key provided.
+	// When an external signer is set, the SDK is sign-capable without a wallet,
+	// so we skip the wallet (and the auto-approve block, which needs one).
+	if config.Signer == nil && config.PrivateKey != "" {
 		wallet, err := NewWallet(config.PrivateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create wallet: %w", err)
@@ -210,10 +256,12 @@ func (s *SDK) Close() {
 	s.http.Close()
 }
 
-// Address returns the wallet address, or empty string if no wallet.
+// Address returns the acting agent address: the in-process wallet's address,
+// or the configured signer address when signing through an external Signer,
+// or empty string if neither is set.
 func (s *SDK) Address() string {
 	if s.wallet == nil {
-		return ""
+		return s.signerAddress
 	}
 	return s.wallet.AddressString()
 }
@@ -435,7 +483,7 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		order.SetSize(NewDecimal(size).String())
 	}
 
-	return s.executeOrder(order, OrderGroupingNA, nil, order.GetPriorityFee())
+	return s.executeOrder(order, OrderGroupingNA, order.GetSlippage(), order.GetPriorityFee())
 }
 
 func (s *SDK) placeOrder(assetInput any, side Side, opts ...OrderOption) (*PlacedOrder, error) {
@@ -1035,13 +1083,35 @@ func (s *SDK) RefreshMarkets() (*Markets, error) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 func (s *SDK) requireWallet() {
-	if s.wallet == nil {
-		panic("private key required for this operation")
+	if s.wallet == nil && s.signer == nil {
+		panic("private key or signer required for this operation")
 	}
+}
+
+// validateSignerSignature checks that an external Signer returned a usable
+// signature: non-nil, with non-empty r/s, and v ∈ {27,28} (the documented
+// contract, matching Wallet.SignHash). It exists because the callback is
+// user-supplied and may return a nil or malformed value without erroring.
+func validateSignerSignature(sig *Signature) error {
+	if sig == nil {
+		return fmt.Errorf("signer returned a nil signature")
+	}
+	if sig.R == "" || sig.S == "" {
+		return fmt.Errorf("signer returned a signature with empty r or s")
+	}
+	if sig.V != 27 && sig.V != 28 {
+		return fmt.Errorf("signer returned invalid v=%d (must be 27 or 28)", sig.V)
+	}
+	return nil
 }
 
 func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
 	s.requireWallet()
+
+	// Each HTTP call below relies on the client's own per-request timeout
+	// (http.Client.Timeout), unchanged from the wallet-only path. The external
+	// signer gets its own scoped deadline at Step 2 so a slow remote signer is
+	// bounded without shrinking the build/send HTTP budgets.
 	ctx := context.Background()
 
 	// Step 1: Build
@@ -1072,9 +1142,38 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 	}
 
 	// Step 2: Sign
-	sig, err := s.wallet.SignHash(hash)
-	if err != nil {
-		return nil, SignatureError(fmt.Sprintf("failed to sign: %v", err))
+	// Prefer the external signer when configured; otherwise sign in-process
+	// with the wallet's private key. An external signer failure is reported as
+	// SignerError (the caller's KMS/HSM/service erred), distinct from a venue
+	// rejection or an in-process wallet fault (SignatureError).
+	var sig *Signature
+	if s.signer != nil {
+		// Bound only the external signer call by the configured Timeout, so a
+		// slow remote signer is cancelled. A non-positive Timeout means "no
+		// deadline". The build/send HTTP calls keep their own per-request
+		// timeout, so existing behaviour is unchanged for them.
+		signCtx := ctx
+		if s.config.Timeout > 0 {
+			var cancel context.CancelFunc
+			signCtx, cancel = context.WithTimeout(ctx, s.config.Timeout)
+			defer cancel()
+		}
+		sig, err = s.signer(signCtx, hash)
+		if err != nil {
+			return nil, SignerError(err)
+		}
+		// The signer is user-supplied and has no compile-time guarantee of
+		// returning a valid *Signature (unlike Wallet.SignHash). Validate it
+		// here so a nil/malformed result surfaces as a clear SignerError rather
+		// than a confusing venue rejection downstream.
+		if verr := validateSignerSignature(sig); verr != nil {
+			return nil, SignerError(verr)
+		}
+	} else {
+		sig, err = s.wallet.SignHash(hash)
+		if err != nil {
+			return nil, SignatureError(fmt.Sprintf("failed to sign: %v", err))
+		}
 	}
 
 	// Get action from build response (may have been normalized)

@@ -65,6 +65,22 @@ fmt.Println(order.Status)  // "filled" or "resting"
 fmt.Println(order.OID)     // Order ID
 ```
 
+### Advanced: external signing (KMS/HSM/remote signer)
+
+Keep the private key out of the SDK process: supply a signing callback instead of a private key and sign the build hash wherever the key lives.
+
+```go
+sdk, _ := hyperliquid.New(endpoint,
+	hyperliquid.WithSigner(func(ctx context.Context, hashHex string) (*hyperliquid.Signature, error) {
+		// sign hashHex with your KMS/HSM/remote signer, return r, s, v (v in {27, 28}).
+		// ctx is bounded by the SDK Timeout; honour it for cancellation.
+	}),
+	hyperliquid.WithSignerAddress("0xYOUR_AGENT_ADDRESS"), // acting agent address
+)
+```
+
+Builder-fee auto-approval is skipped with a signer, so call `sdk.ApproveBuilderFee("1%")` once per agent if you need it. Callback failures surface as a `*Error` with code `SIGNER_FAILED` (detect via `hyperliquid.IsSignerError(err)`).
+
 ---
 
 ## Data APIs

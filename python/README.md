@@ -65,6 +65,26 @@ print(order.status)  # "filled" or "resting"
 print(order.oid)     # Order ID
 ```
 
+### Advanced: external signing (KMS/HSM/remote signer)
+
+Keep the private key out of the SDK process: pass a `signer` callback instead of `private_key` and sign the build hash wherever the key lives.
+
+```python
+from hyperliquid_sdk import HyperliquidSDK
+
+def signer(hash_hex: str) -> dict:
+    # sign hash_hex with your KMS/HSM/remote signer, return r, s, v (v in {27, 28})
+    ...
+
+sdk = HyperliquidSDK(
+    endpoint,
+    signer=signer,
+    signer_address="0xYOUR_AGENT_ADDRESS",  # acting agent address
+)
+```
+
+Builder-fee auto-approval is skipped with a signer, so call `sdk.approve_builder_fee("1%")` once per agent if you need it. Callback failures raise `SignerError` (code `SIGNER_FAILED`).
+
 ---
 
 ## Data APIs

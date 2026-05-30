@@ -11,6 +11,8 @@ export interface ErrorOptions {
   code?: string;
   guidance?: string;
   raw?: Record<string, unknown>;
+  /** Underlying error, exposed on the standard Error `cause` property. */
+  cause?: unknown;
 }
 
 /**
@@ -22,7 +24,7 @@ export class HyperliquidError extends Error {
   readonly raw: Record<string, unknown>;
 
   constructor(message: string, options: ErrorOptions = {}) {
-    super(HyperliquidError.formatMessage(message, options));
+    super(HyperliquidError.formatMessage(message, options), options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'HyperliquidError';
     this.code = options.code ?? null;
     this.guidance = options.guidance ?? null;
@@ -94,12 +96,27 @@ export class ValidationError extends HyperliquidError {
 }
 
 /**
- * Signature verification failed.
+ * Signature verification failed (venue-side rejection of the signature).
  */
 export class SignatureError extends HyperliquidError {
   constructor(message: string, options: ErrorOptions = {}) {
     super(message, options);
     this.name = 'SignatureError';
+  }
+}
+
+/**
+ * The external signer callback failed to produce a signature.
+ *
+ * Distinct from SignatureError, which means the venue REJECTED the signature.
+ * SignerError means the client-side signer (KMS/HSM/remote service) errored,
+ * timed out, or returned an invalid result before the request was sent. The
+ * original error is available on the standard `cause` property.
+ */
+export class SignerError extends HyperliquidError {
+  constructor(message: string, options: ErrorOptions = {}) {
+    super(message, { code: options.code ?? 'SIGNER_FAILED', ...options });
+    this.name = 'SignerError';
   }
 }
 

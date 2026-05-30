@@ -30,7 +30,7 @@ READ-ONLY (no private key):
     >>> sdk.get_mid("BTC")  # Get mid price
 """
 
-from .client import HyperliquidSDK
+from .client import HyperliquidSDK, Signer
 from .order import Order, PlacedOrder, Side, TIF, TriggerOrder, TpSl, OrderGrouping
 from .prediction import PredictionMarket, PredictionMarkets, PredictionSide
 from .info import Info
@@ -46,6 +46,7 @@ from .errors import (
     ApprovalError,
     ValidationError,
     SignatureError,
+    SignerError,
     NoPositionError,
     OrderNotFoundError,
     GeoBlockedError,
@@ -63,6 +64,7 @@ from .errors import (
 __all__ = [
     # Main SDK (unified entry point)
     "HyperliquidSDK",
+    "Signer",
     # Order building
     "Order",
     "PlacedOrder",
@@ -93,6 +95,7 @@ __all__ = [
     "ApprovalError",
     "ValidationError",
     "SignatureError",
+    "SignerError",
     "NoPositionError",
     "OrderNotFoundError",
     "GeoBlockedError",

@@ -17,6 +17,7 @@ import {
   BuildError,
   ValidationError,
   GeoBlockedError,
+  SignerError,
   parseApiError,
 } from './errors';
 import { Info } from './info';
@@ -184,12 +185,57 @@ function buildPredictionMarkets(outcomes: Array<Record<string, unknown>>, mids: 
   return markets;
 }
 
+/** ECDSA signature components returned by a signer. `v` is 27 or 28. */
+export interface Signature {
+  r: string;
+  s: string;
+  v: number;
+}
+
+/**
+ * Signs the 32-byte order hash produced by Hyperliquid's build step.
+ *
+ * `hashHex` may be 0x-prefixed. May be sync or async. The external-signing
+ * analog of an in-process wallet, letting callers sign via a remote
+ * KMS/HSM/signing service without exposing a private key to the SDK. The
+ * provided `signal` is an AbortSignal bounded by the SDK timeout, so a slow
+ * remote signer is cancelled along with the rest of the request — honour it.
+ */
+export type Signer = (
+  hashHex: string,
+  options?: { signal?: AbortSignal }
+) => Signature | Promise<Signature>;
+
+/**
+ * Runtime guard for a signature returned by a user-supplied {@link Signer}.
+ * The callback has no compile-time guarantee at runtime (callers may be plain
+ * JS), so a nil/malformed result is rejected before it reaches the venue.
+ */
+function isValidSignature(sig: unknown): sig is Signature {
+  if (typeof sig !== 'object' || sig === null) return false;
+  const s = sig as Signature;
+  return (
+    typeof s.r === 'string' && s.r !== '' &&
+    typeof s.s === 'string' && s.s !== '' &&
+    (s.v === 27 || s.v === 28)
+  );
+}
+
 export interface HyperliquidSDKOptions {
   /** Hex private key (with or without 0x). Falls back to PRIVATE_KEY env var. */
   privateKey?: string;
+  /**
+   * External signing callback (KMS/HSM/remote service). When set, the SDK is
+   * sign-capable without an in-process wallet, no private key is read (including
+   * the PRIVATE_KEY env var), and builder-fee auto-approval is skipped. Mutually
+   * exclusive with privateKey.
+   */
+  signer?: Signer;
+  /** Acting agent address used when signing via an external signer. Exposed as sdk.address. */
+  signerAddress?: string;
   /** Use testnet (default: false). */
   testnet?: boolean;
-  /** Automatically approve builder fee for trading (default: true). */
+  /** Automatically approve builder fee for trading (default: true). Skipped under an external signer. */
   autoApprove?: boolean;
   /** Max builder fee to approve (default: "1%"). */
   maxFee?: string;
@@ -266,6 +312,7 @@ export class HyperliquidSDK {
   private readonly _chainId: string;
 
   private readonly _wallet: Wallet | null;
+  private readonly _signer: Signer | null;
   readonly address: string | null;
 
   private readonly _publicWorkerUrl: string;
@@ -297,15 +344,23 @@ export class HyperliquidSDK {
     this._chain = this._testnet ? 'Testnet' : 'Mainnet';
     this._chainId = this._testnet ? '0x66eee' : '0xa4b1';
 
-    // Get private key
-    const pk = options.privateKey ?? (typeof process !== 'undefined' ? process.env?.PRIVATE_KEY : undefined);
+    // An external signer takes precedence: the SDK is sign-capable without an
+    // in-process wallet and never reads a private key (the key must never enter
+    // the SDK process).
+    this._signer = options.signer ?? null;
 
-    if (pk) {
-      this._wallet = new Wallet(pk);
-      this.address = this._wallet.address;
-    } else {
+    if (this._signer) {
       this._wallet = null;
-      this.address = null;
+      this.address = options.signerAddress ?? null;
+    } else {
+      const pk = options.privateKey ?? (typeof process !== 'undefined' ? process.env?.PRIVATE_KEY : undefined);
+      if (pk) {
+        this._wallet = new Wallet(pk);
+        this.address = this._wallet.address;
+      } else {
+        this._wallet = null;
+        this.address = null;
+      }
     }
 
     // Build URLs
@@ -1971,10 +2026,10 @@ export class HyperliquidSDK {
   }
 
   private _requireWallet(): void {
-    if (this._wallet === null) {
+    if (this._wallet === null && this._signer === null) {
       throw new Error(
-        'Private key required for this operation. ' +
-        'Pass privateKey to HyperliquidSDK() or set PRIVATE_KEY env var.'
+        'Private key or signer required for this operation. ' +
+        'Pass privateKey/signer to HyperliquidSDK() or set PRIVATE_KEY env var.'
       );
     }
   }
@@ -1986,8 +2041,10 @@ export class HyperliquidSDK {
   ): Promise<Record<string, unknown>> {
     this._requireWallet();
 
-    // Ensure approval on first trading action
-    if (this._autoApprove) {
+    // Ensure approval on first trading action. Skipped under an external signer
+    // (no in-process wallet to sign the approval) — call approveBuilderFee()
+    // yourself if you need builder fees.
+    if (this._autoApprove && this._wallet !== null && this._signer === null) {
       try {
         const status = await this.approvalStatus();
         if (!status.approved) {
@@ -2011,8 +2068,38 @@ export class HyperliquidSDK {
       throw new BuildError('Build response missing hash', { raw: buildResult });
     }
 
-    // Step 2: Sign
-    const sig = this._signHash(buildResult.hash as string);
+    // Step 2: Sign. Prefer the external signer, bounding it with an AbortSignal
+    // derived from the SDK timeout, and surface any failure as SignerError (the
+    // caller's KMS/HSM/service erred) — distinct from a venue rejection.
+    let sig: Signature;
+    if (this._signer) {
+      const signController = new AbortController();
+      const signTimeout = setTimeout(() => signController.abort(), this._timeout);
+      try {
+        sig = await this._signer(buildResult.hash as string, { signal: signController.signal });
+      } catch (err) {
+        throw new SignerError(
+          `failed to sign: ${err instanceof Error ? err.message : String(err)}`,
+          {
+            guidance: 'The signer callback threw or rejected (KMS/HSM/remote signing service). This is not a venue rejection; check your signer.',
+            cause: err,
+          }
+        );
+      } finally {
+        clearTimeout(signTimeout);
+      }
+      // The signer is user-supplied and may resolve to a malformed value
+      // without throwing. Validate it so a null/incomplete result surfaces as
+      // a clear SignerError instead of a confusing venue rejection.
+      if (!isValidSignature(sig)) {
+        throw new SignerError(
+          `signer returned an invalid signature (expected { r, s, v in {27,28} }): ${JSON.stringify(sig)}`,
+          { guidance: 'The signer callback returned a malformed signature (KMS/HSM/remote signing service). This is not a venue rejection; check your signer.' }
+        );
+      }
+    } else {
+      sig = this._signHash(buildResult.hash as string);
+    }
 
     // Step 3: Send
     const sendPayload = {
@@ -2138,7 +2225,7 @@ export class HyperliquidSDK {
     return value;
   }
 
-  private _signHash(hashHex: string): Record<string, unknown> {
+  private _signHash(hashHex: string): Signature {
     const hashBytes = Buffer.from(hashHex.replace(/^0x/, ''), 'hex');
     const sig = this._wallet!.signingKey.sign(hashBytes);
     return {

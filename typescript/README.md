@@ -50,6 +50,26 @@ console.log(order3.status);  // "filled" or "resting"
 console.log(order3.oid);     // Order ID
 ```
 
+### Advanced: external signing (KMS/HSM/remote signer)
+
+Keep the private key out of the SDK process: pass a `signer` callback instead of `privateKey` and sign the build hash wherever the key lives.
+
+```typescript
+import { HyperliquidSDK, Signer } from '@quicknode/hyperliquid-sdk';
+
+const signer: Signer = async (hashHex, { signal } = {}) => {
+  // sign hashHex with your KMS/HSM/remote signer; honour `signal` for timeouts
+  return { r: "0x...", s: "0x...", v: 27 };
+};
+
+const sdk = new HyperliquidSDK(endpoint, {
+  signer,
+  signerAddress: "0xYOUR_AGENT_ADDRESS",  // acting agent address
+});
+```
+
+Builder-fee auto-approval is skipped with a signer, so call `sdk.approveBuilderFee("1%")` once per agent if you need it. Callback failures throw `SignerError` (code `SIGNER_FAILED`).
+
 ---
 
 ## Data APIs
