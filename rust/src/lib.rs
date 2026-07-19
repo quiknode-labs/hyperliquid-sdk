@@ -68,6 +68,7 @@ pub use types::{
     Chain, Side, TIF, TpSl, OrderGrouping, Signature,
     OrderRequest, OrderTypePlacement, TimeInForce,
     Action, ActionRequest, PredictionMarket, PredictionMarketFilter, PredictionSide,
+    ExchangeOptions, CancelOptions,
 };
 pub use order::{Order, TriggerOrder, PlacedOrder};
 pub use error::{Error, ErrorCode, Result};
@@ -79,7 +80,7 @@ pub use evm::EVM;
 pub use stream::Stream;
 pub use evm_stream::{EVMStream, EVMSubscriptionType, EVMConnectionState};
 
-pub use grpc::{GRPCStream, GRPCSubscriptionOptions};
+pub use grpc::{GRPCL2BookDiffOptions, GRPCStream, GRPCStreamType, GRPCSubscriptionOptions};
 
 // Re-export serde_json::Value for convenience since many API methods return it
 pub use serde_json::Value;

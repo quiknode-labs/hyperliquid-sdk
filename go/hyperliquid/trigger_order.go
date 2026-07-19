@@ -17,15 +17,17 @@ import (
 //	// Take profit: sell when price rises to 80000
 //	TriggerOrder().TakeProfit("BTC").Size(0.001).TriggerPrice(80000).Market()
 type TriggerOrderBuilder struct {
-	asset      string
-	tpsl       TpSl
-	side       Side
-	size       string
-	triggerPx  string
-	limitPx    string
-	isMarket   bool
-	reduceOnly bool
-	cloid      string
+	asset        string
+	tpsl         TpSl
+	side         Side
+	size         string
+	triggerPx    string
+	limitPx      string
+	isMarket     bool
+	reduceOnly   bool
+	cloid        string
+	vaultAddress string
+	expiresAfter *int64
 }
 
 // TriggerOrder creates a new trigger order builder.
@@ -118,6 +120,23 @@ func (t *TriggerOrderBuilder) CLOID(cloid string) *TriggerOrderBuilder {
 	return t
 }
 
+// VaultAddress places the trigger order on behalf of a vault (or subaccount).
+// It is sent as the top-level vaultAddress exchange field and folded into
+// the signed action hash by the build endpoint. Never emitted when unset.
+func (t *TriggerOrderBuilder) VaultAddress(vaultAddress string) *TriggerOrderBuilder {
+	t.vaultAddress = vaultAddress
+	return t
+}
+
+// ExpiresAfter sets the action TTL as a millisecond timestamp after which
+// the exchange rejects the order. It is sent as the top-level expiresAfter
+// exchange field and folded into the signed action hash by the build
+// endpoint. Never emitted when unset.
+func (t *TriggerOrderBuilder) ExpiresAfter(expiresAfterMs int64) *TriggerOrderBuilder {
+	t.expiresAfter = &expiresAfterMs
+	return t
+}
+
 // Asset returns the order's asset.
 func (t *TriggerOrderBuilder) Asset() string {
 	return t.asset
@@ -141,6 +160,16 @@ func (t *TriggerOrderBuilder) GetTriggerPrice() string {
 // GetLimitPrice returns the order's limit price.
 func (t *TriggerOrderBuilder) GetLimitPrice() string {
 	return t.limitPx
+}
+
+// GetVaultAddress returns the vault address if set, else empty string.
+func (t *TriggerOrderBuilder) GetVaultAddress() string {
+	return t.vaultAddress
+}
+
+// GetExpiresAfter returns the action TTL (ms timestamp) if set, else nil.
+func (t *TriggerOrderBuilder) GetExpiresAfter() *int64 {
+	return t.expiresAfter
 }
 
 // Validate validates the trigger order before sending.

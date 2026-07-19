@@ -423,6 +423,8 @@ class HyperliquidSDK:
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Place a buy order.
@@ -438,6 +440,8 @@ class HyperliquidSDK:
             slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
                       Overrides the SDK default for this call only.
             priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -447,6 +451,7 @@ class HyperliquidSDK:
             sdk.buy("ETH", notional=100, tif="market")
             sdk.buy("ETH", notional=100, tif="market", slippage=0.05)
             sdk.buy("HYPE", size=0.3, tif="market", priority_fee=10000)
+            sdk.buy("BTC", size=0.001, price=67000, vault_address="0xVault...")
         """
         return self._place_order(
             asset=asset,
@@ -459,6 +464,8 @@ class HyperliquidSDK:
             grouping=grouping,
             slippage=slippage,
             priority_fee=priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
 
     def sell(
@@ -473,6 +480,8 @@ class HyperliquidSDK:
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Place a sell order.
@@ -488,6 +497,8 @@ class HyperliquidSDK:
             slippage: Slippage tolerance for market orders (e.g. 0.05 = 5%).
                       Overrides the SDK default for this call only.
             priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder with oid, status, and cancel/modify methods
@@ -503,6 +514,8 @@ class HyperliquidSDK:
             grouping=grouping,
             slippage=slippage,
             priority_fee=priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
 
     # Aliases for perp traders
@@ -517,6 +530,8 @@ class HyperliquidSDK:
         notional: Optional[float] = None,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Market buy — executes immediately at best available price.
@@ -528,6 +543,8 @@ class HyperliquidSDK:
             slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
                       Default: SDK-level setting (3%). Range: 0.1%-10%.
             priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Example:
             sdk.market_buy("BTC", size=0.001)
@@ -542,6 +559,8 @@ class HyperliquidSDK:
             tif="market",
             slippage=slippage,
             priority_fee=priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
 
     def market_sell(
@@ -552,6 +571,8 @@ class HyperliquidSDK:
         notional: Optional[float] = None,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Market sell — executes immediately at best available price.
@@ -563,6 +584,8 @@ class HyperliquidSDK:
             slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
                       Default: SDK-level setting (3%). Range: 0.1%-10%.
             priority_fee: Optional Hyperliquid order priority p. p=10000 is 1 bp.
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
         """
         return self.sell(
             asset,
@@ -571,14 +594,24 @@ class HyperliquidSDK:
             tif="market",
             slippage=slippage,
             priority_fee=priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
 
-    def order(self, order: Order) -> PlacedOrder:
+    def order(
+        self,
+        order: Order,
+        *,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
+    ) -> PlacedOrder:
         """
         Place an order using the fluent Order builder.
 
         Args:
             order: Order built with Order.buy() or Order.sell()
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Example:
             sdk.order(Order.buy("BTC").size(0.001).price(67000).gtc())
@@ -604,7 +637,11 @@ class HyperliquidSDK:
                 size = round(order._notional / mid, sz_decimals)
             order._size = str(size)
 
-        return self._execute_order(order)
+        return self._execute_order(
+            order,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     # ═══════════════════════════════════════════════════════════════════════════
     # TRIGGER ORDERS (Stop Loss / Take Profit)
@@ -620,6 +657,8 @@ class HyperliquidSDK:
         side: Side = Side.SELL,
         reduce_only: bool = True,
         grouping: OrderGrouping = OrderGrouping.NA,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Place a stop-loss trigger order.
@@ -636,6 +675,8 @@ class HyperliquidSDK:
             side: Order side when triggered (default: SELL for closing longs)
             reduce_only: Only reduce position, don't open new one (default: True)
             grouping: Order grouping for TP/SL attachment
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder with trigger order details
@@ -659,7 +700,12 @@ class HyperliquidSDK:
             trigger.market()
         trigger.reduce_only(reduce_only)
 
-        return self._execute_trigger_order(trigger, grouping)
+        return self._execute_trigger_order(
+            trigger,
+            grouping,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     def take_profit(
         self,
@@ -671,6 +717,8 @@ class HyperliquidSDK:
         side: Side = Side.SELL,
         reduce_only: bool = True,
         grouping: OrderGrouping = OrderGrouping.NA,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Place a take-profit trigger order.
@@ -687,6 +735,8 @@ class HyperliquidSDK:
             side: Order side when triggered (default: SELL for closing longs)
             reduce_only: Only reduce position, don't open new one (default: True)
             grouping: Order grouping for TP/SL attachment
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder with trigger order details
@@ -710,7 +760,12 @@ class HyperliquidSDK:
             trigger.market()
         trigger.reduce_only(reduce_only)
 
-        return self._execute_trigger_order(trigger, grouping)
+        return self._execute_trigger_order(
+            trigger,
+            grouping,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     # Aliases for convenience
     sl = stop_loss
@@ -720,6 +775,9 @@ class HyperliquidSDK:
         self,
         trigger: TriggerOrder,
         grouping: OrderGrouping = OrderGrouping.NA,
+        *,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Place a trigger order using the fluent TriggerOrder builder.
@@ -727,22 +785,35 @@ class HyperliquidSDK:
         Args:
             trigger: TriggerOrder built with TriggerOrder.stop_loss() or .take_profit()
             grouping: Order grouping for TP/SL attachment
+            vault_address: Trade on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Example:
             order = TriggerOrder.stop_loss("BTC").size(0.001).trigger_price(60000).market()
             sdk.trigger_order(order)
         """
-        return self._execute_trigger_order(trigger, grouping)
+        return self._execute_trigger_order(
+            trigger,
+            grouping,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     def _execute_trigger_order(
         self,
         trigger: TriggerOrder,
         grouping: OrderGrouping = OrderGrouping.NA,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """Execute a trigger order through build→sign→send."""
         trigger.validate()
         action = trigger.to_action(grouping)
-        result = self._build_sign_send(action)
+        result = self._build_sign_send(
+            action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
         # Build a pseudo Order for PlacedOrder.from_response
         order = Order(asset=trigger.asset, side=trigger.side)
@@ -1619,6 +1690,9 @@ class HyperliquidSDK:
         self,
         asset: str,
         slippage: Optional[float] = None,
+        *,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Close an open position completely.
@@ -1629,6 +1703,8 @@ class HyperliquidSDK:
             asset: Asset to close ("BTC", "ETH")
             slippage: Slippage tolerance as decimal (e.g. 0.05 = 5%).
                       Default: SDK-level setting (3%). Range: 0.1%-10%.
+            vault_address: Close on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder for the closing trade
@@ -1643,7 +1719,12 @@ class HyperliquidSDK:
             "user": self.address,
         }
 
-        result = self._build_sign_send(action, slippage=slippage)
+        result = self._build_sign_send(
+            action,
+            slippage=slippage,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
         # Build a pseudo PlacedOrder from the response
         order = Order.sell(asset)  # Direction determined by API
@@ -1662,6 +1743,10 @@ class HyperliquidSDK:
         self,
         oid: int,
         asset: Optional[Union[str, int]] = None,
+        *,
+        fast: bool = False,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> dict:
         """
         Cancel an order by OID.
@@ -1669,6 +1754,9 @@ class HyperliquidSDK:
         Args:
             oid: Order ID to cancel
             asset: Asset name (str) or index (int). Optional but speeds up cancellation.
+            fast: Request fast cancellation (adds the "f" flag to the cancel action).
+            vault_address: Cancel on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             Exchange response
@@ -1688,14 +1776,32 @@ class HyperliquidSDK:
             "type": "cancel",
             "cancels": [{"a": asset_idx, "o": oid}],
         }
-        return self._build_sign_send(cancel_action)
+        # Only emit "f" when true — the backend strips f:false anyway,
+        # and omitting it keeps wire compat with existing servers.
+        if fast:
+            cancel_action["f"] = True
+        return self._build_sign_send(
+            cancel_action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
-    def cancel_all(self, asset: Optional[str] = None) -> dict:
+    def cancel_all(
+        self,
+        asset: Optional[str] = None,
+        *,
+        fast: bool = False,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
+    ) -> dict:
         """
         Cancel all open orders.
 
         Args:
             asset: Only cancel orders for this asset (optional)
+            fast: Request fast cancellation (adds the "f" flag to the cancel action).
+            vault_address: Cancel on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             Exchange response
@@ -1717,12 +1823,22 @@ class HyperliquidSDK:
             if not cancel_action:
                 return {"message": "No orders to cancel"}
 
-        return self._build_sign_send(cancel_action)
+        if fast:
+            cancel_action = {**cancel_action, "f": True}
+        return self._build_sign_send(
+            cancel_action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     def cancel_by_cloid(
         self,
         cloid: str,
         asset: Union[str, int],
+        *,
+        fast: bool = False,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> dict:
         """
         Cancel an order by client order ID (cloid).
@@ -1730,6 +1846,9 @@ class HyperliquidSDK:
         Args:
             cloid: Client order ID (hex string, e.g., "0x...")
             asset: Asset name (str) or index (int)
+            fast: Request fast cancellation (adds the "f" flag to the cancel action).
+            vault_address: Cancel on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             Exchange response
@@ -1741,11 +1860,20 @@ class HyperliquidSDK:
             "type": "cancelByCloid",
             "cancels": [{"asset": asset_idx, "cloid": cloid}],
         }
-        return self._build_sign_send(cancel_action)
+        if fast:
+            cancel_action["f"] = True
+        return self._build_sign_send(
+            cancel_action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     def schedule_cancel(
         self,
         time: Optional[int] = None,
+        *,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> dict:
         """
         Schedule cancellation of all orders after a delay.
@@ -1755,6 +1883,8 @@ class HyperliquidSDK:
 
         Args:
             time: Unix timestamp (ms) when to cancel. If None, cancels the scheduled cancel.
+            vault_address: Schedule on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             Exchange response
@@ -1769,7 +1899,11 @@ class HyperliquidSDK:
         cancel_action: dict = {"type": "scheduleCancel"}
         if time is not None:
             cancel_action["time"] = time
-        return self._build_sign_send(cancel_action)
+        return self._build_sign_send(
+            cancel_action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
     def modify(
         self,
@@ -1781,6 +1915,8 @@ class HyperliquidSDK:
         *,
         tif: Union[str, TIF] = TIF.GTC,
         reduce_only: bool = False,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """
         Modify an existing order.
@@ -1793,6 +1929,8 @@ class HyperliquidSDK:
             size: New size
             tif: Time in force (default: GTC)
             reduce_only: Reduce only flag
+            vault_address: Modify on behalf of a vault/subaccount (42-char hex).
+            expires_after: Action TTL — reject if not executed by this ms timestamp.
 
         Returns:
             PlacedOrder with new details
@@ -1841,7 +1979,11 @@ class HyperliquidSDK:
             }],
         }
 
-        result = self._build_sign_send(modify_action)
+        result = self._build_sign_send(
+            modify_action,
+            vault_address=vault_address,
+            expires_after=expires_after,
+        )
 
         order = Order(asset=asset, side=Side.BUY if side == "buy" else Side.SELL)
         order._price = price
@@ -2311,6 +2453,8 @@ class HyperliquidSDK:
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """Internal order placement logic."""
         asset = self._asset_name(asset)
@@ -2362,6 +2506,8 @@ class HyperliquidSDK:
             grouping,
             slippage=slippage,
             priority_fee=priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
 
     def _execute_order(
@@ -2370,6 +2516,8 @@ class HyperliquidSDK:
         grouping: OrderGrouping = OrderGrouping.NA,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> PlacedOrder:
         """Execute an order through build→sign→send."""
         action = order.to_action()
@@ -2396,6 +2544,8 @@ class HyperliquidSDK:
             action,
             slippage=slippage,
             priority_fee=effective_priority_fee,
+            vault_address=vault_address,
+            expires_after=expires_after,
         )
         return PlacedOrder.from_response(
             result.get("exchangeResponse", {}),
@@ -2416,6 +2566,8 @@ class HyperliquidSDK:
         action: dict,
         slippage: Optional[float] = None,
         priority_fee: Optional[Union[int, str]] = None,
+        vault_address: Optional[str] = None,
+        expires_after: Optional[int] = None,
     ) -> dict:
         """
         The magic ceremony — build, sign, send in one call.
@@ -2423,6 +2575,11 @@ class HyperliquidSDK:
         1. Build: POST action to get hash (with slippage for market orders)
         2. Sign: Sign the hash locally
         3. Send: POST action + nonce + signature
+
+        vaultAddress and expiresAfter are top-level exchange-request fields.
+        They are folded into the action hash by the build step, so they must
+        ride BOTH payloads: build (so the signed hash covers them) and send
+        (so the worker recovers the signer and forwards them to Hyperliquid).
         """
         self._require_wallet()
 
@@ -2432,6 +2589,11 @@ class HyperliquidSDK:
         normalized_priority_fee = self._normalize_priority_fee(priority_fee)
         if normalized_priority_fee is not None:
             build_payload["priorityFee"] = normalized_priority_fee
+        normalized_expires_after = self._normalize_expires_after(expires_after)
+        if vault_address is not None:
+            build_payload["vaultAddress"] = vault_address
+        if normalized_expires_after is not None:
+            build_payload["expiresAfter"] = normalized_expires_after
 
         build_result = self._exchange(build_payload)
 
@@ -2450,6 +2612,10 @@ class HyperliquidSDK:
             "nonce": build_result["nonce"],
             "signature": sig,
         }
+        if vault_address is not None:
+            send_payload["vaultAddress"] = vault_address
+        if normalized_expires_after is not None:
+            send_payload["expiresAfter"] = normalized_expires_after
 
         return self._exchange(send_payload)
 
@@ -2549,6 +2715,27 @@ class HyperliquidSDK:
             raise ValidationError(
                 "priority_fee must be an unsigned integer",
                 guidance="Use priority_fee=10000 for 1 bp.",
+            )
+        return value
+
+    def _normalize_expires_after(
+        self,
+        expires_after: Optional[Union[int, str]],
+    ) -> Optional[int]:
+        """Normalize optional action TTL expiresAfter (ms timestamp)."""
+        if expires_after is None:
+            return None
+        try:
+            value = int(expires_after)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                "expires_after must be an unsigned integer (ms timestamp)",
+                guidance="Use expires_after=int(time.time() * 1000) + 60000.",
+            ) from exc
+        if value < 0:
+            raise ValidationError(
+                "expires_after must be an unsigned integer (ms timestamp)",
+                guidance="Use expires_after=int(time.time() * 1000) + 60000.",
             )
         return value
 

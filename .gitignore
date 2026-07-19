@@ -54,3 +54,29 @@ Thumbs.db
 .env
 .env.local
 *.pem
+
+# Environment (all variants)
+.env.*
+!.env.example
+
+# Coverage / build info
+coverage/
+*.tsbuildinfo
+.nyc_output/
+
+# Go binaries (no extension; built with `go build` at go/ root or in an example dir)
+go/evm_example
+go/full_demo
+go/grpc_streaming
+go/hypercore_example
+go/info_example
+go/place_order
+go/trading_example
+go/websocket_streaming
+go/examples/*/*
+!go/examples/*/*.go
+!go/examples/*/*.md
+!go/examples/*/go.mod
+
+# Claude Code local settings
+.claude/settings.local.json

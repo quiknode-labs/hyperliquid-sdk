@@ -374,6 +374,25 @@ stream.RawEvents(func(b map[string]any) {
     fmt.Printf("Events block: %v\n", b)
 })
 
+// Subscribe to pre-consensus mempool transactions (nil coins = all)
+stream.MempoolTxs([]string{"BTC", "ETH"}, func(tx map[string]any) {
+    fmt.Printf("Mempool tx: %v\n", tx)
+})
+
+// Subscribe to derived priority action streams
+// (events carry server-enriched fields: coin, market_type, sz_decimals)
+stream.OrderPriority(func(a map[string]any) {
+    fmt.Printf("Order priority: %v\n", a)
+})
+stream.GossipPriority(func(a map[string]any) {
+    fmt.Printf("Gossip priority: %v\n", a)
+})
+
+// Start a stream from a specific block number
+stream.Trades([]string{"BTC"}, func(t map[string]any) {
+    fmt.Printf("Trade: %v\n", t)
+}, hyperliquid.StreamWithStartBlock(12345678))
+
 // Run in background
 if err := stream.Start(); err != nil {
     log.Fatal(err)
@@ -404,6 +423,45 @@ stream.Run()
 | `RawEvents(callback)` | - | Raw system event blocks with `events: [...]` |
 | `WriterActions(callback)` | - | Writer actions |
 | `RawWriterActions(callback)` | - | Raw writer action blocks |
+| `MempoolTxs(coins, callback)` | coins: `[]string` (nil = all) | Pre-consensus mempool transactions |
+| `RawMempoolTxs(coins, callback)` | coins: `[]string` (nil = all) | Raw mempool transaction blocks |
+| `OrderPriority(callback)` | - | Derived order/write priority actions (enriched with `coin`, `market_type`, `sz_decimals`) |
+| `RawOrderPriority(callback)` | - | Raw order priority action blocks |
+| `GossipPriority(callback)` | - | Derived gossip/read priority bid actions (enriched with `coin`, `market_type`, `sz_decimals`; does not measure delivery latency) |
+| `RawGossipPriority(callback)` | - | Raw gossip priority action blocks |
+| `BboBook(coins, callback)` | coins: `[]string` (nil = all) | Best bid/offer changes only |
+| `L2BookDiff(coins, callback, opts...)` | coins: `[]string` (nil = all), opts: `L2BookOption` | Incremental L2 price-level changes (`sz=0` = level removed) |
+| `L4BookUpdates(coins, callback)` | coins: `[]string` (nil = all) | Typed L4 order-level changes |
+| `TpslUpdates(coins, callback)` | coins: `[]string` (nil = all perps) | Trigger/TP-SL order add/remove events |
+| `L2BookPacked(coin, callback, opts...)` | coin: `string`, opts: `L2BookOption` | Fixed-point L2 fast path |
+| `BboBookPacked(coins, callback)` | coins: `[]string` (nil = all) | Fixed-point BBO fast path |
+| `L4BookBytes(coin, callback)` | coin: `string` | L4 fast path; diffs as undecoded JSON bytes |
+| `StreamBytes(streamType, callback, opts...)` | streamType: `string`, opts: `StreamOption` | Low-level raw-bytes fast path for any generic stream |
+
+Generic streams accept `StreamOption`s: `StreamWithStartBlock(block)` starts the
+stream from a specific block number; `StreamWithCoins(...)`/`StreamWithUsers(...)`
+set filters for `StreamBytes`. `L2BookOption`s: `L2BookNLevels(n)`,
+`L2BookNSigFigs(n)`, `L2BookMantissa(m)`, and `L2BookSkipInitialSnapshot()`
+(L2BookDiff only).
+
+**Packed streams** (`L2BookPacked`, `BboBookPacked`): prices and sizes are
+`uint64` fixed-point integers scaled by 1e8.
+
+**Raw bytes fast path** (`StreamBytes`): the callback receives
+`(blockNumber, timestamp uint64, data []byte)` with the payload bytes left
+undecoded — no JSON parsing is performed:
+
+```go
+stream.StreamBytes("MEMPOOL_TXS", func(blockNumber, timestamp uint64, data []byte) {
+    // data is the raw JSON payload
+}, hyperliquid.StreamWithCoins("BTC"))
+```
+
+**L4 stream contract** (applies to `L4Book`, `L4BookBytes`, and `L4BookUpdates`):
+the server may send an unsolicited full snapshot at any time after subscribe
+(e.g. after ALO queue-priority anchored insertions). Clients MUST discard local
+book state and replace it with any snapshot received mid-stream. `insertBefore`
+is never sent to clients.
 
 ### L4 Order Book (Critical for Trading)
 
@@ -531,6 +589,39 @@ sdk.CancelAll("BTC")        // Just BTC orders
 
 // Dead-man's switch
 sdk.ScheduleCancel(timestampMs)
+
+// Fast cancel: emits the "f": true flag on the cancel action
+sdk.Cancel(oid, "BTC", hyperliquid.CancelWithFast())
+sdk.CancelByCloid("0xmycloid...", "BTC", hyperliquid.CancelWithFast())
+```
+
+### Vault Trading & Action TTL
+
+Orders, cancels, modifies, and closes accept two optional exchange-level
+fields. `vaultAddress` acts on behalf of a vault (or subaccount);
+`expiresAfter` is a millisecond timestamp after which the action is rejected.
+Both are signed into the action hash and are never sent unless set.
+
+```go
+vault := "0xVault..."
+deadline := time.Now().Add(30 * time.Second).UnixMilli()
+
+// One-line orders
+sdk.Buy("BTC", hyperliquid.WithSize(0.001), hyperliquid.WithPrice(65000),
+    hyperliquid.WithVaultAddress(vault), hyperliquid.WithExpiresAfter(deadline))
+
+// Fluent builder
+order := hyperliquid.Order().Buy("BTC").Size(0.001).Price(65000).GTC().
+    VaultAddress(vault).ExpiresAfter(deadline)
+sdk.PlaceOrder(order)
+
+// Cancels, modifies, closes
+sdk.Cancel(oid, "BTC", hyperliquid.CancelWithVaultAddress(vault), hyperliquid.CancelWithExpiresAfter(deadline))
+sdk.Modify(oid, "BTC", "buy", "61000", "0.001", hyperliquid.ModifyWithVaultAddress(vault))
+sdk.ClosePosition("BTC", hyperliquid.CloseWithVaultAddress(vault)) // closes the vault's position
+
+// Trigger orders
+sdk.StopLoss("BTC", 0.001, 60000, hyperliquid.TriggerWithVaultAddress(vault))
 ```
 
 ### Position Management
@@ -994,6 +1085,8 @@ hyperliquid.NewGRPCStream(endpoint, &hyperliquid.GRPCStreamConfig{
 ---
 
 ## Examples
+
+See [examples/grpc_mempool](examples/grpc_mempool/main.go) for a runnable gRPC mempool streaming example with a coin filter.
 
 See the [hyperliquid-examples](https://github.com/quiknode-labs/hyperliquid-examples) repository for 44 complete, runnable examples covering trading, streaming, market data, and more.
 

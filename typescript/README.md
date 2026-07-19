@@ -308,6 +308,18 @@ sdk.grpc.blocks((b) => console.log(`Block: ${JSON.stringify(b)}`));
 // Subscribe to raw event blocks
 sdk.grpc.rawEvents((b) => console.log(`Events block: ${JSON.stringify(b)}`));
 
+// Subscribe to pre-consensus mempool transactions (optional coin filter)
+sdk.grpc.mempoolTxs(["BTC"], (tx) => console.log(`Mempool: ${JSON.stringify(tx)}`));
+
+// Subscribe to best bid/offer changes for all coins
+sdk.grpc.bboBook((b) => console.log(`BBO: ${JSON.stringify(b)}`));
+
+// Subscribe to incremental L2 changes (sz=0 means the level was removed)
+sdk.grpc.l2BookDiff((d) => console.log(`L2 diff: ${JSON.stringify(d)}`), { coins: ["BTC"] });
+
+// Replay a stream from a specific block
+sdk.grpc.trades(["BTC"], (t) => console.log(t), { startBlock: 750000000 });
+
 // Start streaming
 await sdk.grpc.start();
 
@@ -335,6 +347,28 @@ sdk.grpc.stop();
 | `rawEvents(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writerActions(callback)` | - | Writer actions |
 | `rawWriterActions(callback)` | - | Raw writer action blocks |
+| `mempoolTxs(coins?, callback)` | coins?: `string[]` | Pre-consensus mempool transactions (optional coin filter) |
+| `rawMempoolTxs(coins?, callback)` | coins?: `string[]` | Raw mempool transaction blocks |
+| `orderPriority(callback)` | - | Derived order/write priority actions |
+| `rawOrderPriority(callback)` | - | Raw order priority blocks |
+| `gossipPriority(callback)` | - | Derived gossip/read priority bid actions |
+| `rawGossipPriority(callback)` | - | Raw gossip priority blocks |
+| `streamDataBytes(streamType, callback, options)` | streamType: `GRPCStreamType`, coins?/users?/startBlock? | Raw-bytes fast path of the generic stream (no JSON decoding) |
+| `bboBook(coins?, callback)` | coins?: `string[]` | Best bid/offer changes (empty coins = all) |
+| `l2BookDiff(callback, options)` | coins?, nLevels?, nSigFigs?, mantissa?, skipInitialSnapshot? | Incremental L2 price-level changes (sz=0 level = removed) |
+| `l4BookUpdates(coins?, callback)` | coins?: `string[]` | Typed L4 order-level changes |
+| `tpslUpdates(coins?, callback)` | coins?: `string[]` | Trigger/TP-SL order updates (empty coins = all perp coins) |
+| `l2BookPacked(coin, callback, options)` | coin: `string`, nSigFigs?, nLevels?, mantissa? | Fixed-point L2 fast path |
+| `bboBookPacked(coins?, callback)` | coins?: `string[]` | Fixed-point BBO fast path |
+| `l4BookBytes(coin, callback)` | coin: `string` | L4 fast path; diffs arrive as JSON bytes |
+
+**Priority streams:** `orderPriority` / `gossipPriority` events carry server-enriched fields `coin`, `market_type`, and `sz_decimals`.
+
+**Replay from a block:** the generic data streams accept `{ startBlock }` in their trailing options object, e.g. `sdk.grpc.trades(["BTC"], cb, { startBlock: 750000000 })`.
+
+**Packed streams:** in `l2BookPacked` / `bboBookPacked`, `px` and `sz` are u64 fixed-point integers scaled by 1e8.
+
+**L4 snapshot contract** (applies to `l4Book`, `l4BookBytes`, `l4BookUpdates`): the server may send an unsolicited full snapshot at any time after subscribe (e.g. after ALO queue-priority anchored insertions). Clients MUST discard local book state and replace it with any snapshot received mid-stream. `insertBefore` is never sent to clients.
 
 ### L4 Order Book (Critical for Trading)
 
@@ -438,6 +472,14 @@ await order.cancel();
 // Cancel all
 await sdk.cancelAll();
 await sdk.cancelAll("BTC");  // Just BTC orders
+
+// Fast cancel (wire flag f: true, only sent when set)
+await sdk.cancel(order.oid!, "BTC", { fast: true });
+await sdk.cancelByCloid("0xmycloid...", "BTC", { fast: true });
+
+// Action TTL — the exchange rejects the action after this ms timestamp
+await sdk.buy("BTC", { size: 0.001, price: 60000, tif: "gtc", expiresAfter: Date.now() + 60000 });
+await sdk.cancel(order.oid!, "BTC", { expiresAfter: Date.now() + 10000 });
 
 // Dead-man's switch
 await sdk.scheduleCancel(Date.now() + 60000);
@@ -669,6 +711,12 @@ await sdk.withdraw("0x...", 100);
 const HLP_VAULT = "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303";
 await sdk.vaultDeposit(HLP_VAULT, 100);
 await sdk.vaultWithdraw(HLP_VAULT, 50);
+
+// Trade on behalf of a vault or subaccount you lead
+const MY_VAULT = "0x...";
+await sdk.buy("BTC", { size: 0.001, price: 65000, vaultAddress: MY_VAULT });
+await sdk.cancel(oid, "BTC", { vaultAddress: MY_VAULT });
+await sdk.closePosition("BTC", { vaultAddress: MY_VAULT });
 ```
 
 ### Staking
@@ -703,6 +751,15 @@ const priorityOrder = await sdk.order(
     .size(0.3)
     .market()
     .priorityFee(10000)
+);
+
+const vaultOrder = await sdk.order(
+  Order.buy("BTC")
+    .size(0.001)
+    .price(65000)
+    .gtc()
+    .vaultAddress("0x...")
+    .expiresAfter(Date.now() + 60000)
 );
 ```
 

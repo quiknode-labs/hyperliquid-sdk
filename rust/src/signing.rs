@@ -186,6 +186,24 @@ mod tests {
         assert_ne!(hash_no_vault, hash_with_vault);
     }
 
+    #[test]
+    fn test_rmp_hash_with_expires_after() {
+        #[derive(Serialize)]
+        struct TestAction {
+            value: u64,
+        }
+
+        let action = TestAction { value: 42 };
+        let hash_no_expiry = rmp_hash(&action, 1000, None, None).unwrap();
+        let hash_with_expiry = rmp_hash(&action, 1000, None, Some(1_752_000_000_000)).unwrap();
+        // Expiry should change the hash
+        assert_ne!(hash_no_expiry, hash_with_expiry);
+
+        // Different expiry values hash differently
+        let hash_other_expiry = rmp_hash(&action, 1000, None, Some(1_752_000_000_001)).unwrap();
+        assert_ne!(hash_with_expiry, hash_other_expiry);
+    }
+
     #[tokio::test]
     async fn test_local_signer_address_matches_key() {
         let key = PrivateKeySigner::random();

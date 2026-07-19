@@ -54,6 +54,8 @@ export class Order {
   private _notional: number | null = null;
   private _cloid: string | null = null;
   private _priorityFee: number | string | null = null;
+  private _vaultAddress: string | null = null;
+  private _expiresAfter: number | null = null;
 
   /** @internal */
   constructor(asset: AssetInput, side: Side) {
@@ -179,6 +181,28 @@ export class Order {
     return this;
   }
 
+  /**
+   * Trade on behalf of a vault or subaccount.
+   *
+   * Sent as the request-level vaultAddress field and folded into the
+   * signed action hash.
+   */
+  vaultAddress(address: string): Order {
+    this._vaultAddress = address;
+    return this;
+  }
+
+  /**
+   * Set an action TTL as a ms timestamp.
+   *
+   * The exchange rejects the action after this time. Sent as the
+   * request-level expiresAfter field and folded into the signed action hash.
+   */
+  expiresAfter(timestampMs: number): Order {
+    this._expiresAfter = timestampMs;
+    return this;
+  }
+
   // ═══════════════ GETTERS ═══════════════
 
   getSize(): string | null {
@@ -207,6 +231,14 @@ export class Order {
 
   getPriorityFee(): number | string | null {
     return this._priorityFee;
+  }
+
+  getVaultAddress(): string | null {
+    return this._vaultAddress;
+  }
+
+  getExpiresAfter(): number | null {
+    return this._expiresAfter;
   }
 
   isMarket(): boolean {
@@ -300,6 +332,14 @@ export class Order {
       }
     }
 
+    if (this._expiresAfter !== null) {
+      if (!Number.isInteger(this._expiresAfter) || this._expiresAfter <= 0) {
+        throw new ValidationError('expiresAfter must be a positive integer (ms timestamp)', {
+          guidance: 'Use .expiresAfter(Date.now() + 60_000) for a 1-minute TTL.',
+        });
+      }
+    }
+
     // Validate price is positive for limit orders
     if (this._price !== null) {
       const priceVal = parseFloat(this._price);
@@ -326,6 +366,8 @@ export class Order {
     if (this._tif !== TIF.IOC) parts.push(`.${this._tif.toLowerCase()}()`);
     if (this._reduceOnly) parts.push('.reduceOnly()');
     if (this._priorityFee !== null) parts.push(`.priorityFee(${this._priorityFee})`);
+    if (this._vaultAddress !== null) parts.push(`.vaultAddress('${this._vaultAddress}')`);
+    if (this._expiresAfter !== null) parts.push(`.expiresAfter(${this._expiresAfter})`);
     return parts.join('');
   }
 }

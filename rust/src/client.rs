@@ -554,6 +554,22 @@ impl HyperliquidSDKInner {
         slippage: Option<f64>,
         priority_fee: Option<u64>,
     ) -> Result<BuildResponse> {
+        self.build_action_with_params(action, slippage, priority_fee, &ExchangeOptions::default())
+            .await
+    }
+
+    /// Build an action with the full set of optional exchange-body parameters.
+    ///
+    /// `vaultAddress` and `expiresAfter` are top-level exchange-body fields that
+    /// the worker folds into the action hash, so they must be present at build
+    /// time for the returned hash to cover them. Omitted entirely when unset.
+    pub async fn build_action_with_params(
+        &self,
+        action: &Value,
+        slippage: Option<f64>,
+        priority_fee: Option<u64>,
+        opts: &ExchangeOptions,
+    ) -> Result<BuildResponse> {
         let url = self.exchange_url();
 
         let mut body = json!({ "action": action });
@@ -568,6 +584,7 @@ impl HyperliquidSDKInner {
             }
             body["slippage"] = json!(s);
         }
+        apply_exchange_options(&mut body, opts);
 
         let response = self
             .http_client
@@ -613,13 +630,30 @@ impl HyperliquidSDKInner {
         nonce: u64,
         signature: &Signature,
     ) -> Result<Value> {
+        self.send_action_with_params(action, nonce, signature, &ExchangeOptions::default())
+            .await
+    }
+
+    /// Send a signed action with the full set of optional exchange-body parameters.
+    ///
+    /// `vaultAddress`/`expiresAfter` must match what was passed at build time:
+    /// the worker recovers the signer from the hash that includes them and
+    /// forwards them upstream. Omitted entirely when unset.
+    pub async fn send_action_with_params(
+        &self,
+        action: &Value,
+        nonce: u64,
+        signature: &Signature,
+        opts: &ExchangeOptions,
+    ) -> Result<Value> {
         let url = self.exchange_url();
 
-        let body = json!({
+        let mut body = json!({
             "action": action,
             "nonce": nonce,
             "signature": signature,
         });
+        apply_exchange_options(&mut body, opts);
 
         let response = self
             .http_client
@@ -670,23 +704,38 @@ impl HyperliquidSDKInner {
         slippage: Option<f64>,
         priority_fee: Option<u64>,
     ) -> Result<Value> {
+        self.build_sign_send_with_params(action, slippage, priority_fee, &ExchangeOptions::default())
+            .await
+    }
+
+    /// Build, sign, and send an action with the full set of optional
+    /// exchange-body parameters (`vaultAddress`, `expiresAfter`).
+    ///
+    /// The options are threaded into both the build request (so the worker
+    /// includes them in the signed hash) and the send request (so signature
+    /// recovery matches and the worker forwards them upstream).
+    pub async fn build_sign_send_with_params(
+        &self,
+        action: &Value,
+        slippage: Option<f64>,
+        priority_fee: Option<u64>,
+        opts: &ExchangeOptions,
+    ) -> Result<Value> {
         let signer = self
             .signer
             .as_ref()
             .ok_or_else(|| Error::ConfigError("No private key or signer configured".to_string()))?;
 
         // Resolve effective slippage: per-call override > constructor default > omit
-        let effective_slippage = slippage.or_else(|| {
-            if self.slippage > 0.0 {
-                Some(self.slippage)
-            } else {
-                None
-            }
+        let effective_slippage = slippage.or(if self.slippage > 0.0 {
+            Some(self.slippage)
+        } else {
+            None
         });
 
         // Step 1: Build
         let build_result = self
-            .build_action_with_priority(action, effective_slippage, priority_fee)
+            .build_action_with_params(action, effective_slippage, priority_fee, opts)
             .await?;
 
         // Step 2: Sign
@@ -706,7 +755,7 @@ impl HyperliquidSDKInner {
         };
 
         // Step 3: Send
-        self.send_action(&build_result.action, build_result.nonce, &signature)
+        self.send_action_with_params(&build_result.action, build_result.nonce, &signature, opts)
             .await
     }
 
@@ -828,19 +877,29 @@ impl HyperliquidSDKInner {
 
     /// Cancel an order by OID
     pub async fn cancel_by_oid(&self, oid: u64, asset: &str) -> Result<Value> {
+        self.cancel_by_oid_with_options(oid, asset, &CancelOptions::default())
+            .await
+    }
+
+    /// Cancel an order by OID with optional fast flag, vault address, and TTL
+    pub async fn cancel_by_oid_with_options(
+        &self,
+        oid: u64,
+        asset: &str,
+        opts: &CancelOptions,
+    ) -> Result<Value> {
         let asset_index = self
             .resolve_asset(asset)
             .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
 
-        let action = json!({
-            "type": "cancel",
-            "cancels": [{
-                "a": asset_index,
-                "o": oid,
-            }]
-        });
+        let action = cancel_action_json(
+            "cancel",
+            vec![json!({"a": asset_index, "o": oid})],
+            opts.fast,
+        );
 
-        self.build_sign_send(&action, None).await
+        self.build_sign_send_with_params(&action, None, None, &opts.exchange_options())
+            .await
     }
 
     /// Modify an order by OID
@@ -950,6 +1009,29 @@ fn decimal_amount_to_wei(raw: &str) -> Result<u64> {
 
 fn all_decimal_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Apply optional top-level exchange-body fields (`vaultAddress`, `expiresAfter`).
+///
+/// Fields are never emitted when unset, preserving wire compat with existing
+/// servers.
+fn apply_exchange_options(body: &mut Value, opts: &ExchangeOptions) {
+    if let Some(ref vault_address) = opts.vault_address {
+        body["vaultAddress"] = json!(vault_address);
+    }
+    if let Some(expires_after) = opts.expires_after {
+        body["expiresAfter"] = json!(expires_after);
+    }
+}
+
+/// Build a cancel-family action, emitting the fast flag (`"f": true`) only when
+/// set — the backend strips `f: false`, so false and unset are the same wire shape.
+fn cancel_action_json(cancel_type: &str, cancels: Vec<Value>, fast: bool) -> Value {
+    let mut action = json!({"type": cancel_type, "cancels": cancels});
+    if fast {
+        action["f"] = json!(true);
+    }
+    action
 }
 
 /// Validate a signature returned by an external `HyperliquidSigner`.
@@ -1094,6 +1176,69 @@ mod client_tests {
         let signer: Arc<dyn HyperliquidSigner> = Arc::new(SigningErrorSigner);
         let err = inner.sign_external(&signer, B256::ZERO).await.unwrap_err();
         assert_eq!(err.code(), crate::ErrorCode::SignerFailed);
+    }
+
+    // ── Optional exchange-body params (vaultAddress / expiresAfter / fast) ──
+
+    /// Unset options leave the body untouched — no `vaultAddress`/`expiresAfter`
+    /// keys at all (wire compat with existing servers).
+    #[test]
+    fn apply_exchange_options_omits_unset_fields() {
+        let mut body = json!({"action": {"type": "noop"}});
+        let before = body.clone();
+        apply_exchange_options(&mut body, &ExchangeOptions::default());
+        assert_eq!(body, before);
+    }
+
+    #[test]
+    fn apply_exchange_options_sets_fields_when_present() {
+        let mut body = json!({"action": {"type": "noop"}});
+        let opts = ExchangeOptions {
+            vault_address: Some("0x1719884eb866cb12b2287399b15f7db5e7d775ea".to_string()),
+            expires_after: Some(1_752_000_000_000),
+        };
+        apply_exchange_options(&mut body, &opts);
+        assert_eq!(
+            body["vaultAddress"],
+            json!("0x1719884eb866cb12b2287399b15f7db5e7d775ea")
+        );
+        assert_eq!(body["expiresAfter"], json!(1_752_000_000_000u64));
+    }
+
+    /// The fast flag is emitted on the cancel ACTION itself (sibling of
+    /// `cancels`), and only when true.
+    #[test]
+    fn cancel_action_json_fast_flag() {
+        let plain = cancel_action_json("cancel", vec![json!({"a": 5, "o": 123})], false);
+        assert_eq!(plain, json!({"type": "cancel", "cancels": [{"a": 5, "o": 123}]}));
+        assert!(plain.get("f").is_none());
+
+        let fast = cancel_action_json("cancel", vec![json!({"a": 5, "o": 123})], true);
+        assert_eq!(
+            fast,
+            json!({"type": "cancel", "cancels": [{"a": 5, "o": 123}], "f": true})
+        );
+
+        let cloid_fast = cancel_action_json(
+            "cancelByCloid",
+            vec![json!({"asset": 5, "cloid": "0x11111111111111111111111111111111"})],
+            true,
+        );
+        assert_eq!(cloid_fast["type"], json!("cancelByCloid"));
+        assert_eq!(cloid_fast["f"], json!(true));
+    }
+
+    /// CancelOptions carries its vault/TTL subset into ExchangeOptions.
+    #[test]
+    fn cancel_options_exchange_options_subset() {
+        let opts = CancelOptions {
+            fast: true,
+            vault_address: Some("0x1719884eb866cb12b2287399b15f7db5e7d775ea".to_string()),
+            expires_after: Some(42),
+        };
+        let ex = opts.exchange_options();
+        assert_eq!(ex.vault_address.as_deref(), Some("0x1719884eb866cb12b2287399b15f7db5e7d775ea"));
+        assert_eq!(ex.expires_after, Some(42));
     }
 
     #[test]
@@ -1285,6 +1430,7 @@ pub struct HyperliquidSDK {
 
 impl HyperliquidSDK {
     /// Create a new SDK builder
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> HyperliquidSDKBuilder {
         HyperliquidSDKBuilder::new()
     }
@@ -1540,8 +1686,20 @@ impl HyperliquidSDK {
         tif: TIF,
     ) -> Result<PlacedOrder> {
         let asset = asset.into();
-        self.place_order(&asset, Side::Buy, size, Some(price), tif, false, false, false, None, None)
-            .await
+        self.place_order(
+            &asset,
+            Side::Buy,
+            size,
+            Some(price),
+            tif,
+            false,
+            false,
+            false,
+            None,
+            None,
+            &ExchangeOptions::default(),
+        )
+        .await
     }
 
     /// Place a limit sell order
@@ -1553,8 +1711,20 @@ impl HyperliquidSDK {
         tif: TIF,
     ) -> Result<PlacedOrder> {
         let asset = asset.into();
-        self.place_order(&asset, Side::Sell, size, Some(price), tif, false, false, false, None, None)
-            .await
+        self.place_order(
+            &asset,
+            Side::Sell,
+            size,
+            Some(price),
+            tif,
+            false,
+            false,
+            false,
+            None,
+            None,
+            &ExchangeOptions::default(),
+        )
+        .await
     }
 
     /// Place an order using the fluent builder
@@ -1600,6 +1770,7 @@ impl HyperliquidSDK {
             order.get_notional().is_some() && order.get_size().is_none(),
             None, // use constructor-level default slippage
             order.get_priority_fee(),
+            &order.exchange_options(),
         )
         .await
     }
@@ -1677,7 +1848,10 @@ impl HyperliquidSDK {
             "grouping": "na",
         });
 
-        let response = self.inner.build_sign_send(&action, None).await?;
+        let response = self
+            .inner
+            .build_sign_send_with_params(&action, None, None, &order.exchange_options())
+            .await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1726,6 +1900,7 @@ impl HyperliquidSDK {
     /// For market orders (`is_market = true`), uses the human-readable format
     /// (`asset`, `side`, `size`, `tif: "market"`) and delegates price computation
     /// to the worker. For limit orders, uses the wire format (`a`, `b`, `p`, `s`).
+    #[allow(clippy::too_many_arguments)]
     async fn place_order(
         &self,
         asset: &str,
@@ -1738,6 +1913,7 @@ impl HyperliquidSDK {
         size_from_notional: bool,
         slippage: Option<f64>,
         priority_fee: Option<u64>,
+        opts: &ExchangeOptions,
     ) -> Result<PlacedOrder> {
         if is_prediction_asset(asset) && priority_fee.is_some() {
             return Err(Error::ValidationError(
@@ -1848,7 +2024,7 @@ impl HyperliquidSDK {
 
         let response = self
             .inner
-            .build_sign_send_with_priority(&action, effective_slippage, priority_fee)
+            .build_sign_send_with_params(&action, effective_slippage, priority_fee, opts)
             .await?;
 
         Ok(PlacedOrder::from_response(
@@ -1868,6 +2044,7 @@ impl HyperliquidSDK {
     /// Modify an existing order
     ///
     /// The order is identified by OID, which is included in the returned order.
+    #[allow(clippy::too_many_arguments)]
     pub async fn modify(
         &self,
         oid: u64,
@@ -1878,6 +2055,34 @@ impl HyperliquidSDK {
         tif: TIF,
         reduce_only: bool,
         cloid: Option<&str>,
+    ) -> Result<PlacedOrder> {
+        self.modify_with_options(
+            oid,
+            asset,
+            is_buy,
+            size,
+            price,
+            tif,
+            reduce_only,
+            cloid,
+            &ExchangeOptions::default(),
+        )
+        .await
+    }
+
+    /// Modify an existing order with optional vault address and TTL
+    #[allow(clippy::too_many_arguments)]
+    pub async fn modify_with_options(
+        &self,
+        oid: u64,
+        asset: &str,
+        is_buy: bool,
+        size: f64,
+        price: f64,
+        tif: TIF,
+        reduce_only: bool,
+        cloid: Option<&str>,
+        opts: &ExchangeOptions,
     ) -> Result<PlacedOrder> {
         let asset_idx = self
             .inner
@@ -1923,7 +2128,10 @@ impl HyperliquidSDK {
             }]
         });
 
-        let response = self.inner.build_sign_send(&action, None).await?;
+        let response = self
+            .inner
+            .build_sign_send_with_params(&action, None, None, opts)
+            .await?;
 
         Ok(PlacedOrder::from_response(
             response,
@@ -1940,8 +2148,28 @@ impl HyperliquidSDK {
         self.inner.cancel_by_oid(oid, asset).await
     }
 
+    /// Cancel an order by OID with optional fast flag, vault address, and TTL
+    pub async fn cancel_with_options(
+        &self,
+        oid: u64,
+        asset: &str,
+        opts: &CancelOptions,
+    ) -> Result<Value> {
+        self.inner.cancel_by_oid_with_options(oid, asset, opts).await
+    }
+
     /// Cancel all orders (optionally for a specific asset)
     pub async fn cancel_all(&self, asset: Option<&str>) -> Result<Value> {
+        self.cancel_all_with_options(asset, &CancelOptions::default())
+            .await
+    }
+
+    /// Cancel all orders with optional fast flag, vault address, and TTL
+    pub async fn cancel_all_with_options(
+        &self,
+        asset: Option<&str>,
+        opts: &CancelOptions,
+    ) -> Result<Value> {
         // Ensure we have an address configured
         if self.inner.address.is_none() {
             return Err(Error::ConfigError("No address configured".to_string()));
@@ -1973,12 +2201,11 @@ impl HyperliquidSDK {
             return Ok(json!({"status": "ok", "message": "No orders to cancel"}));
         }
 
-        let action = json!({
-            "type": "cancel",
-            "cancels": cancels,
-        });
+        let action = cancel_action_json("cancel", cancels, opts.fast);
 
-        self.inner.build_sign_send(&action, None).await
+        self.inner
+            .build_sign_send_with_params(&action, None, None, &opts.exchange_options())
+            .await
     }
 
     /// Close position for an asset
@@ -1987,6 +2214,17 @@ impl HyperliquidSDK {
     /// the `closePosition` action type. Optionally accepts a per-call slippage
     /// override.
     pub async fn close_position(&self, asset: &str, slippage: Option<f64>) -> Result<PlacedOrder> {
+        self.close_position_with_options(asset, slippage, &ExchangeOptions::default())
+            .await
+    }
+
+    /// Close position with optional vault address and TTL
+    pub async fn close_position_with_options(
+        &self,
+        asset: &str,
+        slippage: Option<f64>,
+        opts: &ExchangeOptions,
+    ) -> Result<PlacedOrder> {
         let address = self
             .inner
             .address
@@ -1998,7 +2236,10 @@ impl HyperliquidSDK {
             "user": format!("{:?}", address),
         });
 
-        let response = self.inner.build_sign_send(&action, slippage).await?;
+        let response = self
+            .inner
+            .build_sign_send_with_params(&action, slippage, None, opts)
+            .await?;
 
         // Build pseudo PlacedOrder — actual fill data is extracted from exchangeResponse
         // by PlacedOrder::from_response (matching TS/Python pattern)
@@ -2640,6 +2881,7 @@ impl HyperliquidSDK {
     }
 
     /// Transfer tokens to HyperEVM with custom data payload
+    #[allow(clippy::too_many_arguments)]
     pub async fn send_to_evm_with_data(
         &self,
         token: &str,
@@ -2718,18 +2960,32 @@ impl HyperliquidSDK {
 
     /// Cancel an order by client order ID (cloid)
     pub async fn cancel_by_cloid(&self, cloid: &str, asset: &str) -> Result<Value> {
+        self.cancel_by_cloid_with_options(cloid, asset, &CancelOptions::default())
+            .await
+    }
+
+    /// Cancel an order by cloid with optional fast flag, vault address, and TTL
+    pub async fn cancel_by_cloid_with_options(
+        &self,
+        cloid: &str,
+        asset: &str,
+        opts: &CancelOptions,
+    ) -> Result<Value> {
         let asset_idx = self
             .inner
             .metadata
             .resolve_asset(asset)
             .ok_or_else(|| Error::ValidationError(format!("Unknown asset: {}", asset)))?;
 
-        let action = json!({
-            "type": "cancelByCloid",
-            "cancels": [{"asset": asset_idx, "cloid": cloid}],
-        });
+        let action = cancel_action_json(
+            "cancelByCloid",
+            vec![json!({"asset": asset_idx, "cloid": cloid})],
+            opts.fast,
+        );
 
-        self.inner.build_sign_send(&action, None).await
+        self.inner
+            .build_sign_send_with_params(&action, None, None, &opts.exchange_options())
+            .await
     }
 
     /// Schedule cancellation of all orders after a delay (dead-man's switch)
@@ -2773,6 +3029,8 @@ pub struct MarketOrderBuilder {
     slippage: Option<f64>,
     reduce_only: bool,
     priority_fee: Option<u64>,
+    vault_address: Option<String>,
+    expires_after: Option<u64>,
 }
 
 impl MarketOrderBuilder {
@@ -2786,6 +3044,8 @@ impl MarketOrderBuilder {
             slippage: None,
             reduce_only: false,
             priority_fee: None,
+            vault_address: None,
+            expires_after: None,
         }
     }
 
@@ -2821,6 +3081,24 @@ impl MarketOrderBuilder {
     /// p=10000 is 1 bp. Fees are paid from undelegated staking HYPE.
     pub fn priority_fee(mut self, p: u64) -> Self {
         self.priority_fee = Some(p);
+        self
+    }
+
+    /// Trade on behalf of a vault or subaccount
+    ///
+    /// Sent as the top-level `vaultAddress` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn vault_address(mut self, vault_address: impl Into<String>) -> Self {
+        self.vault_address = Some(vault_address.into());
+        self
+    }
+
+    /// Set action TTL: millisecond timestamp after which the action is rejected
+    ///
+    /// Sent as the top-level `expiresAfter` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn expires_after(mut self, expires_after: u64) -> Self {
+        self.expires_after = Some(expires_after);
         self
     }
 
@@ -2895,9 +3173,13 @@ impl MarketOrderBuilder {
             "orders": [order_spec],
         });
 
+        let opts = ExchangeOptions {
+            vault_address: self.vault_address.clone(),
+            expires_after: self.expires_after,
+        };
         let response = self
             .inner
-            .build_sign_send_with_priority(&action, self.slippage, self.priority_fee)
+            .build_sign_send_with_params(&action, self.slippage, self.priority_fee, &opts)
             .await?;
 
         Ok(PlacedOrder::from_response(

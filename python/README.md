@@ -327,6 +327,15 @@ sdk.grpc.blocks(lambda b: print(f"Block: {b}"))
 # Subscribe to raw event blocks
 sdk.grpc.raw_events(lambda b: print(f"Events block: {b}"))
 
+# Subscribe to pre-consensus mempool transactions (optional coin filter)
+sdk.grpc.mempool_txs(lambda t: print(f"Mempool: {t}"), coins=["BTC"])
+
+# Subscribe to top-of-book changes (empty coins = all coins)
+sdk.grpc.bbo_book(lambda b: print(f"BBO: {b}"), coins=["BTC", "ETH"])
+
+# Subscribe to incremental L2 diffs (sz == "0" means level removed)
+sdk.grpc.l2_book_diff(lambda d: print(f"L2 diff: {d}"), coins=["BTC"])
+
 # Run in background
 sdk.grpc.start()
 # ... do other work ...
@@ -355,6 +364,31 @@ sdk.grpc.run()
 | `raw_events(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writer_actions(callback)` | - | Writer actions |
 | `raw_writer_actions(callback)` | - | Raw writer action blocks |
+| `mempool_txs(callback, coins=None)` | coins: `List[str]` (optional) | Pre-consensus mempool transactions (coin filter optional; None = all) |
+| `raw_mempool_txs(callback, coins=None)` | coins: `List[str]` (optional) | Raw mempool transaction blocks |
+| `order_priority(callback)` | - | Derived order/write priority actions (events carry server-enriched `coin`, `market_type`, `sz_decimals`) |
+| `raw_order_priority(callback)` | - | Raw order priority blocks |
+| `gossip_priority(callback)` | - | Derived gossip/read priority bid actions (events carry server-enriched `coin`, `market_type`, `sz_decimals`) |
+| `raw_gossip_priority(callback)` | - | Raw gossip priority blocks |
+| `bbo_book(callback, coins=None)` | coins: `List[str]` (optional) | Top-of-book (best bid/offer) changes; emits only when BBO changes |
+| `l2_book_diff(callback, coins=None, n_levels=20, n_sig_figs=None, mantissa=None, skip_initial_snapshot=False)` | coins: `List[str]` (optional) | Incremental L2 price-level changes; `sz == "0"` means level removed |
+| `l4_book_updates(callback, coins=None)` | coins: `List[str]` (optional) | Typed L4 order diffs (new/update/remove) |
+| `tpsl_updates(callback, coins=None)` | coins: `List[str]` (optional) | Trigger/TP-SL order add/remove updates |
+| `l2_book_packed(coin, callback, n_sig_figs=None, n_levels=20, mantissa=None)` | coin: `str` | Fast-path L2 book; px/sz are u64 fixed-point scaled by 1e8 |
+| `bbo_book_packed(callback, coins=None)` | coins: `List[str]` (optional) | Fast-path BBO; px/sz are u64 fixed-point scaled by 1e8 |
+| `l4_book_bytes(coin, callback)` | coin: `str` | Fast-path L4 book; diff payload is raw JSON `bytes` |
+| `stream_bytes(stream_type, callback, coins=None, users=None, start_block=None)` | stream_type: `str` | Low-level bytes fast path for any stream type; callback gets `{"block_number", "timestamp", "data": bytes}` |
+
+All `StreamData`-based helpers (trades, orders, events, mempool_txs, ...) also accept an
+optional `start_block` keyword to resume streaming from a specific block number.
+
+**L4 contract note** (applies to `l4_book`, `l4_book_bytes`, `l4_book_updates`): the server
+may send an unsolicited full snapshot at any time after subscribe (e.g. after ALO
+queue-priority anchored insertions). Clients MUST discard local book state and replace it
+with any snapshot received mid-stream. `insertBefore` is never sent to clients.
+
+**Packed streams** (`l2_book_packed`, `bbo_book_packed`): prices and sizes are u64
+fixed-point integers scaled by 1e8 (divide by `1e8` for the decimal value).
 
 ### L4 Order Book (Critical for Trading)
 
@@ -459,6 +493,29 @@ sdk.cancel_all("BTC")  # Just BTC orders
 # Dead-man's switch
 import time
 sdk.schedule_cancel(int(time.time() * 1000) + 60000)
+
+# Fast cancel — request expedited cancellation
+sdk.cancel(order.oid, "BTC", fast=True)
+sdk.cancel_by_cloid("0xmycloid...", "BTC", fast=True)
+sdk.cancel_all(fast=True)
+```
+
+### Vault Trading & Action TTL
+
+Orders, modifies, cancels, and `close_position` accept two optional
+exchange-level fields. Both are signed into the action, and neither is sent
+unless you set it:
+
+```python
+# Trade on behalf of a vault (or subaccount) you operate
+sdk.buy("BTC", size=0.001, price=65000, vault_address="0xVault...")
+sdk.cancel(oid, "BTC", vault_address="0xVault...")
+sdk.close_position("BTC", vault_address="0xVault...")
+
+# Action TTL — reject the action if not executed by this ms timestamp
+import time
+sdk.buy("BTC", size=0.001, price=65000,
+        expires_after=int(time.time() * 1000) + 60_000)
 ```
 
 ### Position Management

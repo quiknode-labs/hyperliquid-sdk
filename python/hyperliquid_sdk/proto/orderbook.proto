@@ -8,6 +8,8 @@
 syntax = "proto3";
 package hyperliquid;
 
+option go_package = "github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto";
+
 // Service for streaming real-time order book data.
 // L2 provides aggregated price levels (px, total_sz, order_count).
 // L4 provides individual order details (user, trigger info, timestamps).
@@ -19,42 +21,127 @@ service OrderBookStreaming {
   // Subscribe to L4 full order book for a coin.
   // Sends an initial L4 snapshot, then incremental diffs per block.
   rpc StreamL4Book (L4BookRequest) returns (stream L4BookUpdate);
+
+  // Subscribe to top-of-book changes. Empty coins means all coins.
+  // Emits only when the best bid or ask changes for a coin.
+  rpc StreamBboBook (BboBookRequest) returns (stream BboBookUpdate);
+
+  // Subscribe to incremental L2 price-level changes. Empty coins means all coins.
+  rpc StreamL2BookDiff (L2BookDiffRequest) returns (stream L2BookDiffUpdate);
+
+  // Subscribe to typed L4 order book updates. Empty coins means all coins.
+  rpc StreamL4BookUpdates (L4BookUpdatesRequest) returns (stream L4BookUpdatesUpdate);
+
+  // Subscribe to trigger/TP-SL order updates. Empty coins means all perp coins.
+  rpc StreamTpslUpdates (TpslUpdatesRequest) returns (stream TpslUpdatesUpdate);
+
+  // Fast-path L2 stream. Prices/sizes are fixed-point integers scaled by 1e8.
+  rpc StreamL2BookPacked (L2BookRequest) returns (stream L2BookPackedUpdate);
+
+  // Fast-path BBO stream. Prices/sizes are fixed-point integers scaled by 1e8.
+  rpc StreamBboBookPacked (BboBookRequest) returns (stream BboBookPackedUpdate);
+
+  // Fast-path L4 stream. Diff payload is JSON bytes instead of a protobuf string.
+  rpc StreamL4BookBytes (L4BookRequest) returns (stream L4BookBytesUpdate);
 }
 
 // Request parameters for L2 book streaming.
 message L2BookRequest {
-  string coin = 1;
-  uint32 n_levels = 2;
-  optional uint32 n_sig_figs = 3;
-  optional uint64 mantissa = 4;
+  string coin = 1;                     // Symbol (e.g. "BTC", "ETH")
+  uint32 n_levels = 2;                 // Max number of price levels (default 20, max 100)
+  optional uint32 n_sig_figs = 3;      // Significance figures for price bucketing (2-5)
+  optional uint64 mantissa = 4;        // Mantissa for bucketing (1, 2, or 5)
 }
 
 // An L2 book update: full snapshot of aggregated price levels at a point in time.
 message L2BookUpdate {
   string coin = 1;
-  uint64 time = 2;
+  uint64 time = 2;                     // Block timestamp (milliseconds)
   uint64 block_number = 3;
-  repeated L2Level bids = 4;
-  repeated L2Level asks = 5;
+  repeated L2Level bids = 4;           // Aggregated bid levels (best first)
+  repeated L2Level asks = 5;           // Aggregated ask levels (best first)
 }
 
 // A single aggregated price level.
 message L2Level {
-  string px = 1;
-  string sz = 2;
-  uint32 n = 3;
+  string px = 1;                       // Price as decimal string
+  string sz = 2;                       // Total size as decimal string
+  uint32 n = 3;                        // Number of individual orders at this level
+}
+
+message L2LevelPacked {
+  fixed64 px = 1;                      // Price scaled by 1e8
+  fixed64 sz = 2;                      // Size scaled by 1e8
+  uint32 n = 3;                        // Number of individual orders at this level
+}
+
+message L2BookPackedUpdate {
+  string coin = 1;
+  uint64 time = 2;
+  uint64 block_number = 3;
+  repeated L2LevelPacked bids = 4;
+  repeated L2LevelPacked asks = 5;
+}
+
+// Request parameters for best bid/offer streaming.
+message BboBookRequest {
+  repeated string coins = 1;            // Empty means all coins
+}
+
+// Best bid/offer update for a coin.
+message BboBookUpdate {
+  string coin = 1;
+  uint64 time = 2;                      // Block timestamp (milliseconds)
+  uint64 block_number = 3;
+  L2Level bid = 4;                      // Absent if no bid
+  L2Level ask = 5;                      // Absent if no ask
+}
+
+message BboBookPackedUpdate {
+  string coin = 1;
+  uint64 time = 2;
+  uint64 block_number = 3;
+  L2LevelPacked bid = 4;
+  L2LevelPacked ask = 5;
+}
+
+// Request parameters for L2 diff streaming.
+message L2BookDiffRequest {
+  repeated string coins = 1;            // Empty means all coins
+  uint32 n_levels = 2;                  // Max tracked levels per side (default 20, max 100)
+  optional uint32 n_sig_figs = 3;       // Significance figures for price bucketing (2-5)
+  optional uint64 mantissa = 4;         // Mantissa for bucketing (1, 2, or 5)
+  bool skip_initial_snapshot = 5;       // If false, first update per coin contains current levels
+}
+
+// Batch of L2 price-level changes for one processed block.
+message L2BookDiffUpdate {
+  uint64 time = 1;                      // Block timestamp (milliseconds)
+  uint64 height = 2;                    // Block height
+  bool snapshot = 3;                    // True when carrying initial levels for any coin
+  repeated L2CoinDiff diffs = 4;        // Only coins with changed levels
+}
+
+// Incremental L2 changes for one coin.
+message L2CoinDiff {
+  string coin = 1;
+  uint64 seq = 2;                       // Per-coin sequence in this stream
+  uint64 prev_seq = 3;
+  repeated L2Level bids = 4;            // Changed bid levels; sz=0 means removed
+  repeated L2Level asks = 5;            // Changed ask levels; sz=0 means removed
+  bool snapshot = 6;                    // True when bids/asks carry initial levels
 }
 
 // Request parameters for L4 book streaming.
 message L4BookRequest {
-  string coin = 1;
+  string coin = 1;                     // Symbol (e.g. "BTC", "ETH")
 }
 
 // An L4 book update: either a full snapshot or an incremental diff.
 message L4BookUpdate {
   oneof update {
-    L4BookSnapshot snapshot = 1;
-    L4BookDiff diff = 2;
+    L4BookSnapshot snapshot = 1;       // Full snapshot (sent on subscribe)
+    L4BookDiff diff = 2;               // Incremental diff (sent per block)
   }
 }
 
@@ -68,27 +155,109 @@ message L4BookSnapshot {
 }
 
 // Incremental L4 book diff: raw order statuses and book diffs for one block.
+// Sent as JSON to preserve the original node data format.
 message L4BookDiff {
   uint64 time = 1;
   uint64 height = 2;
-  string data = 3;
+  string data = 3;                     // JSON-encoded {order_statuses, book_diffs}
+}
+
+message L4BookBytesUpdate {
+  oneof update {
+    L4BookSnapshot snapshot = 1;       // Full snapshot (sent on subscribe)
+    L4BookBytesDiff diff = 2;          // Incremental diff bytes
+  }
+}
+
+message L4BookBytesDiff {
+  uint64 time = 1;
+  uint64 height = 2;
+  bytes data = 3;                      // JSON-encoded {order_statuses, book_diffs}
+}
+
+// Request parameters for typed L4 order updates.
+message L4BookUpdatesRequest {
+  repeated string coins = 1;            // Empty means all coins
+}
+
+enum L4OrderDiffType {
+  L4_ORDER_DIFF_TYPE_UNSPECIFIED = 0;
+  L4_ORDER_DIFF_TYPE_NEW = 1;
+  L4_ORDER_DIFF_TYPE_UPDATE = 2;
+  L4_ORDER_DIFF_TYPE_REMOVE = 3;
+}
+
+// Typed L4 order book update batch for one processed block.
+message L4BookUpdatesUpdate {
+  uint64 time = 1;
+  uint64 height = 2;
+  repeated L4OrderDiff diffs = 3;
+  bool snapshot = 4;                    // True when diffs carry a full reset snapshot
+}
+
+// A single typed L4 order-level change.
+message L4OrderDiff {
+  L4OrderDiffType diff_type = 1;
+  string coin = 2;
+  uint64 oid = 3;
+  string user = 4;
+  string side = 5;                     // "A" (Ask) or "B" (Bid)
+  string px = 6;
+  string sz = 7;                       // New/current size for new/update
 }
 
 // A single L4 order with full details.
 message L4Order {
-  string user = 1;
+  string user = 1;                     // Ethereum address
   string coin = 2;
-  string side = 3;
-  string limit_px = 4;
-  string sz = 5;
-  uint64 oid = 6;
-  uint64 timestamp = 7;
-  string trigger_condition = 8;
+  string side = 3;                     // "A" (Ask) or "B" (Bid)
+  string limit_px = 4;                 // Limit price as decimal string
+  string sz = 5;                       // Size as decimal string
+  uint64 oid = 6;                      // Unique order ID
+  uint64 timestamp = 7;               // When order entered the book (ms)
+  string trigger_condition = 8;        // "N/A", "Triggered", etc.
   bool is_trigger = 9;
   string trigger_px = 10;
   bool is_position_tpsl = 11;
   bool reduce_only = 12;
-  string order_type = 13;
-  optional string tif = 14;
-  optional string cloid = 15;
+  string order_type = 13;             // "Limit", "Market", etc.
+  optional string tif = 14;           // Time-in-force: "Gtc", "Ioc", "Alo"
+  optional string cloid = 15;         // Client order ID
+}
+
+// Request parameters for TP/SL trigger order updates.
+message TpslUpdatesRequest {
+  repeated string coins = 1;            // Empty means all perp coins
+}
+
+enum TpslDiffType {
+  TPSL_DIFF_TYPE_UNSPECIFIED = 0;
+  TPSL_DIFF_TYPE_ADD = 1;
+  TPSL_DIFF_TYPE_REMOVE = 2;
+}
+
+// TP/SL trigger order update batch for one processed block.
+message TpslUpdatesUpdate {
+  uint64 time = 1;
+  uint64 height = 2;
+  repeated TpslOrderDiff diffs = 3;
+  bool snapshot = 4;                    // True when diffs carry currently-open trigger orders
+}
+
+// A trigger order add/remove event.
+message TpslOrderDiff {
+  TpslDiffType diff_type = 1;
+  uint64 oid = 2;
+  string coin = 3;
+  string user = 4;
+  string side = 5;                     // "A" (Ask) or "B" (Bid)
+  string trigger_px = 6;
+  string limit_px = 7;
+  string sz = 8;
+  string trigger_condition = 9;
+  string order_type = 10;
+  bool is_position_tpsl = 11;
+  bool reduce_only = 12;
+  uint64 timestamp = 13;               // Order creation timestamp (milliseconds)
+  string reason = 14;                  // Present on remove; mirrors node status
 }

@@ -24,29 +24,66 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0forderbook.proto\x12\x0bhyperliquid\"{\n\rL2BookRequest\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x10\n\x08n_levels\x18\x02 \x01(\r\x12\x17\n\nn_sig_figs\x18\x03 \x01(\rH\x00\x88\x01\x01\x12\x15\n\x08mantissa\x18\x04 \x01(\x04H\x01\x88\x01\x01\x42\r\n\x0b_n_sig_figsB\x0b\n\t_mantissa\"\x88\x01\n\x0cL2BookUpdate\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x14\n\x0c\x62lock_number\x18\x03 \x01(\x04\x12\"\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x14.hyperliquid.L2Level\x12\"\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x14.hyperliquid.L2Level\",\n\x07L2Level\x12\n\n\x02px\x18\x01 \x01(\t\x12\n\n\x02sz\x18\x02 \x01(\t\x12\t\n\x01n\x18\x03 \x01(\r\"\x1d\n\rL4BookRequest\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\"r\n\x0cL4BookUpdate\x12/\n\x08snapshot\x18\x01 \x01(\x0b\x32\x1b.hyperliquid.L4BookSnapshotH\x00\x12\'\n\x04\x64iff\x18\x02 \x01(\x0b\x32\x17.hyperliquid.L4BookDiffH\x00\x42\x08\n\x06update\"\x84\x01\n\x0eL4BookSnapshot\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x0e\n\x06height\x18\x03 \x01(\x04\x12\"\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x14.hyperliquid.L4Order\x12\"\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x14.hyperliquid.L4Order\"8\n\nL4BookDiff\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t\"\xaf\x02\n\x07L4Order\x12\x0c\n\x04user\x18\x01 \x01(\t\x12\x0c\n\x04\x63oin\x18\x02 \x01(\t\x12\x0c\n\x04side\x18\x03 \x01(\t\x12\x10\n\x08limit_px\x18\x04 \x01(\t\x12\n\n\x02sz\x18\x05 \x01(\t\x12\x0b\n\x03oid\x18\x06 \x01(\x04\x12\x11\n\ttimestamp\x18\x07 \x01(\x04\x12\x19\n\x11trigger_condition\x18\x08 \x01(\t\x12\x12\n\nis_trigger\x18\t \x01(\x08\x12\x12\n\ntrigger_px\x18\n \x01(\t\x12\x18\n\x10is_position_tpsl\x18\x0b \x01(\x08\x12\x13\n\x0breduce_only\x18\x0c \x01(\x08\x12\x12\n\norder_type\x18\r \x01(\t\x12\x10\n\x03tif\x18\x0e \x01(\tH\x00\x88\x01\x01\x12\x12\n\x05\x63loid\x18\x0f \x01(\tH\x01\x88\x01\x01\x42\x06\n\x04_tifB\x08\n\x06_cloid2\xa6\x01\n\x12OrderBookStreaming\x12G\n\x0cStreamL2Book\x12\x1a.hyperliquid.L2BookRequest\x1a\x19.hyperliquid.L2BookUpdate0\x01\x12G\n\x0cStreamL4Book\x12\x1a.hyperliquid.L4BookRequest\x1a\x19.hyperliquid.L4BookUpdate0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0forderbook.proto\x12\x0bhyperliquid\"{\n\rL2BookRequest\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x10\n\x08n_levels\x18\x02 \x01(\r\x12\x17\n\nn_sig_figs\x18\x03 \x01(\rH\x00\x88\x01\x01\x12\x15\n\x08mantissa\x18\x04 \x01(\x04H\x01\x88\x01\x01\x42\r\n\x0b_n_sig_figsB\x0b\n\t_mantissa\"\x88\x01\n\x0cL2BookUpdate\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x14\n\x0c\x62lock_number\x18\x03 \x01(\x04\x12\"\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x14.hyperliquid.L2Level\x12\"\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x14.hyperliquid.L2Level\",\n\x07L2Level\x12\n\n\x02px\x18\x01 \x01(\t\x12\n\n\x02sz\x18\x02 \x01(\t\x12\t\n\x01n\x18\x03 \x01(\r\"2\n\rL2LevelPacked\x12\n\n\x02px\x18\x01 \x01(\x06\x12\n\n\x02sz\x18\x02 \x01(\x06\x12\t\n\x01n\x18\x03 \x01(\r\"\x9a\x01\n\x12L2BookPackedUpdate\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x14\n\x0c\x62lock_number\x18\x03 \x01(\x04\x12(\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x1a.hyperliquid.L2LevelPacked\x12(\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x1a.hyperliquid.L2LevelPacked\"\x1f\n\x0e\x42\x62oBookRequest\x12\r\n\x05\x63oins\x18\x01 \x03(\t\"\x87\x01\n\rBboBookUpdate\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x14\n\x0c\x62lock_number\x18\x03 \x01(\x04\x12!\n\x03\x62id\x18\x04 \x01(\x0b\x32\x14.hyperliquid.L2Level\x12!\n\x03\x61sk\x18\x05 \x01(\x0b\x32\x14.hyperliquid.L2Level\"\x99\x01\n\x13\x42\x62oBookPackedUpdate\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x14\n\x0c\x62lock_number\x18\x03 \x01(\x04\x12\'\n\x03\x62id\x18\x04 \x01(\x0b\x32\x1a.hyperliquid.L2LevelPacked\x12\'\n\x03\x61sk\x18\x05 \x01(\x0b\x32\x1a.hyperliquid.L2LevelPacked\"\x9f\x01\n\x11L2BookDiffRequest\x12\r\n\x05\x63oins\x18\x01 \x03(\t\x12\x10\n\x08n_levels\x18\x02 \x01(\r\x12\x17\n\nn_sig_figs\x18\x03 \x01(\rH\x00\x88\x01\x01\x12\x15\n\x08mantissa\x18\x04 \x01(\x04H\x01\x88\x01\x01\x12\x1d\n\x15skip_initial_snapshot\x18\x05 \x01(\x08\x42\r\n\x0b_n_sig_figsB\x0b\n\t_mantissa\"j\n\x10L2BookDiffUpdate\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12\x10\n\x08snapshot\x18\x03 \x01(\x08\x12&\n\x05\x64iffs\x18\x04 \x03(\x0b\x32\x17.hyperliquid.L2CoinDiff\"\x93\x01\n\nL2CoinDiff\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0b\n\x03seq\x18\x02 \x01(\x04\x12\x10\n\x08prev_seq\x18\x03 \x01(\x04\x12\"\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x14.hyperliquid.L2Level\x12\"\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x14.hyperliquid.L2Level\x12\x10\n\x08snapshot\x18\x06 \x01(\x08\"\x1d\n\rL4BookRequest\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\"r\n\x0cL4BookUpdate\x12/\n\x08snapshot\x18\x01 \x01(\x0b\x32\x1b.hyperliquid.L4BookSnapshotH\x00\x12\'\n\x04\x64iff\x18\x02 \x01(\x0b\x32\x17.hyperliquid.L4BookDiffH\x00\x42\x08\n\x06update\"\x84\x01\n\x0eL4BookSnapshot\x12\x0c\n\x04\x63oin\x18\x01 \x01(\t\x12\x0c\n\x04time\x18\x02 \x01(\x04\x12\x0e\n\x06height\x18\x03 \x01(\x04\x12\"\n\x04\x62ids\x18\x04 \x03(\x0b\x32\x14.hyperliquid.L4Order\x12\"\n\x04\x61sks\x18\x05 \x03(\x0b\x32\x14.hyperliquid.L4Order\"8\n\nL4BookDiff\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t\"|\n\x11L4BookBytesUpdate\x12/\n\x08snapshot\x18\x01 \x01(\x0b\x32\x1b.hyperliquid.L4BookSnapshotH\x00\x12,\n\x04\x64iff\x18\x02 \x01(\x0b\x32\x1c.hyperliquid.L4BookBytesDiffH\x00\x42\x08\n\x06update\"=\n\x0fL4BookBytesDiff\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"%\n\x14L4BookUpdatesRequest\x12\r\n\x05\x63oins\x18\x01 \x03(\t\"n\n\x13L4BookUpdatesUpdate\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12\'\n\x05\x64iffs\x18\x03 \x03(\x0b\x32\x18.hyperliquid.L4OrderDiff\x12\x10\n\x08snapshot\x18\x04 \x01(\x08\"\x8d\x01\n\x0bL4OrderDiff\x12/\n\tdiff_type\x18\x01 \x01(\x0e\x32\x1c.hyperliquid.L4OrderDiffType\x12\x0c\n\x04\x63oin\x18\x02 \x01(\t\x12\x0b\n\x03oid\x18\x03 \x01(\x04\x12\x0c\n\x04user\x18\x04 \x01(\t\x12\x0c\n\x04side\x18\x05 \x01(\t\x12\n\n\x02px\x18\x06 \x01(\t\x12\n\n\x02sz\x18\x07 \x01(\t\"\xaf\x02\n\x07L4Order\x12\x0c\n\x04user\x18\x01 \x01(\t\x12\x0c\n\x04\x63oin\x18\x02 \x01(\t\x12\x0c\n\x04side\x18\x03 \x01(\t\x12\x10\n\x08limit_px\x18\x04 \x01(\t\x12\n\n\x02sz\x18\x05 \x01(\t\x12\x0b\n\x03oid\x18\x06 \x01(\x04\x12\x11\n\ttimestamp\x18\x07 \x01(\x04\x12\x19\n\x11trigger_condition\x18\x08 \x01(\t\x12\x12\n\nis_trigger\x18\t \x01(\x08\x12\x12\n\ntrigger_px\x18\n \x01(\t\x12\x18\n\x10is_position_tpsl\x18\x0b \x01(\x08\x12\x13\n\x0breduce_only\x18\x0c \x01(\x08\x12\x12\n\norder_type\x18\r \x01(\t\x12\x10\n\x03tif\x18\x0e \x01(\tH\x00\x88\x01\x01\x12\x12\n\x05\x63loid\x18\x0f \x01(\tH\x01\x88\x01\x01\x42\x06\n\x04_tifB\x08\n\x06_cloid\"#\n\x12TpslUpdatesRequest\x12\r\n\x05\x63oins\x18\x01 \x03(\t\"n\n\x11TpslUpdatesUpdate\x12\x0c\n\x04time\x18\x01 \x01(\x04\x12\x0e\n\x06height\x18\x02 \x01(\x04\x12)\n\x05\x64iffs\x18\x03 \x03(\x0b\x32\x1a.hyperliquid.TpslOrderDiff\x12\x10\n\x08snapshot\x18\x04 \x01(\x08\"\xa7\x02\n\rTpslOrderDiff\x12,\n\tdiff_type\x18\x01 \x01(\x0e\x32\x19.hyperliquid.TpslDiffType\x12\x0b\n\x03oid\x18\x02 \x01(\x04\x12\x0c\n\x04\x63oin\x18\x03 \x01(\t\x12\x0c\n\x04user\x18\x04 \x01(\t\x12\x0c\n\x04side\x18\x05 \x01(\t\x12\x12\n\ntrigger_px\x18\x06 \x01(\t\x12\x10\n\x08limit_px\x18\x07 \x01(\t\x12\n\n\x02sz\x18\x08 \x01(\t\x12\x19\n\x11trigger_condition\x18\t \x01(\t\x12\x12\n\norder_type\x18\n \x01(\t\x12\x18\n\x10is_position_tpsl\x18\x0b \x01(\x08\x12\x13\n\x0breduce_only\x18\x0c \x01(\x08\x12\x11\n\ttimestamp\x18\r \x01(\x04\x12\x0e\n\x06reason\x18\x0e \x01(\t*\x8f\x01\n\x0fL4OrderDiffType\x12\"\n\x1eL4_ORDER_DIFF_TYPE_UNSPECIFIED\x10\x00\x12\x1a\n\x16L4_ORDER_DIFF_TYPE_NEW\x10\x01\x12\x1d\n\x19L4_ORDER_DIFF_TYPE_UPDATE\x10\x02\x12\x1d\n\x19L4_ORDER_DIFF_TYPE_REMOVE\x10\x03*a\n\x0cTpslDiffType\x12\x1e\n\x1aTPSL_DIFF_TYPE_UNSPECIFIED\x10\x00\x12\x16\n\x12TPSL_DIFF_TYPE_ADD\x10\x01\x12\x19\n\x15TPSL_DIFF_TYPE_REMOVE\x10\x02\x32\xfd\x05\n\x12OrderBookStreaming\x12G\n\x0cStreamL2Book\x12\x1a.hyperliquid.L2BookRequest\x1a\x19.hyperliquid.L2BookUpdate0\x01\x12G\n\x0cStreamL4Book\x12\x1a.hyperliquid.L4BookRequest\x1a\x19.hyperliquid.L4BookUpdate0\x01\x12J\n\rStreamBboBook\x12\x1b.hyperliquid.BboBookRequest\x1a\x1a.hyperliquid.BboBookUpdate0\x01\x12S\n\x10StreamL2BookDiff\x12\x1e.hyperliquid.L2BookDiffRequest\x1a\x1d.hyperliquid.L2BookDiffUpdate0\x01\x12\\\n\x13StreamL4BookUpdates\x12!.hyperliquid.L4BookUpdatesRequest\x1a .hyperliquid.L4BookUpdatesUpdate0\x01\x12V\n\x11StreamTpslUpdates\x12\x1f.hyperliquid.TpslUpdatesRequest\x1a\x1e.hyperliquid.TpslUpdatesUpdate0\x01\x12S\n\x12StreamL2BookPacked\x12\x1a.hyperliquid.L2BookRequest\x1a\x1f.hyperliquid.L2BookPackedUpdate0\x01\x12V\n\x13StreamBboBookPacked\x12\x1b.hyperliquid.BboBookRequest\x1a .hyperliquid.BboBookPackedUpdate0\x01\x12Q\n\x11StreamL4BookBytes\x12\x1a.hyperliquid.L4BookRequest\x1a\x1e.hyperliquid.L4BookBytesUpdate0\x01\x42?Z=github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/protob\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'orderbook_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  DESCRIPTOR._loaded_options = None
+  _globals['DESCRIPTOR']._loaded_options = None
+  _globals['DESCRIPTOR']._serialized_options = b'Z=github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto'
+  _globals['_L4ORDERDIFFTYPE']._serialized_start=2876
+  _globals['_L4ORDERDIFFTYPE']._serialized_end=3019
+  _globals['_TPSLDIFFTYPE']._serialized_start=3021
+  _globals['_TPSLDIFFTYPE']._serialized_end=3118
   _globals['_L2BOOKREQUEST']._serialized_start=32
   _globals['_L2BOOKREQUEST']._serialized_end=155
   _globals['_L2BOOKUPDATE']._serialized_start=158
   _globals['_L2BOOKUPDATE']._serialized_end=294
   _globals['_L2LEVEL']._serialized_start=296
   _globals['_L2LEVEL']._serialized_end=340
-  _globals['_L4BOOKREQUEST']._serialized_start=342
-  _globals['_L4BOOKREQUEST']._serialized_end=371
-  _globals['_L4BOOKUPDATE']._serialized_start=373
-  _globals['_L4BOOKUPDATE']._serialized_end=487
-  _globals['_L4BOOKSNAPSHOT']._serialized_start=490
-  _globals['_L4BOOKSNAPSHOT']._serialized_end=622
-  _globals['_L4BOOKDIFF']._serialized_start=624
-  _globals['_L4BOOKDIFF']._serialized_end=680
-  _globals['_L4ORDER']._serialized_start=683
-  _globals['_L4ORDER']._serialized_end=986
-  _globals['_ORDERBOOKSTREAMING']._serialized_start=989
-  _globals['_ORDERBOOKSTREAMING']._serialized_end=1155
+  _globals['_L2LEVELPACKED']._serialized_start=342
+  _globals['_L2LEVELPACKED']._serialized_end=392
+  _globals['_L2BOOKPACKEDUPDATE']._serialized_start=395
+  _globals['_L2BOOKPACKEDUPDATE']._serialized_end=549
+  _globals['_BBOBOOKREQUEST']._serialized_start=551
+  _globals['_BBOBOOKREQUEST']._serialized_end=582
+  _globals['_BBOBOOKUPDATE']._serialized_start=585
+  _globals['_BBOBOOKUPDATE']._serialized_end=720
+  _globals['_BBOBOOKPACKEDUPDATE']._serialized_start=723
+  _globals['_BBOBOOKPACKEDUPDATE']._serialized_end=876
+  _globals['_L2BOOKDIFFREQUEST']._serialized_start=879
+  _globals['_L2BOOKDIFFREQUEST']._serialized_end=1038
+  _globals['_L2BOOKDIFFUPDATE']._serialized_start=1040
+  _globals['_L2BOOKDIFFUPDATE']._serialized_end=1146
+  _globals['_L2COINDIFF']._serialized_start=1149
+  _globals['_L2COINDIFF']._serialized_end=1296
+  _globals['_L4BOOKREQUEST']._serialized_start=1298
+  _globals['_L4BOOKREQUEST']._serialized_end=1327
+  _globals['_L4BOOKUPDATE']._serialized_start=1329
+  _globals['_L4BOOKUPDATE']._serialized_end=1443
+  _globals['_L4BOOKSNAPSHOT']._serialized_start=1446
+  _globals['_L4BOOKSNAPSHOT']._serialized_end=1578
+  _globals['_L4BOOKDIFF']._serialized_start=1580
+  _globals['_L4BOOKDIFF']._serialized_end=1636
+  _globals['_L4BOOKBYTESUPDATE']._serialized_start=1638
+  _globals['_L4BOOKBYTESUPDATE']._serialized_end=1762
+  _globals['_L4BOOKBYTESDIFF']._serialized_start=1764
+  _globals['_L4BOOKBYTESDIFF']._serialized_end=1825
+  _globals['_L4BOOKUPDATESREQUEST']._serialized_start=1827
+  _globals['_L4BOOKUPDATESREQUEST']._serialized_end=1864
+  _globals['_L4BOOKUPDATESUPDATE']._serialized_start=1866
+  _globals['_L4BOOKUPDATESUPDATE']._serialized_end=1976
+  _globals['_L4ORDERDIFF']._serialized_start=1979
+  _globals['_L4ORDERDIFF']._serialized_end=2120
+  _globals['_L4ORDER']._serialized_start=2123
+  _globals['_L4ORDER']._serialized_end=2426
+  _globals['_TPSLUPDATESREQUEST']._serialized_start=2428
+  _globals['_TPSLUPDATESREQUEST']._serialized_end=2463
+  _globals['_TPSLUPDATESUPDATE']._serialized_start=2465
+  _globals['_TPSLUPDATESUPDATE']._serialized_end=2575
+  _globals['_TPSLORDERDIFF']._serialized_start=2578
+  _globals['_TPSLORDERDIFF']._serialized_end=2873
+  _globals['_ORDERBOOKSTREAMING']._serialized_start=3121
+  _globals['_ORDERBOOKSTREAMING']._serialized_end=3886
 # @@protoc_insertion_point(module_scope)

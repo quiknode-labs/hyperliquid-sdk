@@ -17,16 +17,18 @@ import (
 //	// Post-only with reduce_only
 //	Order().Buy("BTC").Size(0.01).Price(65000).ALO().ReduceOnly()
 type OrderBuilder struct {
-	asset       string
-	side        Side
-	size        string
-	price       string
-	tif         TIF
-	reduceOnly  bool
-	notional    float64
-	cloid       string
-	priorityFee *uint64
-	slippage    *float64
+	asset        string
+	side         Side
+	size         string
+	price        string
+	tif          TIF
+	reduceOnly   bool
+	notional     float64
+	cloid        string
+	priorityFee  *uint64
+	slippage     *float64
+	vaultAddress string
+	expiresAfter *int64
 }
 
 // Order creates a new order builder.
@@ -144,6 +146,23 @@ func (o *OrderBuilder) Slippage(slippage float64) *OrderBuilder {
 	return o
 }
 
+// VaultAddress places the order on behalf of a vault (or subaccount).
+// It is sent as the top-level vaultAddress exchange field and folded into
+// the signed action hash by the build endpoint. Never emitted when unset.
+func (o *OrderBuilder) VaultAddress(vaultAddress string) *OrderBuilder {
+	o.vaultAddress = vaultAddress
+	return o
+}
+
+// ExpiresAfter sets the action TTL as a millisecond timestamp after which
+// the exchange rejects the order. It is sent as the top-level expiresAfter
+// exchange field and folded into the signed action hash by the build
+// endpoint. Never emitted when unset.
+func (o *OrderBuilder) ExpiresAfter(expiresAfterMs int64) *OrderBuilder {
+	o.expiresAfter = &expiresAfterMs
+	return o
+}
+
 // Asset returns the order's asset.
 func (o *OrderBuilder) Asset() string {
 	return o.asset
@@ -187,6 +206,16 @@ func (o *OrderBuilder) GetPriorityFee() *uint64 {
 // GetSlippage returns the per-order slippage fraction if set, else nil.
 func (o *OrderBuilder) GetSlippage() *float64 {
 	return o.slippage
+}
+
+// GetVaultAddress returns the vault address if set, else empty string.
+func (o *OrderBuilder) GetVaultAddress() string {
+	return o.vaultAddress
+}
+
+// GetExpiresAfter returns the action TTL (ms timestamp) if set, else nil.
+func (o *OrderBuilder) GetExpiresAfter() *int64 {
+	return o.expiresAfter
 }
 
 // SetSize sets the computed size (used internally for notional orders).
@@ -285,6 +314,12 @@ func (o *OrderBuilder) String() string {
 	}
 	if o.slippage != nil {
 		s += fmt.Sprintf(".Slippage(%g)", *o.slippage)
+	}
+	if o.vaultAddress != "" {
+		s += fmt.Sprintf(".VaultAddress(%q)", o.vaultAddress)
+	}
+	if o.expiresAfter != nil {
+		s += fmt.Sprintf(".ExpiresAfter(%d)", *o.expiresAfter)
 	}
 	return s
 }

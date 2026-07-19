@@ -376,6 +376,180 @@ class TestTradingHelpers:
         assert placed.oid == 1
 
 
+class TestVaultFastCancelExpiresAfter:
+    """vaultAddress / fast cancel "f" flag / expiresAfter threading.
+
+    vaultAddress and expiresAfter are top-level exchange-request fields that
+    the worker folds into the action hash at build time, so they must appear
+    in BOTH the build payload (signed hash covers them) and the send payload
+    (signature recovery + forwarded to Hyperliquid). The fast flag "f" lives
+    inside the cancel action itself and is only emitted when true.
+    """
+
+    @staticmethod
+    def _sdk_with_fake_exchange():
+        from hyperliquid_sdk import HyperliquidSDK
+
+        sdk = HyperliquidSDK(private_key="0x" + "11" * 32, auto_approve=False)
+        calls = []
+
+        def fake_exchange(body):
+            calls.append(body)
+            if "signature" not in body:
+                return {
+                    "hash": "0x" + "00" * 32,
+                    "nonce": 123,
+                    "action": body["action"],
+                }
+            return {
+                "success": True,
+                "exchangeResponse": {
+                    "response": {
+                        "data": {
+                            "statuses": [{"resting": {"oid": 7}}]
+                        }
+                    }
+                },
+            }
+
+        sdk._exchange = fake_exchange
+        return sdk, calls
+
+    def test_order_threads_vault_and_expires_to_build_and_send(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "ab" * 20
+        expiry = 1752900000000
+
+        placed = sdk.buy(
+            "BTC", size=0.001, price=67000, tif="gtc",
+            vault_address=vault, expires_after=expiry,
+        )
+
+        build, send = calls
+        # Build: fields must be present so the returned hash covers them.
+        assert build["vaultAddress"] == vault
+        assert build["expiresAfter"] == expiry
+        # Send: fields must ride again for signature recovery + forwarding.
+        assert send["vaultAddress"] == vault
+        assert send["expiresAfter"] == expiry
+        assert placed.oid == 7
+
+    def test_new_fields_never_emitted_when_unset(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+
+        sdk.buy("BTC", size=0.001, price=67000, tif="gtc")
+        sdk.cancel(7)
+
+        for body in calls:
+            assert "vaultAddress" not in body
+            assert "expiresAfter" not in body
+            assert "f" not in body["action"]
+
+    def test_cancel_fast_flag_emitted_only_when_true(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+
+        sdk.cancel(42, fast=True)
+        assert calls[0]["action"] == {
+            "type": "cancel",
+            "cancels": [{"a": 0, "o": 42}],
+            "f": True,
+        }
+
+        calls.clear()
+        sdk.cancel(42, fast=False)
+        assert "f" not in calls[0]["action"]
+
+    def test_cancel_by_cloid_fast_and_vault(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "cd" * 20
+
+        sdk.cancel_by_cloid("0x" + "01" * 16, 3, fast=True, vault_address=vault)
+
+        build, send = calls
+        assert build["action"]["type"] == "cancelByCloid"
+        assert build["action"]["f"] is True
+        assert build["vaultAddress"] == vault
+        assert send["vaultAddress"] == vault
+
+    def test_cancel_all_fast_sets_flag(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        all_action = {"type": "cancel", "cancels": [{"a": 0, "o": 1}, {"a": 1, "o": 2}]}
+        sdk.open_orders = lambda: {
+            "orders": [{"oid": 1}, {"oid": 2}],
+            "cancelActions": {"all": all_action},
+        }
+
+        sdk.cancel_all(fast=True)
+
+        assert calls[0]["action"]["f"] is True
+        # The worker-provided action dict must not be mutated in place.
+        assert "f" not in all_action
+
+    def test_modify_threads_vault_and_expires(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "ef" * 20
+        expiry = 1752900000000
+
+        sdk.modify(
+            9, "BTC", "buy", "67000", "0.001",
+            vault_address=vault, expires_after=expiry,
+        )
+
+        build, send = calls
+        assert build["action"]["type"] == "batchModify"
+        assert build["vaultAddress"] == vault
+        assert build["expiresAfter"] == expiry
+        assert send["vaultAddress"] == vault
+        assert send["expiresAfter"] == expiry
+
+    def test_close_position_threads_vault_and_expires(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "12" * 20
+
+        sdk.close_position("BTC", vault_address=vault, expires_after=1752900000000)
+
+        build, send = calls
+        assert build["action"]["type"] == "closePosition"
+        assert build["vaultAddress"] == vault
+        assert send["vaultAddress"] == vault
+        assert send["expiresAfter"] == 1752900000000
+
+    def test_schedule_cancel_threads_vault_and_expires(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "34" * 20
+
+        sdk.schedule_cancel(1752900060000, vault_address=vault, expires_after=1752900000000)
+
+        build, send = calls
+        assert build["action"] == {"type": "scheduleCancel", "time": 1752900060000}
+        assert build["vaultAddress"] == vault
+        assert send["expiresAfter"] == 1752900000000
+
+    def test_trigger_order_threads_vault_and_expires(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "56" * 20
+
+        sdk.stop_loss(
+            "BTC", size=0.001, trigger_price=60000,
+            vault_address=vault, expires_after=1752900000000,
+        )
+
+        build, send = calls
+        assert build["vaultAddress"] == vault
+        assert build["expiresAfter"] == 1752900000000
+        assert send["vaultAddress"] == vault
+
+    def test_expires_after_rejects_invalid_values(self):
+        from hyperliquid_sdk.errors import ValidationError
+
+        sdk, _ = self._sdk_with_fake_exchange()
+
+        with pytest.raises(ValidationError, match="expires_after"):
+            sdk.cancel(1, expires_after=-5)
+        with pytest.raises(ValidationError, match="expires_after"):
+            sdk.cancel(1, expires_after="soon")
+
+
 # Test 3: Info API
 class TestInfoAPI:
     """Test Info API methods work.
@@ -548,6 +722,9 @@ class TestGRPCStreaming:
         assert GRPCStreamType.TWAP.value == "TWAP"
         assert GRPCStreamType.EVENTS.value == "EVENTS"
         assert GRPCStreamType.BLOCKS.value == "BLOCKS"
+        assert GRPCStreamType.MEMPOOL_TXS.value == "MEMPOOL_TXS"
+        assert GRPCStreamType.ORDER_PRIORITY.value == "ORDER_PRIORITY"
+        assert GRPCStreamType.GOSSIP_PRIORITY.value == "GOSSIP_PRIORITY"
 
     def test_grpc_stream_initialization(self):
         """Test GRPCStream can be initialized."""
@@ -578,6 +755,329 @@ class TestGRPCStreaming:
         stream.l2_book("BTC", lambda x: None)
 
         assert len(stream._subscriptions) == 4
+
+
+class TestGRPCNewStreams:
+    """Test the newer gRPC stream types and orderbook RPCs."""
+
+    def _stream(self):
+        from hyperliquid_sdk import GRPCStream
+
+        return GRPCStream("https://test.quiknode.pro/TOKEN", reconnect=False)
+
+    def test_stream_type_map_matches_proto(self):
+        """Test _STREAM_TYPE_MAP matches the generated proto enum, incl. 8/9/10."""
+        from hyperliquid_sdk import proto
+        from hyperliquid_sdk.grpc_stream import _STREAM_TYPE_MAP
+
+        for name, value in _STREAM_TYPE_MAP.items():
+            assert proto.StreamType.Value(name) == value
+
+        assert _STREAM_TYPE_MAP["MEMPOOL_TXS"] == 8
+        assert _STREAM_TYPE_MAP["ORDER_PRIORITY"] == 9
+        assert _STREAM_TYPE_MAP["GOSSIP_PRIORITY"] == 10
+
+    def test_new_stream_subscriptions(self):
+        """Test new subscription helpers register subscriptions."""
+        stream = self._stream()
+
+        stream.mempool_txs(lambda x: None, coins=["BTC"])
+        stream.raw_mempool_txs(lambda x: None)
+        stream.order_priority(lambda x: None)
+        stream.raw_order_priority(lambda x: None)
+        stream.gossip_priority(lambda x: None)
+        stream.raw_gossip_priority(lambda x: None)
+        stream.bbo_book(lambda x: None, coins=["BTC"])
+        stream.l2_book_diff(lambda x: None, coins=["BTC"])
+        stream.l4_book_updates(lambda x: None)
+        stream.tpsl_updates(lambda x: None)
+        stream.l2_book_packed("BTC", lambda x: None)
+        stream.bbo_book_packed(lambda x: None)
+        stream.l4_book_bytes("BTC", lambda x: None)
+        stream.stream_bytes("TRADES", lambda x: None, coins=["BTC"])
+
+        assert len(stream._subscriptions) == 14
+        assert stream._subscriptions[0]["stream_type"] == "MEMPOOL_TXS"
+        assert stream._subscriptions[0]["coins"] == ["BTC"]
+        assert stream._subscriptions[1]["raw"] is True
+        assert stream._subscriptions[2]["stream_type"] == "ORDER_PRIORITY"
+        assert stream._subscriptions[4]["stream_type"] == "GOSSIP_PRIORITY"
+        assert stream._subscriptions[13]["stream_type"] == "STREAM_BYTES"
+        assert stream._subscriptions[13]["bytes_stream_type"] == "TRADES"
+
+    def test_subscribe_request_start_block_and_filters(self):
+        """Test start_block and coin/user filters are plumbed into StreamSubscribe."""
+        stream = self._stream()
+        stream.trades(["BTC", "ETH"], lambda x: None, start_block=12345)
+        stream.orders(["ETH"], lambda x: None, users=["0xabc"])
+        stream.mempool_txs(lambda x: None, coins=["BTC"])
+
+        req = stream._build_subscribe_request(stream._subscriptions[0])
+        assert req.subscribe.stream_type == 1
+        assert req.subscribe.start_block == 12345
+        assert list(req.subscribe.filters["coin"].values) == ["BTC", "ETH"]
+
+        req = stream._build_subscribe_request(stream._subscriptions[1])
+        assert req.subscribe.start_block == 0
+        assert list(req.subscribe.filters["user"].values) == ["0xabc"]
+
+        req = stream._build_subscribe_request(stream._subscriptions[2])
+        assert req.subscribe.stream_type == 8
+        assert list(req.subscribe.filters["coin"].values) == ["BTC"]
+
+    def test_stream_bytes_request(self):
+        """Test stream_bytes builds a SubscribeRequest for the requested stream type."""
+        stream = self._stream()
+        stream.stream_bytes("ORDERS", lambda x: None, users=["0xabc"], start_block=99)
+
+        sub = stream._subscriptions[0]
+        req = stream._build_subscribe_request(sub, sub["bytes_stream_type"])
+        assert req.subscribe.stream_type == 2
+        assert req.subscribe.start_block == 99
+        assert list(req.subscribe.filters["user"].values) == ["0xabc"]
+
+    def test_orderbook_request_builders(self):
+        """Test orderbook subscription options map to the right request messages."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+        stream.bbo_book(lambda x: None, coins=["BTC"])
+        stream.l2_book_diff(
+            lambda x: None,
+            coins=["BTC", "ETH"],
+            n_levels=50,
+            n_sig_figs=5,
+            mantissa=2,
+            skip_initial_snapshot=True,
+        )
+        stream.l4_book_updates(lambda x: None)
+        stream.tpsl_updates(lambda x: None, coins=["SOL"])
+        stream.l2_book_packed("BTC", lambda x: None, n_sig_figs=4, n_levels=10)
+        stream.bbo_book_packed(lambda x: None)
+        stream.l4_book_bytes("ETH", lambda x: None)
+
+        subs = stream._subscriptions
+
+        req = stream._build_orderbook_request(subs[0])
+        assert isinstance(req, proto.BboBookRequest)
+        assert list(req.coins) == ["BTC"]
+
+        req = stream._build_orderbook_request(subs[1])
+        assert isinstance(req, proto.L2BookDiffRequest)
+        assert list(req.coins) == ["BTC", "ETH"]
+        assert req.n_levels == 50
+        assert req.n_sig_figs == 5
+        assert req.mantissa == 2
+        assert req.skip_initial_snapshot is True
+
+        req = stream._build_orderbook_request(subs[2])
+        assert isinstance(req, proto.L4BookUpdatesRequest)
+        assert list(req.coins) == []
+
+        req = stream._build_orderbook_request(subs[3])
+        assert isinstance(req, proto.TpslUpdatesRequest)
+        assert list(req.coins) == ["SOL"]
+
+        req = stream._build_orderbook_request(subs[4])
+        assert isinstance(req, proto.L2BookRequest)
+        assert req.coin == "BTC"
+        assert req.n_sig_figs == 4
+        assert req.n_levels == 10
+
+        req = stream._build_orderbook_request(subs[5])
+        assert isinstance(req, proto.BboBookRequest)
+        assert list(req.coins) == []
+
+        req = stream._build_orderbook_request(subs[6])
+        assert isinstance(req, proto.L4BookRequest)
+        assert req.coin == "ETH"
+
+    def test_bbo_update_conversion(self):
+        """Test BboBookUpdate conversion (absent bid/ask -> None)."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.BboBookUpdate(
+            coin="BTC",
+            time=1000,
+            block_number=42,
+            bid=proto.L2Level(px="50000", sz="1.5", n=3),
+        )
+        data = stream._orderbook_update_to_dict("BBO_BOOK", update)
+        assert data["coin"] == "BTC"
+        assert data["bid"] == ["50000", "1.5", 3]
+        assert data["ask"] is None
+
+    def test_l2_book_diff_conversion(self):
+        """Test L2BookDiffUpdate conversion (sz=0 level = removed)."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.L2BookDiffUpdate(
+            time=1000,
+            height=42,
+            snapshot=False,
+            diffs=[
+                proto.L2CoinDiff(
+                    coin="BTC",
+                    seq=7,
+                    prev_seq=6,
+                    bids=[proto.L2Level(px="50000", sz="0", n=0)],
+                    asks=[proto.L2Level(px="50001", sz="2", n=1)],
+                )
+            ],
+        )
+        data = stream._orderbook_update_to_dict("L2_BOOK_DIFF", update)
+        assert data["height"] == 42
+        assert data["snapshot"] is False
+        assert data["diffs"][0]["coin"] == "BTC"
+        assert data["diffs"][0]["seq"] == 7
+        assert data["diffs"][0]["prev_seq"] == 6
+        assert data["diffs"][0]["bids"] == [["50000", "0", 0]]
+        assert data["diffs"][0]["asks"] == [["50001", "2", 1]]
+
+    def test_l4_book_updates_conversion(self):
+        """Test L4BookUpdatesUpdate conversion with typed diffs."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.L4BookUpdatesUpdate(
+            time=1000,
+            height=42,
+            snapshot=True,
+            diffs=[
+                proto.L4OrderDiff(
+                    diff_type=proto.L4OrderDiffType.L4_ORDER_DIFF_TYPE_NEW,
+                    coin="BTC",
+                    oid=123,
+                    user="0xabc",
+                    side="B",
+                    px="50000",
+                    sz="1",
+                )
+            ],
+        )
+        data = stream._orderbook_update_to_dict("L4_BOOK_UPDATES", update)
+        assert data["snapshot"] is True
+        assert data["diffs"][0]["diff_type"] == "L4_ORDER_DIFF_TYPE_NEW"
+        assert data["diffs"][0]["oid"] == 123
+
+    def test_tpsl_updates_conversion(self):
+        """Test TpslUpdatesUpdate conversion with typed diffs."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.TpslUpdatesUpdate(
+            time=1000,
+            height=42,
+            diffs=[
+                proto.TpslOrderDiff(
+                    diff_type=proto.TpslDiffType.TPSL_DIFF_TYPE_REMOVE,
+                    oid=55,
+                    coin="ETH",
+                    user="0xdef",
+                    side="A",
+                    trigger_px="3000",
+                    reason="filled",
+                )
+            ],
+        )
+        data = stream._orderbook_update_to_dict("TPSL_UPDATES", update)
+        assert data["diffs"][0]["diff_type"] == "TPSL_DIFF_TYPE_REMOVE"
+        assert data["diffs"][0]["oid"] == 55
+        assert data["diffs"][0]["reason"] == "filled"
+
+    def test_packed_conversion(self):
+        """Test packed L2/BBO conversion keeps fixed-point integers."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.L2BookPackedUpdate(
+            coin="BTC",
+            time=1000,
+            block_number=42,
+            bids=[proto.L2LevelPacked(px=5000000000000, sz=150000000, n=3)],
+        )
+        data = stream._orderbook_update_to_dict("L2_BOOK_PACKED", update)
+        assert data["bids"] == [[5000000000000, 150000000, 3]]
+
+        update = proto.BboBookPackedUpdate(
+            coin="BTC",
+            time=1000,
+            block_number=42,
+            ask=proto.L2LevelPacked(px=5000100000000, sz=200000000, n=1),
+        )
+        data = stream._orderbook_update_to_dict("BBO_BOOK_PACKED", update)
+        assert data["bid"] is None
+        assert data["ask"] == [5000100000000, 200000000, 1]
+
+    def test_l4_book_bytes_conversion(self):
+        """Test L4BookBytesUpdate conversion (diff payload stays raw bytes)."""
+        from hyperliquid_sdk import proto
+
+        stream = self._stream()
+
+        update = proto.L4BookBytesUpdate(
+            diff=proto.L4BookBytesDiff(time=1000, height=42, data=b'{"order_statuses":[]}')
+        )
+        data = stream._orderbook_update_to_dict("L4_BOOK_BYTES", update)
+        assert data["type"] == "diff"
+        assert data["data"] == b'{"order_statuses":[]}'
+
+        update = proto.L4BookBytesUpdate(
+            snapshot=proto.L4BookSnapshot(coin="BTC", time=1000, height=42)
+        )
+        data = stream._orderbook_update_to_dict("L4_BOOK_BYTES", update)
+        assert data["type"] == "snapshot"
+        assert data["coin"] == "BTC"
+
+    def test_stubs_have_new_rpcs(self):
+        """Test generated stubs expose the new RPC methods."""
+        from hyperliquid_sdk import proto
+
+        class _FakeChannel:
+            def unary_unary(self, *args, **kwargs):
+                return lambda *a, **k: None
+
+            def unary_stream(self, *args, **kwargs):
+                return lambda *a, **k: None
+
+            def stream_stream(self, *args, **kwargs):
+                return lambda *a, **k: None
+
+        streaming = proto.StreamingStub(_FakeChannel())
+        assert hasattr(streaming, "StreamDataBytes")
+
+        orderbook = proto.OrderBookStreamingStub(_FakeChannel())
+        for rpc in (
+            "StreamBboBook",
+            "StreamL2BookDiff",
+            "StreamL4BookUpdates",
+            "StreamTpslUpdates",
+            "StreamL2BookPacked",
+            "StreamBboBookPacked",
+            "StreamL4BookBytes",
+        ):
+            assert hasattr(orderbook, rpc)
+
+    def test_start_streams_dispatch(self):
+        """Test _start_streams routes new stream types to the right workers."""
+        from hyperliquid_sdk.grpc_stream import _ORDERBOOK_RPC_MAP
+
+        assert set(_ORDERBOOK_RPC_MAP) == {
+            "BBO_BOOK",
+            "L2_BOOK_DIFF",
+            "L4_BOOK_UPDATES",
+            "TPSL_UPDATES",
+            "L2_BOOK_PACKED",
+            "BBO_BOOK_PACKED",
+            "L4_BOOK_BYTES",
+        }
 
 
 # Test 6: Error handling

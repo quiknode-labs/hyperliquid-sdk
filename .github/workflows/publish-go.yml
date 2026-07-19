@@ -1,0 +1,32 @@
+name: Publish Go
+
+# Go modules are published by the tag itself — the Go module proxy serves
+# go/vX.Y.Z directly from GitHub. This workflow is just a release gate.
+on:
+  push:
+    tags:
+      - 'go/v*'
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - run: go build ./...
+      - run: go test ./...
+
+      - name: Release info
+        run: |
+          VERSION="${GITHUB_REF_NAME#go/}"
+          echo "Go module released. Users can install it with:"
+          echo
+          echo "  go get github.com/quiknode-labs/hyperliquid-sdk/go@$VERSION"

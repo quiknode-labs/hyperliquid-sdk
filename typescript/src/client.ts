@@ -564,6 +564,8 @@ export class HyperliquidSDK {
    * @param options.reduceOnly - Close position only, no new exposure
    * @param options.grouping - Order grouping for TP/SL attachment
    * @param options.priorityFee - Optional Hyperliquid order priority p. p=10000 is 1 bp.
+   * @param options.vaultAddress - Trade on behalf of a vault or subaccount
+   * @param options.expiresAfter - Action TTL as a ms timestamp; rejected after this time
    *
    * @returns PlacedOrder with oid, status, and cancel/modify methods
    */
@@ -579,6 +581,10 @@ export class HyperliquidSDK {
       priorityFee?: number | string;
       /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
       slippage?: number;
+      /** Vault or subaccount address to trade on behalf of. */
+      vaultAddress?: string;
+      /** Action TTL as a ms timestamp; the exchange rejects it after this time. */
+      expiresAfter?: number;
     } = {}
   ): Promise<PlacedOrder> {
     return this._placeOrder({
@@ -592,6 +598,8 @@ export class HyperliquidSDK {
       grouping: options.grouping ?? OrderGrouping.NA,
       slippage: options.slippage,
       priorityFee: options.priorityFee,
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
     });
   }
 
@@ -610,6 +618,10 @@ export class HyperliquidSDK {
       priorityFee?: number | string;
       /** Slippage tolerance for market orders (e.g. 0.05 = 5%). Overrides SDK default. */
       slippage?: number;
+      /** Vault or subaccount address to trade on behalf of. */
+      vaultAddress?: string;
+      /** Action TTL as a ms timestamp; the exchange rejects it after this time. */
+      expiresAfter?: number;
     } = {}
   ): Promise<PlacedOrder> {
     return this._placeOrder({
@@ -623,6 +635,8 @@ export class HyperliquidSDK {
       grouping: options.grouping ?? OrderGrouping.NA,
       slippage: options.slippage,
       priorityFee: options.priorityFee,
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
     });
   }
 
@@ -636,7 +650,7 @@ export class HyperliquidSDK {
    */
   async marketBuy(
     asset: AssetInput,
-    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
+    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<PlacedOrder> {
     return this.buy(asset, { ...options, tif: 'market' });
   }
@@ -647,7 +661,7 @@ export class HyperliquidSDK {
    */
   async marketSell(
     asset: AssetInput,
-    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string } = {}
+    options: { size?: number | string; notional?: number; slippage?: number; priorityFee?: number | string; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<PlacedOrder> {
     return this.sell(asset, { ...options, tif: 'market' });
   }
@@ -1381,14 +1395,22 @@ export class HyperliquidSDK {
   /**
    * Close an open position completely.
    */
-  async closePosition(asset: string, options: { slippage?: number } = {}): Promise<PlacedOrder> {
+  async closePosition(
+    asset: string,
+    options: { slippage?: number; vaultAddress?: string; expiresAfter?: number } = {}
+  ): Promise<PlacedOrder> {
     const action = {
       type: 'closePosition',
       asset,
-      user: this.address,
+      // When closing on behalf of a vault, the position belongs to the vault —
+      // the worker queries action.user to size the close.
+      user: options.vaultAddress ?? this.address,
     };
 
-    const result = await this._buildSignSend(action, options.slippage);
+    const result = await this._buildSignSend(action, options.slippage, undefined, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
 
     const order = Order.sell(asset);
     order['_size'] = '0';
@@ -1405,10 +1427,15 @@ export class HyperliquidSDK {
 
   /**
    * Cancel an order by OID.
+   *
+   * @param options.fast - Request fast cancellation (wire flag `f: true`; only sent when true)
+   * @param options.vaultAddress - Cancel on behalf of a vault or subaccount
+   * @param options.expiresAfter - Action TTL as a ms timestamp
    */
   async cancel(
     oid: number,
-    asset?: string | number
+    asset?: string | number,
+    options: { fast?: boolean; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<Record<string, unknown>> {
     if (!Number.isInteger(oid) || oid <= 0) {
       throw new ValidationError(`oid must be a positive integer, got: ${oid}`);
@@ -1419,22 +1446,47 @@ export class HyperliquidSDK {
       assetIdx = typeof asset === 'string' ? await this._resolveAssetIndex(asset) : asset;
     }
 
-    const cancelAction = {
+    const cancelAction: Record<string, unknown> = {
       type: 'cancel',
       cancels: [{ a: assetIdx, o: oid }],
     };
-    return this._buildSignSend(cancelAction);
+    // The exchange only accepts f:true — false is stripped server-side, so
+    // never emit it.
+    if (options.fast === true) {
+      cancelAction.f = true;
+    }
+    return this._buildSignSend(cancelAction, undefined, undefined, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
   }
 
   /**
    * Cancel all open orders.
+   *
+   * @param options.fast - Request fast cancellation (wire flag `f: true`; only sent when true)
+   * @param options.vaultAddress - Cancel on behalf of a vault or subaccount
+   * @param options.expiresAfter - Action TTL as a ms timestamp
    */
-  async cancelAll(asset?: string): Promise<Record<string, unknown>> {
+  async cancelAll(
+    asset?: string,
+    options: { fast?: boolean; vaultAddress?: string; expiresAfter?: number } = {}
+  ): Promise<Record<string, unknown>> {
     const orders = await this.openOrders();
 
     if (!orders.orders || (orders.orders as unknown[]).length === 0) {
       return { message: 'No orders to cancel' };
     }
+
+    const sendCancel = (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      if (options.fast === true) {
+        action = { ...action, f: true };
+      }
+      return this._buildSignSend(action, undefined, undefined, {
+        vaultAddress: options.vaultAddress,
+        expiresAfter: options.expiresAfter,
+      });
+    };
 
     if (asset) {
       const cancelActions = orders.cancelActions as Record<string, unknown>;
@@ -1442,30 +1494,41 @@ export class HyperliquidSDK {
       if (!byAsset?.[asset]) {
         return { message: `No ${asset} orders to cancel` };
       }
-      return this._buildSignSend(byAsset[asset] as Record<string, unknown>);
+      return sendCancel(byAsset[asset] as Record<string, unknown>);
     } else {
       const cancelActions = orders.cancelActions as Record<string, unknown>;
       if (!cancelActions?.all) {
         return { message: 'No orders to cancel' };
       }
-      return this._buildSignSend(cancelActions.all as Record<string, unknown>);
+      return sendCancel(cancelActions.all as Record<string, unknown>);
     }
   }
 
   /**
    * Cancel an order by client order ID (cloid).
+   *
+   * @param options.fast - Request fast cancellation (wire flag `f: true`; only sent when true)
+   * @param options.vaultAddress - Cancel on behalf of a vault or subaccount
+   * @param options.expiresAfter - Action TTL as a ms timestamp
    */
   async cancelByCloid(
     cloid: string,
-    asset: string | number
+    asset: string | number,
+    options: { fast?: boolean; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<Record<string, unknown>> {
     const assetIdx = typeof asset === 'string' ? await this._resolveAssetIndex(asset) : asset;
 
-    const cancelAction = {
+    const cancelAction: Record<string, unknown> = {
       type: 'cancelByCloid',
       cancels: [{ asset: assetIdx, cloid }],
     };
-    return this._buildSignSend(cancelAction);
+    if (options.fast === true) {
+      cancelAction.f = true;
+    }
+    return this._buildSignSend(cancelAction, undefined, undefined, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
   }
 
   /**
@@ -1481,6 +1544,9 @@ export class HyperliquidSDK {
 
   /**
    * Modify an existing order.
+   *
+   * @param options.vaultAddress - Modify on behalf of a vault or subaccount
+   * @param options.expiresAfter - Action TTL as a ms timestamp
    */
   async modify(
     oid: number,
@@ -1488,7 +1554,7 @@ export class HyperliquidSDK {
     side: Side | string,
     price: string,
     size: string,
-    options: { tif?: TIF | string; reduceOnly?: boolean } = {}
+    options: { tif?: TIF | string; reduceOnly?: boolean; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<PlacedOrder> {
     if (!Number.isInteger(oid) || oid <= 0) {
       throw new ValidationError(`oid must be a positive integer, got: ${oid}`);
@@ -1525,7 +1591,10 @@ export class HyperliquidSDK {
       }],
     };
 
-    const result = await this._buildSignSend(modifyAction);
+    const result = await this._buildSignSend(modifyAction, undefined, undefined, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
 
     const order = new Order(asset, sideStr === 'buy' ? Side.BUY : Side.SELL);
     order['_price'] = price;
@@ -1948,6 +2017,8 @@ export class HyperliquidSDK {
     grouping: OrderGrouping;
     slippage?: number;
     priorityFee?: number | string;
+    vaultAddress?: string;
+    expiresAfter?: number;
   }): Promise<PlacedOrder> {
     const asset = assetToString(params.asset);
     const order = new Order(asset, params.side);
@@ -1990,17 +2061,28 @@ export class HyperliquidSDK {
       order['_reduceOnly'] = true;
     }
 
-    return this._executeOrder(order, params.grouping, params.slippage, params.priorityFee);
+    return this._executeOrder(
+      order,
+      params.grouping,
+      params.slippage,
+      params.priorityFee,
+      params.vaultAddress,
+      params.expiresAfter
+    );
   }
 
   private async _executeOrder(
     order: Order,
     grouping: OrderGrouping = OrderGrouping.NA,
     slippage?: number,
-    priorityFee?: number | string
+    priorityFee?: number | string,
+    vaultAddress?: string,
+    expiresAfter?: number
   ): Promise<PlacedOrder> {
     const action = order.toAction();
     const effectivePriorityFee = priorityFee ?? order.getPriorityFee();
+    const effectiveVaultAddress = vaultAddress ?? order.getVaultAddress() ?? undefined;
+    const effectiveExpiresAfter = expiresAfter ?? order.getExpiresAfter() ?? undefined;
     if (grouping !== OrderGrouping.NA && effectivePriorityFee !== null) {
       throw new ValidationError('priorityFee cannot be combined with TP/SL grouping', {
         guidance: 'Use priorityFee on standalone IOC/market orders, or omit grouping.',
@@ -2017,7 +2099,10 @@ export class HyperliquidSDK {
     if (grouping !== OrderGrouping.NA) {
       action.grouping = grouping; // enum value is already the string (e.g., 'na', 'normalTpsl')
     }
-    const result = await this._buildSignSend(action, slippage, effectivePriorityFee ?? undefined);
+    const result = await this._buildSignSend(action, slippage, effectivePriorityFee ?? undefined, {
+      vaultAddress: effectiveVaultAddress,
+      expiresAfter: effectiveExpiresAfter,
+    });
     return PlacedOrder.fromResponse(
       (result as Record<string, unknown>).exchangeResponse as Record<string, unknown> ?? {},
       order,
@@ -2037,7 +2122,8 @@ export class HyperliquidSDK {
   private async _buildSignSend(
     action: Record<string, unknown>,
     slippage?: number,
-    priorityFee?: number | string
+    priorityFee?: number | string,
+    options: { vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<Record<string, unknown>> {
     this._requireWallet();
 
@@ -2061,6 +2147,17 @@ export class HyperliquidSDK {
     const normalizedPriorityFee = this._normalizePriorityFee(priorityFee);
     if (normalizedPriorityFee !== undefined) {
       buildPayload.priorityFee = normalizedPriorityFee;
+    }
+    // vaultAddress and expiresAfter are request-level fields that the worker
+    // folds into the action hash at build time, so they must be present in
+    // BOTH the build payload (hash) and the send payload (signer recovery +
+    // exchange body). Omitted entirely when unset for wire compatibility.
+    const normalizedExpiresAfter = this._normalizeExpiresAfter(options.expiresAfter);
+    if (options.vaultAddress !== undefined) {
+      buildPayload.vaultAddress = options.vaultAddress;
+    }
+    if (normalizedExpiresAfter !== undefined) {
+      buildPayload.expiresAfter = normalizedExpiresAfter;
     }
     const buildResult = await this._exchange(buildPayload);
 
@@ -2102,11 +2199,17 @@ export class HyperliquidSDK {
     }
 
     // Step 3: Send
-    const sendPayload = {
+    const sendPayload: Record<string, unknown> = {
       action: buildResult.action ?? action,
       nonce: buildResult.nonce,
       signature: sig,
     };
+    if (options.vaultAddress !== undefined) {
+      sendPayload.vaultAddress = options.vaultAddress;
+    }
+    if (normalizedExpiresAfter !== undefined) {
+      sendPayload.expiresAfter = normalizedExpiresAfter;
+    }
 
     return this._exchange(sendPayload);
   }
@@ -2223,6 +2326,18 @@ export class HyperliquidSDK {
       });
     }
     return value;
+  }
+
+  private _normalizeExpiresAfter(expiresAfter?: number): number | undefined {
+    if (expiresAfter === undefined || expiresAfter === null) {
+      return undefined;
+    }
+    if (!Number.isInteger(expiresAfter) || expiresAfter <= 0) {
+      throw new ValidationError('expiresAfter must be a positive integer (ms timestamp)', {
+        guidance: 'Use expiresAfter: Date.now() + 60_000 for a 1-minute TTL.',
+      });
+    }
+    return expiresAfter;
   }
 
   private _signHash(hashHex: string): Signature {
