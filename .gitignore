@@ -76,3 +76,6 @@ go/websocket_streaming
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Internal release runbook (kept local, not published)
+.github/RELEASING.md
