@@ -73,10 +73,6 @@ go/info_example
 go/place_order
 go/trading_example
 go/websocket_streaming
-go/examples/*/*
-!go/examples/*/*.go
-!go/examples/*/*.md
-!go/examples/*/go.mod
 
 # Claude Code local settings
 .claude/settings.local.json
