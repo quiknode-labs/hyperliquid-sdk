@@ -34,7 +34,6 @@ yarn-error.log*
 .npm
 *.tgz
 
-
 # Rust
 target/
 Cargo.lock
