@@ -47,6 +47,41 @@ class OrderBookStreamingStub(object):
                 request_serializer=orderbook__pb2.L4BookRequest.SerializeToString,
                 response_deserializer=orderbook__pb2.L4BookUpdate.FromString,
                 _registered_method=True)
+        self.StreamBboBook = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamBboBook',
+                request_serializer=orderbook__pb2.BboBookRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.BboBookUpdate.FromString,
+                _registered_method=True)
+        self.StreamL2BookDiff = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamL2BookDiff',
+                request_serializer=orderbook__pb2.L2BookDiffRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.L2BookDiffUpdate.FromString,
+                _registered_method=True)
+        self.StreamL4BookUpdates = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamL4BookUpdates',
+                request_serializer=orderbook__pb2.L4BookUpdatesRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.L4BookUpdatesUpdate.FromString,
+                _registered_method=True)
+        self.StreamTpslUpdates = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamTpslUpdates',
+                request_serializer=orderbook__pb2.TpslUpdatesRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.TpslUpdatesUpdate.FromString,
+                _registered_method=True)
+        self.StreamL2BookPacked = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamL2BookPacked',
+                request_serializer=orderbook__pb2.L2BookRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.L2BookPackedUpdate.FromString,
+                _registered_method=True)
+        self.StreamBboBookPacked = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamBboBookPacked',
+                request_serializer=orderbook__pb2.BboBookRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.BboBookPackedUpdate.FromString,
+                _registered_method=True)
+        self.StreamL4BookBytes = channel.unary_stream(
+                '/hyperliquid.OrderBookStreaming/StreamL4BookBytes',
+                request_serializer=orderbook__pb2.L4BookRequest.SerializeToString,
+                response_deserializer=orderbook__pb2.L4BookBytesUpdate.FromString,
+                _registered_method=True)
 
 
 class OrderBookStreamingServicer(object):
@@ -71,6 +106,56 @@ class OrderBookStreamingServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamBboBook(self, request, context):
+        """Subscribe to top-of-book changes. Empty coins means all coins.
+        Emits only when the best bid or ask changes for a coin.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamL2BookDiff(self, request, context):
+        """Subscribe to incremental L2 price-level changes. Empty coins means all coins.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamL4BookUpdates(self, request, context):
+        """Subscribe to typed L4 order book updates. Empty coins means all coins.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamTpslUpdates(self, request, context):
+        """Subscribe to trigger/TP-SL order updates. Empty coins means all perp coins.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamL2BookPacked(self, request, context):
+        """Fast-path L2 stream. Prices/sizes are fixed-point integers scaled by 1e8.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamBboBookPacked(self, request, context):
+        """Fast-path BBO stream. Prices/sizes are fixed-point integers scaled by 1e8.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StreamL4BookBytes(self, request, context):
+        """Fast-path L4 stream. Diff payload is JSON bytes instead of a protobuf string.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OrderBookStreamingServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -83,6 +168,41 @@ def add_OrderBookStreamingServicer_to_server(servicer, server):
                     servicer.StreamL4Book,
                     request_deserializer=orderbook__pb2.L4BookRequest.FromString,
                     response_serializer=orderbook__pb2.L4BookUpdate.SerializeToString,
+            ),
+            'StreamBboBook': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamBboBook,
+                    request_deserializer=orderbook__pb2.BboBookRequest.FromString,
+                    response_serializer=orderbook__pb2.BboBookUpdate.SerializeToString,
+            ),
+            'StreamL2BookDiff': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamL2BookDiff,
+                    request_deserializer=orderbook__pb2.L2BookDiffRequest.FromString,
+                    response_serializer=orderbook__pb2.L2BookDiffUpdate.SerializeToString,
+            ),
+            'StreamL4BookUpdates': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamL4BookUpdates,
+                    request_deserializer=orderbook__pb2.L4BookUpdatesRequest.FromString,
+                    response_serializer=orderbook__pb2.L4BookUpdatesUpdate.SerializeToString,
+            ),
+            'StreamTpslUpdates': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamTpslUpdates,
+                    request_deserializer=orderbook__pb2.TpslUpdatesRequest.FromString,
+                    response_serializer=orderbook__pb2.TpslUpdatesUpdate.SerializeToString,
+            ),
+            'StreamL2BookPacked': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamL2BookPacked,
+                    request_deserializer=orderbook__pb2.L2BookRequest.FromString,
+                    response_serializer=orderbook__pb2.L2BookPackedUpdate.SerializeToString,
+            ),
+            'StreamBboBookPacked': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamBboBookPacked,
+                    request_deserializer=orderbook__pb2.BboBookRequest.FromString,
+                    response_serializer=orderbook__pb2.BboBookPackedUpdate.SerializeToString,
+            ),
+            'StreamL4BookBytes': grpc.unary_stream_rpc_method_handler(
+                    servicer.StreamL4BookBytes,
+                    request_deserializer=orderbook__pb2.L4BookRequest.FromString,
+                    response_serializer=orderbook__pb2.L4BookBytesUpdate.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -142,6 +262,195 @@ class OrderBookStreaming(object):
             '/hyperliquid.OrderBookStreaming/StreamL4Book',
             orderbook__pb2.L4BookRequest.SerializeToString,
             orderbook__pb2.L4BookUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamBboBook(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamBboBook',
+            orderbook__pb2.BboBookRequest.SerializeToString,
+            orderbook__pb2.BboBookUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamL2BookDiff(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamL2BookDiff',
+            orderbook__pb2.L2BookDiffRequest.SerializeToString,
+            orderbook__pb2.L2BookDiffUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamL4BookUpdates(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamL4BookUpdates',
+            orderbook__pb2.L4BookUpdatesRequest.SerializeToString,
+            orderbook__pb2.L4BookUpdatesUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamTpslUpdates(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamTpslUpdates',
+            orderbook__pb2.TpslUpdatesRequest.SerializeToString,
+            orderbook__pb2.TpslUpdatesUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamL2BookPacked(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamL2BookPacked',
+            orderbook__pb2.L2BookRequest.SerializeToString,
+            orderbook__pb2.L2BookPackedUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamBboBookPacked(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamBboBookPacked',
+            orderbook__pb2.BboBookRequest.SerializeToString,
+            orderbook__pb2.BboBookPackedUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamL4BookBytes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/hyperliquid.OrderBookStreaming/StreamL4BookBytes',
+            orderbook__pb2.L4BookRequest.SerializeToString,
+            orderbook__pb2.L4BookBytesUpdate.FromString,
             options,
             channel_credentials,
             insecure,

@@ -21,7 +21,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::types::{
-    Cloid, OrderRequest, OrderTypePlacement, Side, TIF, TimeInForce, TpSl,
+    Cloid, ExchangeOptions, OrderRequest, OrderTypePlacement, Side, TIF, TimeInForce, TpSl,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -40,6 +40,8 @@ pub struct Order {
     reduce_only: bool,
     cloid: Option<Cloid>,
     priority_fee: Option<u64>,
+    vault_address: Option<String>,
+    expires_after: Option<u64>,
 }
 
 impl Order {
@@ -74,6 +76,8 @@ impl Order {
             reduce_only: false,
             cloid: None,
             priority_fee: None,
+            vault_address: None,
+            expires_after: None,
         }
     }
 
@@ -179,6 +183,24 @@ impl Order {
         self
     }
 
+    /// Trade on behalf of a vault or subaccount
+    ///
+    /// Sent as the top-level `vaultAddress` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn vault_address(mut self, vault_address: impl Into<String>) -> Self {
+        self.vault_address = Some(vault_address.into());
+        self
+    }
+
+    /// Set action TTL: millisecond timestamp after which the action is rejected
+    ///
+    /// Sent as the top-level `expiresAfter` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn expires_after(mut self, expires_after: u64) -> Self {
+        self.expires_after = Some(expires_after);
+        self
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Getters
     // ──────────────────────────────────────────────────────────────────────────
@@ -231,6 +253,24 @@ impl Order {
     /// Get the order priority fee if set
     pub fn get_priority_fee(&self) -> Option<u64> {
         self.priority_fee
+    }
+
+    /// Get the vault address (if set)
+    pub fn get_vault_address(&self) -> Option<&str> {
+        self.vault_address.as_deref()
+    }
+
+    /// Get the action TTL (if set)
+    pub fn get_expires_after(&self) -> Option<u64> {
+        self.expires_after
+    }
+
+    /// The vault/TTL options for this order, for threading into build/send
+    pub fn exchange_options(&self) -> ExchangeOptions {
+        ExchangeOptions {
+            vault_address: self.vault_address.clone(),
+            expires_after: self.expires_after,
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -298,6 +338,8 @@ pub struct TriggerOrder {
     is_market: bool,
     reduce_only: bool,
     cloid: Option<Cloid>,
+    vault_address: Option<String>,
+    expires_after: Option<u64>,
 }
 
 impl TriggerOrder {
@@ -332,6 +374,8 @@ impl TriggerOrder {
             is_market: true,
             reduce_only: true, // Default to reduce-only
             cloid: None,
+            vault_address: None,
+            expires_after: None,
         }
     }
 
@@ -405,6 +449,24 @@ impl TriggerOrder {
         self
     }
 
+    /// Trade on behalf of a vault or subaccount
+    ///
+    /// Sent as the top-level `vaultAddress` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn vault_address(mut self, vault_address: impl Into<String>) -> Self {
+        self.vault_address = Some(vault_address.into());
+        self
+    }
+
+    /// Set action TTL: millisecond timestamp after which the action is rejected
+    ///
+    /// Sent as the top-level `expiresAfter` exchange field, which the worker
+    /// folds into the signed action hash.
+    pub fn expires_after(mut self, expires_after: u64) -> Self {
+        self.expires_after = Some(expires_after);
+        self
+    }
+
     // ──────────────────────────────────────────────────────────────────────────
     // Getters
     // ──────────────────────────────────────────────────────────────────────────
@@ -412,6 +474,24 @@ impl TriggerOrder {
     /// Get the asset
     pub fn get_asset(&self) -> &str {
         &self.asset
+    }
+
+    /// Get the vault address (if set)
+    pub fn get_vault_address(&self) -> Option<&str> {
+        self.vault_address.as_deref()
+    }
+
+    /// Get the action TTL (if set)
+    pub fn get_expires_after(&self) -> Option<u64> {
+        self.expires_after
+    }
+
+    /// The vault/TTL options for this order, for threading into build/send
+    pub fn exchange_options(&self) -> ExchangeOptions {
+        ExchangeOptions {
+            vault_address: self.vault_address.clone(),
+            expires_after: self.expires_after,
+        }
     }
 
     /// Get the trigger type

@@ -39,6 +39,11 @@ class StreamingStub(object):
                 request_serializer=streaming__pb2.SubscribeRequest.SerializeToString,
                 response_deserializer=streaming__pb2.SubscribeUpdate.FromString,
                 _registered_method=True)
+        self.StreamDataBytes = channel.stream_stream(
+                '/hyperliquid.Streaming/StreamDataBytes',
+                request_serializer=streaming__pb2.SubscribeRequest.SerializeToString,
+                response_deserializer=streaming__pb2.SubscribeBytesUpdate.FromString,
+                _registered_method=True)
         self.Ping = channel.unary_unary(
                 '/hyperliquid.Streaming/Ping',
                 request_serializer=streaming__pb2.PingRequest.SerializeToString,
@@ -56,6 +61,12 @@ class StreamingServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def StreamDataBytes(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Ping(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -69,6 +80,11 @@ def add_StreamingServicer_to_server(servicer, server):
                     servicer.StreamData,
                     request_deserializer=streaming__pb2.SubscribeRequest.FromString,
                     response_serializer=streaming__pb2.SubscribeUpdate.SerializeToString,
+            ),
+            'StreamDataBytes': grpc.stream_stream_rpc_method_handler(
+                    servicer.StreamDataBytes,
+                    request_deserializer=streaming__pb2.SubscribeRequest.FromString,
+                    response_serializer=streaming__pb2.SubscribeBytesUpdate.SerializeToString,
             ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
@@ -103,6 +119,33 @@ class Streaming(object):
             '/hyperliquid.Streaming/StreamData',
             streaming__pb2.SubscribeRequest.SerializeToString,
             streaming__pb2.SubscribeUpdate.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamDataBytes(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/hyperliquid.Streaming/StreamDataBytes',
+            streaming__pb2.SubscribeRequest.SerializeToString,
+            streaming__pb2.SubscribeBytesUpdate.FromString,
             options,
             channel_credentials,
             insecure,

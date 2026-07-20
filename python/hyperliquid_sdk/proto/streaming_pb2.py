@@ -24,43 +24,48 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fstreaming.proto\x12\x0bhyperliquid\"y\n\x10SubscribeRequest\x12\x31\n\tsubscribe\x18\x01 \x01(\x0b\x32\x1c.hyperliquid.StreamSubscribeH\x00\x12!\n\x04ping\x18\x03 \x01(\x0b\x32\x11.hyperliquid.PingH\x00\x42\t\n\x07requestJ\x04\x08\x02\x10\x03\"\xdb\x01\n\x0fStreamSubscribe\x12,\n\x0bstream_type\x18\x01 \x01(\x0e\x32\x17.hyperliquid.StreamType\x12:\n\x07\x66ilters\x18\x03 \x03(\x0b\x32).hyperliquid.StreamSubscribe.FiltersEntry\x12\x13\n\x0b\x66ilter_name\x18\x04 \x01(\t\x1aI\n\x0c\x46iltersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12(\n\x05value\x18\x02 \x01(\x0b\x32\x19.hyperliquid.FilterValues:\x02\x38\x01\"\x1e\n\x0c\x46ilterValues\x12\x0e\n\x06values\x18\x01 \x03(\t\"\x19\n\x04Ping\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"k\n\x0fSubscribeUpdate\x12+\n\x04\x64\x61ta\x18\x01 \x01(\x0b\x32\x1b.hyperliquid.StreamResponseH\x00\x12!\n\x04pong\x18\x02 \x01(\x0b\x32\x11.hyperliquid.PongH\x00\x42\x08\n\x06update\"G\n\x0eStreamResponse\x12\x14\n\x0c\x62lock_number\x18\x01 \x01(\x04\x12\x11\n\ttimestamp\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t\"\x1a\n\x05\x42lock\x12\x11\n\tdata_json\x18\x01 \x01(\t\"\x19\n\x04Pong\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"\x1e\n\tTimestamp\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"\x1c\n\x0bPingRequest\x12\r\n\x05\x63ount\x18\x01 \x01(\x05\"\x1d\n\x0cPingResponse\x12\r\n\x05\x63ount\x18\x01 \x01(\x05*y\n\nStreamType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\n\n\x06TRADES\x10\x01\x12\n\n\x06ORDERS\x10\x02\x12\x10\n\x0c\x42OOK_UPDATES\x10\x03\x12\x08\n\x04TWAP\x10\x04\x12\n\n\x06\x45VENTS\x10\x05\x12\n\n\x06\x42LOCKS\x10\x06\x12\x12\n\x0eWRITER_ACTIONS\x10\x07\x32\x97\x01\n\tStreaming\x12M\n\nStreamData\x12\x1d.hyperliquid.SubscribeRequest\x1a\x1c.hyperliquid.SubscribeUpdate(\x01\x30\x01\x12;\n\x04Ping\x12\x18.hyperliquid.PingRequest\x1a\x19.hyperliquid.PingResponse2N\n\x0e\x42lockStreaming\x12<\n\x0cStreamBlocks\x12\x16.hyperliquid.Timestamp\x1a\x12.hyperliquid.Block0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0fstreaming.proto\x12\x0bhyperliquid\"y\n\x10SubscribeRequest\x12\x31\n\tsubscribe\x18\x01 \x01(\x0b\x32\x1c.hyperliquid.StreamSubscribeH\x00\x12!\n\x04ping\x18\x03 \x01(\x0b\x32\x11.hyperliquid.PingH\x00\x42\t\n\x07requestJ\x04\x08\x02\x10\x03\"\xf0\x01\n\x0fStreamSubscribe\x12,\n\x0bstream_type\x18\x01 \x01(\x0e\x32\x17.hyperliquid.StreamType\x12\x13\n\x0bstart_block\x18\x02 \x01(\x04\x12:\n\x07\x66ilters\x18\x03 \x03(\x0b\x32).hyperliquid.StreamSubscribe.FiltersEntry\x12\x13\n\x0b\x66ilter_name\x18\x04 \x01(\t\x1aI\n\x0c\x46iltersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12(\n\x05value\x18\x02 \x01(\x0b\x32\x19.hyperliquid.FilterValues:\x02\x38\x01\"\x1e\n\x0c\x46ilterValues\x12\x0e\n\x06values\x18\x01 \x03(\t\"\x19\n\x04Ping\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"k\n\x0fSubscribeUpdate\x12+\n\x04\x64\x61ta\x18\x01 \x01(\x0b\x32\x1b.hyperliquid.StreamResponseH\x00\x12!\n\x04pong\x18\x02 \x01(\x0b\x32\x11.hyperliquid.PongH\x00\x42\x08\n\x06update\"u\n\x14SubscribeBytesUpdate\x12\x30\n\x04\x64\x61ta\x18\x01 \x01(\x0b\x32 .hyperliquid.StreamBytesResponseH\x00\x12!\n\x04pong\x18\x02 \x01(\x0b\x32\x11.hyperliquid.PongH\x00\x42\x08\n\x06update\"G\n\x0eStreamResponse\x12\x14\n\x0c\x62lock_number\x18\x01 \x01(\x04\x12\x11\n\ttimestamp\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\t\"L\n\x13StreamBytesResponse\x12\x14\n\x0c\x62lock_number\x18\x01 \x01(\x04\x12\x11\n\ttimestamp\x18\x02 \x01(\x04\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"\x1a\n\x05\x42lock\x12\x11\n\tdata_json\x18\x01 \x01(\t\"\x19\n\x04Pong\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"\x1e\n\tTimestamp\x12\x11\n\ttimestamp\x18\x01 \x01(\x03\"\x1c\n\x0bPingRequest\x12\r\n\x05\x63ount\x18\x01 \x01(\x05\"\x1d\n\x0cPingResponse\x12\r\n\x05\x63ount\x18\x01 \x01(\x05*\xb3\x01\n\nStreamType\x12\x0b\n\x07UNKNOWN\x10\x00\x12\n\n\x06TRADES\x10\x01\x12\n\n\x06ORDERS\x10\x02\x12\x10\n\x0c\x42OOK_UPDATES\x10\x03\x12\x08\n\x04TWAP\x10\x04\x12\n\n\x06\x45VENTS\x10\x05\x12\n\n\x06\x42LOCKS\x10\x06\x12\x12\n\x0eWRITER_ACTIONS\x10\x07\x12\x0f\n\x0bMEMPOOL_TXS\x10\x08\x12\x12\n\x0eORDER_PRIORITY\x10\t\x12\x13\n\x0fGOSSIP_PRIORITY\x10\n2\xf0\x01\n\tStreaming\x12M\n\nStreamData\x12\x1d.hyperliquid.SubscribeRequest\x1a\x1c.hyperliquid.SubscribeUpdate(\x01\x30\x01\x12W\n\x0fStreamDataBytes\x12\x1d.hyperliquid.SubscribeRequest\x1a!.hyperliquid.SubscribeBytesUpdate(\x01\x30\x01\x12;\n\x04Ping\x12\x18.hyperliquid.PingRequest\x1a\x19.hyperliquid.PingResponse2N\n\x0e\x42lockStreaming\x12<\n\x0cStreamBlocks\x12\x16.hyperliquid.Timestamp\x1a\x12.hyperliquid.Block0\x01\x42?Z=github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/protob\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'streaming_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
-  DESCRIPTOR._loaded_options = None
+  _globals['DESCRIPTOR']._loaded_options = None
+  _globals['DESCRIPTOR']._serialized_options = b'Z=github.com/quiknode-labs/hyperliquid-sdk/go/hyperliquid/proto'
   _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._loaded_options = None
   _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._serialized_options = b'8\001'
-  _globals['_STREAMTYPE']._serialized_start=766
-  _globals['_STREAMTYPE']._serialized_end=887
+  _globals['_STREAMTYPE']._serialized_start=985
+  _globals['_STREAMTYPE']._serialized_end=1164
   _globals['_SUBSCRIBEREQUEST']._serialized_start=32
   _globals['_SUBSCRIBEREQUEST']._serialized_end=153
   _globals['_STREAMSUBSCRIBE']._serialized_start=156
-  _globals['_STREAMSUBSCRIBE']._serialized_end=375
-  _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._serialized_start=302
-  _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._serialized_end=375
-  _globals['_FILTERVALUES']._serialized_start=377
-  _globals['_FILTERVALUES']._serialized_end=407
-  _globals['_PING']._serialized_start=409
-  _globals['_PING']._serialized_end=434
-  _globals['_SUBSCRIBEUPDATE']._serialized_start=436
-  _globals['_SUBSCRIBEUPDATE']._serialized_end=543
-  _globals['_STREAMRESPONSE']._serialized_start=545
-  _globals['_STREAMRESPONSE']._serialized_end=616
-  _globals['_BLOCK']._serialized_start=618
-  _globals['_BLOCK']._serialized_end=644
-  _globals['_PONG']._serialized_start=646
-  _globals['_PONG']._serialized_end=671
-  _globals['_TIMESTAMP']._serialized_start=673
-  _globals['_TIMESTAMP']._serialized_end=703
-  _globals['_PINGREQUEST']._serialized_start=705
-  _globals['_PINGREQUEST']._serialized_end=733
-  _globals['_PINGRESPONSE']._serialized_start=735
-  _globals['_PINGRESPONSE']._serialized_end=764
-  _globals['_STREAMING']._serialized_start=890
-  _globals['_STREAMING']._serialized_end=1041
-  _globals['_BLOCKSTREAMING']._serialized_start=1043
-  _globals['_BLOCKSTREAMING']._serialized_end=1121
+  _globals['_STREAMSUBSCRIBE']._serialized_end=396
+  _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._serialized_start=323
+  _globals['_STREAMSUBSCRIBE_FILTERSENTRY']._serialized_end=396
+  _globals['_FILTERVALUES']._serialized_start=398
+  _globals['_FILTERVALUES']._serialized_end=428
+  _globals['_PING']._serialized_start=430
+  _globals['_PING']._serialized_end=455
+  _globals['_SUBSCRIBEUPDATE']._serialized_start=457
+  _globals['_SUBSCRIBEUPDATE']._serialized_end=564
+  _globals['_SUBSCRIBEBYTESUPDATE']._serialized_start=566
+  _globals['_SUBSCRIBEBYTESUPDATE']._serialized_end=683
+  _globals['_STREAMRESPONSE']._serialized_start=685
+  _globals['_STREAMRESPONSE']._serialized_end=756
+  _globals['_STREAMBYTESRESPONSE']._serialized_start=758
+  _globals['_STREAMBYTESRESPONSE']._serialized_end=834
+  _globals['_BLOCK']._serialized_start=836
+  _globals['_BLOCK']._serialized_end=862
+  _globals['_PONG']._serialized_start=864
+  _globals['_PONG']._serialized_end=889
+  _globals['_TIMESTAMP']._serialized_start=891
+  _globals['_TIMESTAMP']._serialized_end=921
+  _globals['_PINGREQUEST']._serialized_start=923
+  _globals['_PINGREQUEST']._serialized_end=951
+  _globals['_PINGRESPONSE']._serialized_start=953
+  _globals['_PINGRESPONSE']._serialized_end=982
+  _globals['_STREAMING']._serialized_start=1167
+  _globals['_STREAMING']._serialized_end=1407
+  _globals['_BLOCKSTREAMING']._serialized_start=1409
+  _globals['_BLOCKSTREAMING']._serialized_end=1487
 # @@protoc_insertion_point(module_scope)

@@ -24,6 +24,9 @@ export enum GRPCStreamType {
   EVENTS = 'EVENTS',
   BLOCKS = 'BLOCKS',
   WRITER_ACTIONS = 'WRITER_ACTIONS',
+  MEMPOOL_TXS = 'MEMPOOL_TXS',
+  ORDER_PRIORITY = 'ORDER_PRIORITY',
+  GOSSIP_PRIORITY = 'GOSSIP_PRIORITY',
 }
 
 export enum ConnectionState {
@@ -46,6 +49,9 @@ export interface GRPCStreamOptions {
 
 type Callback = (data: Record<string, unknown>) => void;
 
+/** Callback for the StreamDataBytes fast path: payload bytes are NOT JSON-decoded. */
+type BytesCallback = (data: { block_number: number; timestamp: number; data: Uint8Array }) => void;
+
 interface Subscription {
   streamType: string;
   callback: Callback;
@@ -54,7 +60,15 @@ interface Subscription {
   coin?: string;
   nSigFigs?: number;
   nLevels?: number;
+  mantissa?: number;
+  skipInitialSnapshot?: boolean;
+  startBlock?: number;
   raw?: boolean;
+  bytes?: boolean;
+  /** Internal: highest block_number seen on this subscription (reconnect resume cursor). */
+  lastSeenBlock?: number;
+  /** Internal: whether this subscription's stream has been started at least once. */
+  connectedOnce?: boolean;
 }
 
 // Stream type enum values matching proto
@@ -66,6 +80,9 @@ const STREAM_TYPE_MAP: Record<string, number> = {
   EVENTS: 5,
   BLOCKS: 6,
   WRITER_ACTIONS: 7,
+  MEMPOOL_TXS: 8,
+  ORDER_PRIORITY: 9,
+  GOSSIP_PRIORITY: 10,
 };
 
 /**
@@ -85,8 +102,17 @@ const STREAM_TYPE_MAP: Record<string, number> = {
  * - twap: Time-weighted average price execution
  * - events: System events (funding, liquidations)
  * - blocks: Block data
+ * - mempool_txs: Pre-consensus mempool transactions
+ * - order_priority: Derived order/write priority actions
+ * - gossip_priority: Derived gossip/read priority bid actions
  * - l2_book: Level 2 order book (aggregated price levels)
  * - l4_book: Level 4 order book (individual orders)
+ * - bbo_book: Top-of-book (best bid/offer) changes
+ * - l2_book_diff: Incremental L2 price-level changes
+ * - l4_book_updates: Typed L4 order-level changes
+ * - tpsl_updates: Trigger/TP-SL order updates
+ * - l2_book_packed / bbo_book_packed: Fixed-point fast paths (px/sz scaled by 1e8)
+ * - l4_book_bytes: L4 fast path with JSON-bytes diffs
  */
 export class GRPCStream {
   static readonly GRPC_PORT = 10000;
@@ -200,7 +226,11 @@ export class GRPCStream {
       coin?: string;
       nSigFigs?: number;
       nLevels?: number;
+      mantissa?: number;
+      skipInitialSnapshot?: boolean;
+      startBlock?: number;
       raw?: boolean;
+      bytes?: boolean;
     } = {}
   ): void {
     this._subscriptions.push({
@@ -211,87 +241,91 @@ export class GRPCStream {
       coin: options.coin,
       nSigFigs: options.nSigFigs,
       nLevels: options.nLevels ?? 20,
+      mantissa: options.mantissa,
+      skipInitialSnapshot: options.skipInitialSnapshot,
+      startBlock: options.startBlock,
       raw: options.raw ?? false,
+      bytes: options.bytes ?? false,
     });
   }
 
   /**
    * Subscribe to trade stream.
    */
-  trades(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.TRADES, callback, { coins });
+  trades(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.TRADES, callback, { coins, startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw trade blocks.
    */
-  rawTrades(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.TRADES, callback, { coins, raw: true });
+  rawTrades(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.TRADES, callback, { coins, startBlock: options.startBlock, raw: true });
     return this;
   }
 
   /**
    * Subscribe to order stream.
    */
-  orders(coins: string[], callback: Callback, options: { users?: string[] } = {}): GRPCStream {
-    this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users });
+  orders(coins: string[], callback: Callback, options: { users?: string[]; startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users, startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw order blocks.
    */
-  rawOrders(coins: string[], callback: Callback, options: { users?: string[] } = {}): GRPCStream {
-    this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users, raw: true });
+  rawOrders(coins: string[], callback: Callback, options: { users?: string[]; startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.ORDERS, callback, { coins, users: options.users, startBlock: options.startBlock, raw: true });
     return this;
   }
 
   /**
    * Subscribe to order book updates.
    */
-  bookUpdates(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.BOOK_UPDATES, callback, { coins });
+  bookUpdates(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.BOOK_UPDATES, callback, { coins, startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw order book update blocks.
    */
-  rawBookUpdates(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.BOOK_UPDATES, callback, { coins, raw: true });
+  rawBookUpdates(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.BOOK_UPDATES, callback, { coins, startBlock: options.startBlock, raw: true });
     return this;
   }
 
   /**
    * Subscribe to TWAP execution stream.
    */
-  twap(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.TWAP, callback, { coins });
+  twap(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.TWAP, callback, { coins, startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw TWAP execution blocks.
    */
-  rawTwap(coins: string[], callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.TWAP, callback, { coins, raw: true });
+  rawTwap(coins: string[], callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.TWAP, callback, { coins, startBlock: options.startBlock, raw: true });
     return this;
   }
 
   /**
    * Subscribe to system events (funding, liquidations, governance).
    */
-  events(callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.EVENTS, callback);
+  events(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.EVENTS, callback, { startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw system event blocks.
    */
-  rawEvents(callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.EVENTS, callback, { raw: true });
+  rawEvents(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.EVENTS, callback, { startBlock: options.startBlock, raw: true });
     return this;
   }
 
@@ -306,16 +340,109 @@ export class GRPCStream {
   /**
    * Subscribe to writer actions (HyperCore <-> HyperEVM asset transfers).
    */
-  writerActions(callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback);
+  writerActions(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback, { startBlock: options.startBlock });
     return this;
   }
 
   /**
    * Subscribe to raw writer action blocks.
    */
-  rawWriterActions(callback: Callback): GRPCStream {
-    this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback, { raw: true });
+  rawWriterActions(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.WRITER_ACTIONS, callback, { startBlock: options.startBlock, raw: true });
+    return this;
+  }
+
+  /**
+   * Subscribe to pre-consensus mempool transactions.
+   * Optional coin filter (server applies OR across values); omit coins for all.
+   */
+  mempoolTxs(callback: Callback): GRPCStream;
+  mempoolTxs(coins: string[], callback: Callback, options?: { startBlock?: number }): GRPCStream;
+  mempoolTxs(
+    coinsOrCallback: string[] | Callback,
+    callback?: Callback,
+    options: { startBlock?: number } = {}
+  ): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription(GRPCStreamType.MEMPOOL_TXS, cb, { coins, startBlock: options.startBlock });
+    return this;
+  }
+
+  /**
+   * Subscribe to raw pre-consensus mempool transaction blocks.
+   */
+  rawMempoolTxs(callback: Callback): GRPCStream;
+  rawMempoolTxs(coins: string[], callback: Callback, options?: { startBlock?: number }): GRPCStream;
+  rawMempoolTxs(
+    coinsOrCallback: string[] | Callback,
+    callback?: Callback,
+    options: { startBlock?: number } = {}
+  ): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription(GRPCStreamType.MEMPOOL_TXS, cb, { coins, startBlock: options.startBlock, raw: true });
+    return this;
+  }
+
+  /**
+   * Subscribe to derived order/write priority actions (from mempool and confirmed replica data).
+   * Events carry server-enriched fields: coin, market_type, sz_decimals.
+   */
+  orderPriority(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.ORDER_PRIORITY, callback, { startBlock: options.startBlock });
+    return this;
+  }
+
+  /**
+   * Subscribe to raw order/write priority action blocks.
+   */
+  rawOrderPriority(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.ORDER_PRIORITY, callback, { startBlock: options.startBlock, raw: true });
+    return this;
+  }
+
+  /**
+   * Subscribe to derived gossip/read priority bid actions (does not measure delivery latency).
+   * Events carry server-enriched fields: coin, market_type, sz_decimals.
+   */
+  gossipPriority(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.GOSSIP_PRIORITY, callback, { startBlock: options.startBlock });
+    return this;
+  }
+
+  /**
+   * Subscribe to raw gossip/read priority bid action blocks.
+   */
+  rawGossipPriority(callback: Callback, options: { startBlock?: number } = {}): GRPCStream {
+    this._addSubscription(GRPCStreamType.GOSSIP_PRIORITY, callback, { startBlock: options.startBlock, raw: true });
+    return this;
+  }
+
+  /**
+   * Subscribe to the raw-bytes fast path of the generic data stream (StreamDataBytes).
+   * The callback receives { block_number, timestamp, data } where data is the
+   * undecoded payload bytes — no JSON parsing is performed.
+   */
+  streamDataBytes(
+    streamType: GRPCStreamType,
+    callback: BytesCallback,
+    options: { coins?: string[]; users?: string[]; startBlock?: number } = {}
+  ): GRPCStream {
+    // Fail fast for plain-JS callers: an unknown type would otherwise map to
+    // proto enum 0 (UNKNOWN) and be sent to the server silently.
+    if (!(streamType in STREAM_TYPE_MAP)) {
+      throw new Error(
+        `Unknown stream type "${streamType}" for streamDataBytes; valid types: ${Object.keys(STREAM_TYPE_MAP).join(', ')}`
+      );
+    }
+    this._addSubscription(streamType, callback as unknown as Callback, {
+      coins: options.coins,
+      users: options.users,
+      startBlock: options.startBlock,
+      bytes: true,
+    });
     return this;
   }
 
@@ -337,9 +464,121 @@ export class GRPCStream {
 
   /**
    * Subscribe to Level 4 order book updates (individual orders).
+   *
+   * Note: the server may send an unsolicited full snapshot at any time after
+   * subscribe; discard local book state and replace it with any snapshot
+   * received mid-stream.
    */
   l4Book(coin: string, callback: Callback): GRPCStream {
     this._addSubscription('L4_BOOK', callback, { coin });
+    return this;
+  }
+
+  /**
+   * Subscribe to best bid/offer updates. Omitted/empty coins = all coins.
+   * Emits only when the best bid or ask changes for a coin.
+   */
+  bboBook(callback: Callback): GRPCStream;
+  bboBook(coins: string[], callback: Callback): GRPCStream;
+  bboBook(coinsOrCallback: string[] | Callback, callback?: Callback): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription('BBO_BOOK', cb, { coins });
+    return this;
+  }
+
+  /**
+   * Subscribe to incremental L2 price-level changes. Omitted/empty coins = all coins.
+   * Changed levels with sz=0 mean the level was removed.
+   */
+  l2BookDiff(
+    callback: Callback,
+    options: {
+      coins?: string[];
+      nSigFigs?: number;
+      nLevels?: number;
+      mantissa?: number;
+      skipInitialSnapshot?: boolean;
+    } = {}
+  ): GRPCStream {
+    this._addSubscription('L2_BOOK_DIFF', callback, {
+      coins: options.coins,
+      nSigFigs: options.nSigFigs,
+      nLevels: options.nLevels ?? 20,
+      mantissa: options.mantissa,
+      skipInitialSnapshot: options.skipInitialSnapshot,
+    });
+    return this;
+  }
+
+  /**
+   * Subscribe to typed L4 order book updates. Omitted/empty coins = all coins.
+   *
+   * Note: updates with snapshot=true carry a full reset snapshot; discard
+   * local book state and replace it whenever one arrives mid-stream.
+   */
+  l4BookUpdates(callback: Callback): GRPCStream;
+  l4BookUpdates(coins: string[], callback: Callback): GRPCStream;
+  l4BookUpdates(coinsOrCallback: string[] | Callback, callback?: Callback): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription('L4_BOOK_UPDATES', cb, { coins });
+    return this;
+  }
+
+  /**
+   * Subscribe to trigger/TP-SL order updates. Omitted/empty coins = all perp coins.
+   */
+  tpslUpdates(callback: Callback): GRPCStream;
+  tpslUpdates(coins: string[], callback: Callback): GRPCStream;
+  tpslUpdates(coinsOrCallback: string[] | Callback, callback?: Callback): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription('TPSL_UPDATES', cb, { coins });
+    return this;
+  }
+
+  /**
+   * Subscribe to the fixed-point L2 book fast path.
+   * Prices/sizes are u64 fixed-point integers scaled by 1e8.
+   */
+  l2BookPacked(
+    coin: string,
+    callback: Callback,
+    options: { nSigFigs?: number; nLevels?: number; mantissa?: number } = {}
+  ): GRPCStream {
+    this._addSubscription('L2_BOOK_PACKED', callback, {
+      coin,
+      nSigFigs: options.nSigFigs,
+      nLevels: options.nLevels ?? 20,
+      mantissa: options.mantissa,
+    });
+    return this;
+  }
+
+  /**
+   * Subscribe to the fixed-point BBO fast path. Omitted/empty coins = all coins.
+   * Prices/sizes are u64 fixed-point integers scaled by 1e8.
+   */
+  bboBookPacked(callback: Callback): GRPCStream;
+  bboBookPacked(coins: string[], callback: Callback): GRPCStream;
+  bboBookPacked(coinsOrCallback: string[] | Callback, callback?: Callback): GRPCStream {
+    const coins = Array.isArray(coinsOrCallback) ? coinsOrCallback : undefined;
+    const cb = Array.isArray(coinsOrCallback) ? (callback as Callback) : coinsOrCallback;
+    this._addSubscription('BBO_BOOK_PACKED', cb, { coins });
+    return this;
+  }
+
+  /**
+   * Subscribe to the L4 book fast path: diffs are delivered as undecoded JSON
+   * bytes ({order_statuses, book_diffs}) instead of a protobuf string.
+   *
+   * Note: the server may send an unsolicited full snapshot at any time after
+   * subscribe; discard local book state and replace it with any snapshot
+   * received mid-stream.
+   */
+  l4BookBytes(coin: string, callback: Callback): GRPCStream {
+    this._addSubscription('L4_BOOK_BYTES', callback, { coin });
     return this;
   }
 
@@ -416,6 +655,47 @@ export class GRPCStream {
   }
 
   /**
+   * Build the initial StreamSubscribe request for a data subscription.
+   */
+  private _buildSubscribeRequest(sub: Subscription): {
+    subscribe: { stream_type: number; filters: Record<string, { values: string[] }>; start_block?: number };
+  } {
+    const subscribe: { stream_type: number; filters: Record<string, { values: string[] }>; start_block?: number } = {
+      stream_type: STREAM_TYPE_MAP[sub.streamType] || 0,
+      filters: {},
+    };
+
+    if (sub.startBlock !== undefined) {
+      // On reconnect, resume after the last delivered block instead of
+      // replaying the original startBlock. First connect sends it verbatim.
+      subscribe.start_block =
+        sub.connectedOnce && sub.lastSeenBlock !== undefined
+          ? Math.max(sub.startBlock, sub.lastSeenBlock + 1)
+          : sub.startBlock;
+    }
+    if (sub.coins && sub.coins.length > 0) {
+      subscribe.filters['coin'] = { values: sub.coins };
+    }
+    if (sub.users && sub.users.length > 0) {
+      subscribe.filters['user'] = { values: sub.users };
+    }
+
+    return { subscribe };
+  }
+
+  /**
+   * Track the highest block_number seen on a subscription so reconnects can
+   * resume after it. Handles int64 fields decoded as strings (longs: String).
+   */
+  private _trackLastSeenBlock(sub: Subscription, blockNumber: unknown): void {
+    const block = typeof blockNumber === 'number' ? blockNumber : Number(blockNumber);
+    if (!Number.isFinite(block)) return;
+    if (sub.lastSeenBlock === undefined || block > sub.lastSeenBlock) {
+      sub.lastSeenBlock = block;
+    }
+  }
+
+  /**
    * Start streaming for a data subscription (trades, orders, etc.).
    */
   private _streamData(sub: Subscription): void {
@@ -428,21 +708,8 @@ export class GRPCStream {
     this._activeStreams.push(stream);
 
     // Send initial subscription request
-    const subscribeRequest = {
-      subscribe: {
-        stream_type: STREAM_TYPE_MAP[sub.streamType] || 0,
-        filters: {} as Record<string, { values: string[] }>,
-      },
-    };
-
-    if (sub.coins && sub.coins.length > 0) {
-      subscribeRequest.subscribe.filters['coin'] = { values: sub.coins };
-    }
-    if (sub.users && sub.users.length > 0) {
-      subscribeRequest.subscribe.filters['user'] = { values: sub.users };
-    }
-
-    stream.write(subscribeRequest);
+    stream.write(this._buildSubscribeRequest(sub));
+    sub.connectedOnce = true;
 
     // Set up ping interval
     const pingInterval = setInterval(() => {
@@ -461,6 +728,11 @@ export class GRPCStream {
       if (response.data) {
         try {
           const parsed = JSON.parse(response.data.data);
+          // Advance the resume cursor only after the payload parsed, so a
+          // corrupt block is re-requested on reconnect instead of skipped.
+          if (sub.startBlock !== undefined) {
+            this._trackLastSeenBlock(sub, response.data.block_number);
+          }
           const blockNumber = response.data.block_number;
           const timestamp = response.data.timestamp;
 
@@ -529,6 +801,75 @@ export class GRPCStream {
           }
         } catch {
           // JSON parse error
+        }
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      clearInterval(pingInterval);
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      clearInterval(pingInterval);
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Start streaming raw bytes for a data subscription (StreamDataBytes fast path).
+   * Payload bytes are passed through to the callback without JSON decoding.
+   */
+  private _streamDataBytes(sub: Subscription): void {
+    if (!this._streamingClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+
+    // Create bidirectional stream
+    const stream = this._streamingClient.StreamDataBytes(metadata);
+    this._activeStreams.push(stream);
+
+    // Send initial subscription request
+    stream.write(this._buildSubscribeRequest(sub));
+    sub.connectedOnce = true;
+
+    // Set up ping interval
+    const pingInterval = setInterval(() => {
+      if (this._running && !this._stopRequested) {
+        try {
+          stream.write({ ping: { timestamp: Date.now() } });
+        } catch {
+          // Stream might be closed
+        }
+      }
+    }, 30000);
+    this._pingIntervals.push(pingInterval);
+
+    // Handle incoming data
+    stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: Uint8Array }; pong?: { timestamp: number } }) => {
+      if (response.data) {
+        try {
+          sub.callback(response.data as unknown as Record<string, unknown>);
+        } catch {
+          // Ignore callback errors
+        }
+        // Cursor advances only after delivery so reconnects never skip an
+        // undelivered block.
+        if (sub.startBlock !== undefined) {
+          this._trackLastSeenBlock(sub, response.data.block_number);
         }
       }
     });
@@ -725,6 +1066,86 @@ export class GRPCStream {
     });
   }
 
+  /**
+   * Start a server-streaming order book RPC (BBO, diffs, packed, bytes, TP/SL).
+   * Updates are forwarded to the callback as decoded, unless a transform is given.
+   */
+  private _streamOrderbookRpc(
+    sub: Subscription,
+    rpcName: string,
+    request: Record<string, unknown>,
+    transform?: (update: Record<string, unknown>) => Record<string, unknown> | null
+  ): void {
+    if (!this._orderbookClient || this._stopRequested) return;
+
+    const metadata = this._getMetadata();
+    const stream = this._orderbookClient[rpcName](request, metadata);
+    this._activeStreams.push(stream);
+    sub.connectedOnce = true;
+
+    stream.on('data', (update: Record<string, unknown>) => {
+      const data = transform ? transform(update) : update;
+      if (data === null) return;
+      try {
+        sub.callback(data);
+      } catch {
+        // Ignore callback errors
+      }
+    });
+
+    stream.on('error', (err: Error) => {
+      if (this._running && !this._stopRequested) {
+        if (this._onError) {
+          try {
+            this._onError(err);
+          } catch {
+            // Ignore
+          }
+        }
+        if (this._reconnectEnabled) {
+          this._scheduleReconnect();
+        }
+      }
+    });
+
+    stream.on('end', () => {
+      if (this._running && !this._stopRequested && this._reconnectEnabled) {
+        this._scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Map an L4BookBytesUpdate oneof to the snapshot/diff shape used by l4Book,
+   * keeping the diff payload as undecoded JSON bytes.
+   */
+  private _l4BytesToObject(update: Record<string, unknown>): Record<string, unknown> | null {
+    const u = update as {
+      snapshot?: { coin: string; time: number; height: number; bids: L4Order[]; asks: L4Order[] };
+      diff?: { time: number; height: number; data: Uint8Array };
+    };
+
+    if (u.snapshot) {
+      return {
+        type: 'snapshot',
+        coin: u.snapshot.coin,
+        time: u.snapshot.time,
+        height: u.snapshot.height,
+        bids: u.snapshot.bids.map(this._l4OrderToObject),
+        asks: u.snapshot.asks.map(this._l4OrderToObject),
+      };
+    }
+    if (u.diff) {
+      return {
+        type: 'diff',
+        time: u.diff.time,
+        height: u.diff.height,
+        data: u.diff.data, // JSON bytes, not decoded
+      };
+    }
+    return null;
+  }
+
   private _l4OrderToObject(order: L4Order): Record<string, unknown> {
     return {
       user: order.user,
@@ -797,6 +1218,10 @@ export class GRPCStream {
 
   private _startStreams(): void {
     for (const sub of this._subscriptions) {
+      if (sub.bytes) {
+        this._streamDataBytes(sub);
+        continue;
+      }
       switch (sub.streamType) {
         case 'L2_BOOK':
           this._streamL2Book(sub);
@@ -806,6 +1231,52 @@ export class GRPCStream {
           break;
         case 'BLOCKS':
           this._streamBlocks(sub);
+          break;
+        case 'BBO_BOOK':
+          this._streamOrderbookRpc(sub, 'StreamBboBook', { coins: sub.coins ?? [] });
+          break;
+        case 'L2_BOOK_DIFF': {
+          const request: Record<string, unknown> = {
+            coins: sub.coins ?? [],
+            n_levels: sub.nLevels || 20,
+            // Honor the user's skipInitialSnapshot only on the first connect;
+            // on reconnect always request the snapshot so the book can resync.
+            skip_initial_snapshot: sub.connectedOnce ? false : sub.skipInitialSnapshot ?? false,
+          };
+          if (sub.nSigFigs !== undefined) {
+            request.n_sig_figs = sub.nSigFigs;
+          }
+          if (sub.mantissa !== undefined) {
+            request.mantissa = sub.mantissa;
+          }
+          this._streamOrderbookRpc(sub, 'StreamL2BookDiff', request);
+          break;
+        }
+        case 'L4_BOOK_UPDATES':
+          this._streamOrderbookRpc(sub, 'StreamL4BookUpdates', { coins: sub.coins ?? [] });
+          break;
+        case 'TPSL_UPDATES':
+          this._streamOrderbookRpc(sub, 'StreamTpslUpdates', { coins: sub.coins ?? [] });
+          break;
+        case 'L2_BOOK_PACKED': {
+          const request: Record<string, unknown> = {
+            coin: sub.coin || '',
+            n_levels: sub.nLevels || 20,
+          };
+          if (sub.nSigFigs !== undefined) {
+            request.n_sig_figs = sub.nSigFigs;
+          }
+          if (sub.mantissa !== undefined) {
+            request.mantissa = sub.mantissa;
+          }
+          this._streamOrderbookRpc(sub, 'StreamL2BookPacked', request);
+          break;
+        }
+        case 'BBO_BOOK_PACKED':
+          this._streamOrderbookRpc(sub, 'StreamBboBookPacked', { coins: sub.coins ?? [] });
+          break;
+        case 'L4_BOOK_BYTES':
+          this._streamOrderbookRpc(sub, 'StreamL4BookBytes', { coin: sub.coin || '' }, (u) => this._l4BytesToObject(u));
           break;
         default:
           this._streamData(sub);

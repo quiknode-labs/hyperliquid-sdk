@@ -157,6 +157,10 @@ export interface OrderOptions {
   cloid?: string;
   grouping?: OrderGrouping;
   priorityFee?: number | string;
+  /** Vault or subaccount address to trade on behalf of. */
+  vaultAddress?: string;
+  /** Action TTL as a ms timestamp; the exchange rejects it after this time. */
+  expiresAfter?: number;
 }
 
 export interface TriggerOrderOptions {
@@ -771,6 +775,9 @@ export enum GRPCStreamType {
   EVENTS = 5,
   BLOCKS = 6,
   WRITER_ACTIONS = 7,
+  MEMPOOL_TXS = 8,
+  ORDER_PRIORITY = 9,
+  GOSSIP_PRIORITY = 10,
 }
 
 export enum EVMSubscriptionType {
@@ -857,6 +864,150 @@ export interface BlockMessage {
     signedActionBundles: unknown[];
   };
   resps: unknown[];
+}
+
+// ─── gRPC order book stream payloads (wire field names, as delivered by GRPCStream) ───
+
+/** A single aggregated price level. */
+export interface L2Level {
+  px: string;
+  sz: string;
+  n: number;
+}
+
+/** Fixed-point price level: px/sz are u64 fixed-point integers scaled by 1e8. */
+export interface L2LevelPacked {
+  px: string;
+  sz: string;
+  n: number;
+}
+
+/** Best bid/offer update for a coin (bboBook). bid/ask absent when the side is empty. */
+export interface BboBookMessage {
+  coin: string;
+  time: number;
+  block_number: number;
+  bid: L2Level | null;
+  ask: L2Level | null;
+}
+
+/** Fixed-point best bid/offer update (bboBookPacked). px/sz scaled by 1e8. */
+export interface BboBookPackedMessage {
+  coin: string;
+  time: number;
+  block_number: number;
+  bid: L2LevelPacked | null;
+  ask: L2LevelPacked | null;
+}
+
+/** Fixed-point L2 book snapshot (l2BookPacked). px/sz scaled by 1e8. */
+export interface L2BookPackedMessage {
+  coin: string;
+  time: number;
+  block_number: number;
+  bids: L2LevelPacked[];
+  asks: L2LevelPacked[];
+}
+
+/** Incremental L2 changes for one coin. Levels with sz=0 were removed. */
+export interface L2CoinDiff {
+  coin: string;
+  seq: number;
+  prev_seq: number;
+  bids: L2Level[];
+  asks: L2Level[];
+  snapshot: boolean;
+}
+
+/** Batch of L2 price-level changes for one processed block (l2BookDiff). */
+export interface L2BookDiffMessage {
+  time: number;
+  height: number;
+  snapshot: boolean;
+  diffs: L2CoinDiff[];
+}
+
+export enum L4OrderDiffType {
+  UNSPECIFIED = 0,
+  NEW = 1,
+  UPDATE = 2,
+  REMOVE = 3,
+}
+
+/** A single typed L4 order-level change. */
+export interface L4OrderDiff {
+  diff_type: L4OrderDiffType;
+  coin: string;
+  oid: number;
+  user: string;
+  side: string; // "A" (Ask) or "B" (Bid)
+  px: string;
+  sz: string;
+}
+
+/**
+ * Typed L4 order book update batch for one processed block (l4BookUpdates).
+ * When snapshot=true the diffs carry a full reset snapshot: discard local
+ * book state and replace it.
+ */
+export interface L4BookUpdatesMessage {
+  time: number;
+  height: number;
+  diffs: L4OrderDiff[];
+  snapshot: boolean;
+}
+
+export enum TpslDiffType {
+  UNSPECIFIED = 0,
+  ADD = 1,
+  REMOVE = 2,
+}
+
+/** A trigger order add/remove event. */
+export interface TpslOrderDiff {
+  diff_type: TpslDiffType;
+  oid: number;
+  coin: string;
+  user: string;
+  side: string; // "A" (Ask) or "B" (Bid)
+  trigger_px: string;
+  limit_px: string;
+  sz: string;
+  trigger_condition: string;
+  order_type: string;
+  is_position_tpsl: boolean;
+  reduce_only: boolean;
+  timestamp: number;
+  reason: string; // Present on remove; mirrors node status
+}
+
+/** TP/SL trigger order update batch for one processed block (tpslUpdates). */
+export interface TpslUpdatesMessage {
+  time: number;
+  height: number;
+  diffs: TpslOrderDiff[];
+  snapshot: boolean;
+}
+
+/**
+ * L4 book fast-path update (l4BookBytes): either a full snapshot or a diff
+ * whose data is undecoded JSON bytes ({order_statuses, book_diffs}).
+ */
+export interface L4BookBytesMessage {
+  type: 'snapshot' | 'diff';
+  time: number;
+  height: number;
+  coin?: string; // snapshot only
+  bids?: Array<Record<string, unknown>>; // snapshot only
+  asks?: Array<Record<string, unknown>>; // snapshot only
+  data?: Uint8Array; // diff only; JSON bytes, not decoded
+}
+
+/** Raw-bytes generic stream payload (streamDataBytes). data is not JSON-decoded. */
+export interface StreamBytesMessage {
+  block_number: number;
+  timestamp: number;
+  data: Uint8Array;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

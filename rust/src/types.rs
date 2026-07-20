@@ -471,6 +471,14 @@ pub struct Cancel {
 #[serde(rename_all = "camelCase")]
 pub struct BatchCancel {
     pub cancels: Vec<Cancel>,
+    /// Fast cancel flag (`"f": true` on the wire; omitted unless true)
+    #[serde(
+        rename = "f",
+        default,
+        skip_serializing_if = "is_not_true_flag",
+        deserialize_with = "deserialize_true_only_flag"
+    )]
+    pub fast: Option<bool>,
 }
 
 /// Cancel by client order ID
@@ -487,6 +495,25 @@ pub struct CancelByCloid {
 #[serde(rename_all = "camelCase")]
 pub struct BatchCancelCloid {
     pub cancels: Vec<CancelByCloid>,
+    /// Fast cancel flag (`"f": true` on the wire; omitted unless true)
+    #[serde(
+        rename = "f",
+        default,
+        skip_serializing_if = "is_not_true_flag",
+        deserialize_with = "deserialize_true_only_flag"
+    )]
+    pub fast: Option<bool>,
+}
+
+fn is_not_true_flag(value: &Option<bool>) -> bool {
+    !matches!(value, Some(true))
+}
+
+fn deserialize_true_only_flag<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<bool>::deserialize(deserializer).map(|value| value.filter(|flag| *flag))
 }
 
 /// Schedule cancel (dead-man's switch)
@@ -850,6 +877,44 @@ pub struct ActionRequest {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Exchange Options
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Optional per-action trading parameters for order/modify/closePosition actions.
+///
+/// Both fields are sent as top-level exchange-body fields (`vaultAddress`,
+/// `expiresAfter` on the wire) so the worker folds them into the signed action
+/// hash. Neither field is emitted when unset.
+#[derive(Debug, Clone, Default)]
+pub struct ExchangeOptions {
+    /// Trade on behalf of a vault or subaccount
+    pub vault_address: Option<String>,
+    /// Action TTL: millisecond timestamp after which the action is rejected
+    pub expires_after: Option<u64>,
+}
+
+/// Optional per-call cancel parameters.
+#[derive(Debug, Clone, Default)]
+pub struct CancelOptions {
+    /// Fast cancel: emits `"f": true` on the cancel action (omitted when false)
+    pub fast: bool,
+    /// Cancel on behalf of a vault or subaccount
+    pub vault_address: Option<String>,
+    /// Action TTL: millisecond timestamp after which the action is rejected
+    pub expires_after: Option<u64>,
+}
+
+impl CancelOptions {
+    /// The vault/TTL subset of these options, for threading into build/send
+    pub fn exchange_options(&self) -> ExchangeOptions {
+        ExchangeOptions {
+            vault_address: self.vault_address.clone(),
+            expires_after: self.expires_after,
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Builder
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -985,4 +1050,85 @@ where
     let s = String::deserialize(deserializer)?;
     let s = s.strip_prefix("0x").unwrap_or(&s);
     U256::from_str_radix(s, 16).map_err(serde::de::Error::custom)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn batch_cancel(fast: Option<bool>) -> BatchCancel {
+        BatchCancel {
+            cancels: vec![Cancel { asset: 5, oid: 123 }],
+            fast,
+        }
+    }
+
+    /// The fast flag is only emitted when true — unset and explicit false both
+    /// produce the legacy wire shape (wire compat with existing servers).
+    #[test]
+    fn test_batch_cancel_fast_flag_serialization() {
+        let unset = serde_json::to_string(&batch_cancel(None)).unwrap();
+        assert_eq!(unset, r#"{"cancels":[{"a":5,"o":123}]}"#);
+
+        let explicit_false = serde_json::to_string(&batch_cancel(Some(false))).unwrap();
+        assert_eq!(explicit_false, unset);
+
+        let fast = serde_json::to_string(&batch_cancel(Some(true))).unwrap();
+        assert_eq!(fast, r#"{"cancels":[{"a":5,"o":123}],"f":true}"#);
+    }
+
+    /// Deserialization strips `f: false` (matching the backend, which only
+    /// keeps the flag when true).
+    #[test]
+    fn test_batch_cancel_fast_flag_deserialization() {
+        let with_true: BatchCancel =
+            serde_json::from_str(r#"{"cancels":[{"a":5,"o":123}],"f":true}"#).unwrap();
+        assert_eq!(with_true.fast, Some(true));
+
+        let with_false: BatchCancel =
+            serde_json::from_str(r#"{"cancels":[{"a":5,"o":123}],"f":false}"#).unwrap();
+        assert_eq!(with_false.fast, None);
+
+        let without: BatchCancel =
+            serde_json::from_str(r#"{"cancels":[{"a":5,"o":123}]}"#).unwrap();
+        assert_eq!(without.fast, None);
+    }
+
+    /// Same behavior for the cloid variant.
+    #[test]
+    fn test_batch_cancel_cloid_fast_flag_serialization() {
+        let entry = CancelByCloid {
+            asset: 5,
+            cloid: B128::repeat_byte(0x11),
+        };
+        let unset = serde_json::to_string(&BatchCancelCloid {
+            cancels: vec![entry.clone()],
+            fast: None,
+        })
+        .unwrap();
+        assert!(!unset.contains("\"f\""), "got: {unset}");
+
+        let fast = serde_json::to_string(&BatchCancelCloid {
+            cancels: vec![entry],
+            fast: Some(true),
+        })
+        .unwrap();
+        assert!(fast.ends_with(r#"],"f":true}"#), "got: {fast}");
+    }
+
+    /// The fast flag participates in the signed action payload: the MessagePack
+    /// hash of a cancel action changes when `f: true` is set.
+    #[test]
+    fn test_fast_flag_changes_action_hash() {
+        let plain = Action::Cancel(batch_cancel(None));
+        let fast = Action::Cancel(batch_cancel(Some(true)));
+
+        let hash_plain = plain.hash(1000, None, None).unwrap();
+        let hash_fast = fast.hash(1000, None, None).unwrap();
+        assert_ne!(hash_plain, hash_fast);
+
+        // Explicit false hashes identically to unset (it is skipped entirely).
+        let explicit_false = Action::Cancel(batch_cancel(Some(false)));
+        assert_eq!(explicit_false.hash(1000, None, None).unwrap(), hash_plain);
+    }
 }

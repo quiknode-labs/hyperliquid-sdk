@@ -378,6 +378,12 @@ stream.blocks(|b| println!("Block: {:?}", b));
 // Subscribe to raw event blocks
 stream.raw_events(|b| println!("Events block: {:?}", b));
 
+// Subscribe to best bid/offer changes (empty slice = all coins)
+stream.bbo_book(&["BTC"], |b| println!("BBO: {:?}", b));
+
+// Subscribe to pre-consensus mempool transactions
+stream.mempool_txs(&["BTC"], |tx| println!("Mempool tx: {:?}", tx));
+
 // Run in background
 stream.start()?;
 // ... do other work ...
@@ -408,6 +414,28 @@ The SDK automatically connects to port 10000 with your token.
 | `raw_events(callback)` | - | Raw system event blocks with `events: [...]` |
 | `writer_actions(callback)` | - | Writer actions |
 | `raw_writer_actions(callback)` | - | Raw writer action blocks |
+| `mempool_txs(coins, callback)` | coins: `&[&str]` (empty = all) | Pre-consensus mempool transactions |
+| `raw_mempool_txs(coins, callback)` | coins: `&[&str]` | Raw mempool transaction blocks |
+| `order_priority(callback)` | - | Derived order/write priority actions |
+| `raw_order_priority(callback)` | - | Raw order priority blocks |
+| `gossip_priority(callback)` | - | Derived gossip/read priority bid actions |
+| `raw_gossip_priority(callback)` | - | Raw gossip priority blocks |
+| `raw_bytes(stream_type, coins, options, callback)` | any data stream type | Low-level `StreamDataBytes` variant; callback receives raw `StreamBytesResponse` (undecoded payload bytes) |
+| `bbo_book(coins, callback)` | coins: `&[&str]` (empty = all) | Best bid/offer changes per coin |
+| `bbo_book_packed(coins, callback)` | coins: `&[&str]` | BBO with fixed-point px/sz (u64, scaled by 1e8) |
+| `l2_book_diff(coins, callback)` | coins: `&[&str]` (empty = all) | Incremental L2 price-level changes (`sz == "0"` = level removed); `l2_book_diff_with_options` takes `GRPCL2BookDiffOptions` (n_levels, n_sig_figs, mantissa, skip_initial_snapshot) |
+| `l4_book_updates(coins, callback)` | coins: `&[&str]` (empty = all) | Typed L4 order diffs (new/update/remove) |
+| `tpsl_updates(coins, callback)` | coins: `&[&str]` (empty = all perps) | Trigger/TP-SL order add/remove events |
+| `l2_book_packed(coin, callback)` | coin: `&str` | Fast-path L2 book with fixed-point px/sz (u64, scaled by 1e8) |
+| `l4_book_bytes(coin, callback)` | coin: `&str` | Fast-path L4 book; diffs are JSON bytes on the wire, same payload shape as `l4_book` |
+
+Notes:
+
+- `mempool_txs` uses the generic coin filter — pass an empty slice for the unfiltered stream.
+- `order_priority` and `gossip_priority` events carry server-enriched fields `coin`, `market_type`, and `sz_decimals`.
+- Packed streams (`l2_book_packed`, `bbo_book_packed`) deliver prices and sizes as u64 fixed-point integers scaled by 1e8.
+- L4 contract (`l4_book`, `l4_book_bytes`, `l4_book_updates`): the server may send an unsolicited full snapshot at any time after subscribe (e.g. after ALO queue-priority anchored insertions). Clients MUST discard local book state and replace it with any snapshot received mid-stream. `insertBefore` is never sent to clients.
+- Data streams accept `*_with_options` variants with `GRPCSubscriptionOptions { start_block }` to resume from a specific Hyperliquid block. **Note:** `start_block` is not yet supported server-side — streams currently always begin at the live tip; the option is wired through so resume works automatically once server support ships.
 
 ### L4 Order Book (Critical for Trading)
 
@@ -570,6 +598,46 @@ sdk.cancel_all(Some("BTC")).await?;  // Just BTC orders
 // Dead-man's switch
 sdk.schedule_cancel(Some(timestamp_ms)).await?;
 ```
+
+### Vault Trading, Fast Cancels & Action TTL
+
+```rust
+use hyperliquid_sdk::{CancelOptions, ExchangeOptions, Order};
+
+// Trade on behalf of a vault or subaccount. Sent as the top-level
+// `vaultAddress` exchange field and signed into the action hash.
+sdk.order(
+    Order::buy("BTC")
+        .size(0.001)
+        .price(65000.0)
+        .gtc()
+        .vault_address("0x1719884eb866cb12b2287399b15f7db5e7d775ea")
+).await?;
+sdk.market_buy("HYPE").await.size(0.3).vault_address("0x1719...75ea").await?;
+
+// Action TTL: reject the action if not executed by this ms timestamp.
+// Sent as the top-level `expiresAfter` exchange field (also signed).
+sdk.order(
+    Order::buy("BTC").size(0.001).price(65000.0).gtc().expires_after(now_ms + 60_000)
+).await?;
+
+// Fast cancel: emits `"f": true` on the cancel action.
+let fast = CancelOptions { fast: true, ..Default::default() };
+sdk.cancel_with_options(oid, "BTC", &fast).await?;
+sdk.cancel_by_cloid_with_options("0xmycloid...", "BTC", &fast).await?;
+sdk.cancel_all_with_options(Some("BTC"), &fast).await?;
+
+// Vault-scoped modify / close (CancelOptions also carries vault_address
+// and expires_after for vault-scoped cancels).
+let vault = ExchangeOptions {
+    vault_address: Some("0x1719...75ea".to_string()),
+    ..Default::default()
+};
+sdk.modify_with_options(oid, "BTC", true, 0.001, 61000.0, TIF::Gtc, false, None, &vault).await?;
+sdk.close_position_with_options("BTC", None, &vault).await?;
+```
+
+All three fields are optional and are omitted from the request entirely when unset.
 
 ### Position Management
 

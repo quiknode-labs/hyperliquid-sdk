@@ -360,14 +360,16 @@ func (s *SDK) NewEVMStream(config *EVMStreamConfig) *EVMStream {
 type OrderOption func(*orderParams)
 
 type orderParams struct {
-	size        string
-	notional    float64
-	price       string
-	tif         TIF
-	reduceOnly  bool
-	grouping    OrderGrouping
-	slippage    *float64
-	priorityFee *uint64
+	size         string
+	notional     float64
+	price        string
+	tif          TIF
+	reduceOnly   bool
+	grouping     OrderGrouping
+	slippage     *float64
+	priorityFee  *uint64
+	vaultAddress string
+	expiresAfter *int64
 }
 
 // WithSize sets the order size in asset units.
@@ -429,6 +431,25 @@ func WithPriorityFee(priorityFee uint64) OrderOption {
 	}
 }
 
+// WithVaultAddress places the order on behalf of a vault (or subaccount).
+// The address is sent as the top-level vaultAddress exchange field and is
+// folded into the signed action hash by the build endpoint.
+func WithVaultAddress(vaultAddress string) OrderOption {
+	return func(p *orderParams) {
+		p.vaultAddress = vaultAddress
+	}
+}
+
+// WithExpiresAfter sets the action TTL as a millisecond timestamp after which
+// the order is rejected by the exchange. It is sent as the top-level
+// expiresAfter exchange field and is folded into the signed action hash by
+// the build endpoint.
+func WithExpiresAfter(expiresAfterMs int64) OrderOption {
+	return func(p *orderParams) {
+		p.expiresAfter = &expiresAfterMs
+	}
+}
+
 // Buy places a buy order.
 func (s *SDK) Buy(asset any, opts ...OrderOption) (*PlacedOrder, error) {
 	return s.placeOrder(asset, SideBuy, opts...)
@@ -483,7 +504,12 @@ func (s *SDK) PlaceOrder(order *OrderBuilder) (*PlacedOrder, error) {
 		order.SetSize(NewDecimal(size).String())
 	}
 
-	return s.executeOrder(order, OrderGroupingNA, order.GetSlippage(), order.GetPriorityFee())
+	return s.executeOrder(order, OrderGroupingNA, &exchangeParams{
+		slippage:     order.GetSlippage(),
+		priorityFee:  order.GetPriorityFee(),
+		vaultAddress: order.GetVaultAddress(),
+		expiresAfter: order.GetExpiresAfter(),
+	})
 }
 
 func (s *SDK) placeOrder(assetInput any, side Side, opts ...OrderOption) (*PlacedOrder, error) {
@@ -529,29 +555,28 @@ func (s *SDK) placeOrder(assetInput any, side Side, opts ...OrderOption) (*Place
 	}
 	order.reduceOnly = params.reduceOnly
 
-	return s.executeOrder(order, params.grouping, params.slippage, params.priorityFee)
+	return s.executeOrder(order, params.grouping, &exchangeParams{
+		slippage:     params.slippage,
+		priorityFee:  params.priorityFee,
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 }
 
-func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, slippage *float64, priorityFee *uint64) (*PlacedOrder, error) {
+func (s *SDK) executeOrder(order *OrderBuilder, grouping OrderGrouping, params *exchangeParams) (*PlacedOrder, error) {
 	action := order.ToAction()
-	if grouping != OrderGroupingNA && priorityFee != nil {
+	if grouping != OrderGroupingNA && params.priorityFee != nil {
 		return nil, ValidationError("priorityFee cannot be combined with TP/SL grouping").
 			WithGuidance("Use priorityFee on standalone IOC/market orders, or omit grouping.")
 	}
-	if err := s.validatePredictionOrder(order.Asset(), order.GetSize(), order.GetPrice(), order.GetTIF() == TIFMarket, order.GetSide() == SideBuy, priorityFee); err != nil {
+	if err := s.validatePredictionOrder(order.Asset(), order.GetSize(), order.GetPrice(), order.GetTIF() == TIFMarket, order.GetSide() == SideBuy, params.priorityFee); err != nil {
 		return nil, err
 	}
 	if grouping != OrderGroupingNA {
 		action["grouping"] = string(grouping)
 	}
 
-	var result map[string]any
-	var err error
-	if priorityFee != nil {
-		result, err = s.buildSignSend(action, slippage, *priorityFee)
-	} else {
-		result, err = s.buildSignSend(action, slippage)
-	}
+	result, err := s.buildSignSendParams(action, params)
 	if err != nil {
 		return nil, err
 	}
@@ -570,7 +595,7 @@ func (s *SDK) StopLoss(asset string, size any, triggerPrice any, opts ...Trigger
 	for _, opt := range opts {
 		opt(order)
 	}
-	return s.executeTriggerOrder(order, OrderGroupingNA)
+	return s.executeTriggerOrder(order, order.GetGrouping())
 }
 
 // TakeProfit places a take-profit trigger order.
@@ -579,7 +604,7 @@ func (s *SDK) TakeProfit(asset string, size any, triggerPrice any, opts ...Trigg
 	for _, opt := range opts {
 		opt(order)
 	}
-	return s.executeTriggerOrder(order, OrderGroupingNA)
+	return s.executeTriggerOrder(order, order.GetGrouping())
 }
 
 // SL is an alias for StopLoss.
@@ -612,7 +637,23 @@ func TriggerWithSide(side Side) TriggerOrderOption {
 // TriggerWithGrouping sets the grouping for trigger order.
 func TriggerWithGrouping(grouping OrderGrouping) TriggerOrderOption {
 	return func(t *TriggerOrderBuilder) {
-		// Grouping is passed to executeTriggerOrder
+		t.Grouping(grouping)
+	}
+}
+
+// TriggerWithVaultAddress places the trigger order on behalf of a vault
+// (or subaccount). See WithVaultAddress.
+func TriggerWithVaultAddress(vaultAddress string) TriggerOrderOption {
+	return func(t *TriggerOrderBuilder) {
+		t.VaultAddress(vaultAddress)
+	}
+}
+
+// TriggerWithExpiresAfter sets the action TTL (ms timestamp) for the trigger
+// order. See WithExpiresAfter.
+func TriggerWithExpiresAfter(expiresAfterMs int64) TriggerOrderOption {
+	return func(t *TriggerOrderBuilder) {
+		t.ExpiresAfter(expiresAfterMs)
 	}
 }
 
@@ -627,7 +668,10 @@ func (s *SDK) executeTriggerOrder(order *TriggerOrderBuilder, grouping OrderGrou
 	}
 
 	action := order.ToAction(grouping)
-	result, err := s.buildSignSend(action, nil)
+	result, err := s.buildSignSendParams(action, &exchangeParams{
+		vaultAddress: order.GetVaultAddress(),
+		expiresAfter: order.GetExpiresAfter(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -640,11 +684,54 @@ func (s *SDK) executeTriggerOrder(order *TriggerOrderBuilder, grouping OrderGrou
 // ORDER MANAGEMENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
+type cancelParams struct {
+	fast         bool
+	vaultAddress string
+	expiresAfter *int64
+}
+
+// CancelOption is an option for order cancellation.
+type CancelOption func(*cancelParams)
+
+// CancelWithFast requests fast cancellation: the cancel action carries the
+// "f": true flag (only emitted when set, matching backend semantics).
+func CancelWithFast() CancelOption {
+	return func(p *cancelParams) {
+		p.fast = true
+	}
+}
+
+// CancelWithVaultAddress cancels on behalf of a vault (or subaccount).
+// See WithVaultAddress.
+func CancelWithVaultAddress(vaultAddress string) CancelOption {
+	return func(p *cancelParams) {
+		p.vaultAddress = vaultAddress
+	}
+}
+
+// CancelWithExpiresAfter sets the action TTL (ms timestamp) for the cancel.
+// See WithExpiresAfter.
+func CancelWithExpiresAfter(expiresAfterMs int64) CancelOption {
+	return func(p *cancelParams) {
+		p.expiresAfter = &expiresAfterMs
+	}
+}
+
+func applyCancelOptions(opts []CancelOption) *cancelParams {
+	params := &cancelParams{}
+	for _, opt := range opts {
+		opt(params)
+	}
+	return params
+}
+
 // Cancel cancels an order by OID.
-func (s *SDK) Cancel(oid int64, asset string) (map[string]any, error) {
+func (s *SDK) Cancel(oid int64, asset string, opts ...CancelOption) (map[string]any, error) {
 	if oid <= 0 {
 		return nil, ValidationError(fmt.Sprintf("oid must be a positive integer, got: %d", oid))
 	}
+
+	params := applyCancelOptions(opts)
 
 	assetIdx := 0
 	if asset != "" {
@@ -660,13 +747,23 @@ func (s *SDK) Cancel(oid int64, asset string) (map[string]any, error) {
 			map[string]any{"a": assetIdx, "o": oid},
 		},
 	}
+	if params.fast {
+		action["f"] = true
+	}
 
-	return s.buildSignSend(action, nil)
+	return s.buildSignSendParams(action, &exchangeParams{
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 }
 
 // CancelAll cancels all open orders, optionally filtered by asset.
-func (s *SDK) CancelAll(asset string) (map[string]any, error) {
-	orders, err := s.OpenOrders("")
+func (s *SDK) CancelAll(asset string, opts ...CancelOption) (map[string]any, error) {
+	params := applyCancelOptions(opts)
+
+	// When cancelling on behalf of a vault, enumerate the vault's open orders,
+	// not the wallet's.
+	orders, err := s.OpenOrders(params.vaultAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -698,11 +795,20 @@ func (s *SDK) CancelAll(asset string) (map[string]any, error) {
 		}
 	}
 
-	return s.buildSignSend(cancelAction, nil)
+	if params.fast {
+		cancelAction["f"] = true
+	}
+
+	return s.buildSignSendParams(cancelAction, &exchangeParams{
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 }
 
 // CancelByCloid cancels an order by client order ID.
-func (s *SDK) CancelByCloid(cloid string, asset string) (map[string]any, error) {
+func (s *SDK) CancelByCloid(cloid string, asset string, opts ...CancelOption) (map[string]any, error) {
+	params := applyCancelOptions(opts)
+
 	assetIdx, err := s.resolveAssetIndex(asset)
 	if err != nil {
 		return nil, err
@@ -714,8 +820,14 @@ func (s *SDK) CancelByCloid(cloid string, asset string) (map[string]any, error) 
 			map[string]any{"asset": assetIdx, "cloid": cloid},
 		},
 	}
+	if params.fast {
+		action["f"] = true
+	}
 
-	return s.buildSignSend(action, nil)
+	return s.buildSignSendParams(action, &exchangeParams{
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 }
 
 // ScheduleCancel schedules cancellation of all orders after a delay.
@@ -771,7 +883,10 @@ func (s *SDK) Modify(oid int64, asset, side, price, size string, opts ...ModifyO
 		},
 	}
 
-	result, err := s.buildSignSend(action, nil)
+	result, err := s.buildSignSendParams(action, &exchangeParams{
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -785,8 +900,10 @@ func (s *SDK) Modify(oid int64, asset, side, price, size string, opts ...ModifyO
 }
 
 type modifyParams struct {
-	tif        TIF
-	reduceOnly bool
+	tif          TIF
+	reduceOnly   bool
+	vaultAddress string
+	expiresAfter *int64
 }
 
 // ModifyOption is an option for order modification.
@@ -806,11 +923,29 @@ func ModifyWithReduceOnly() ModifyOption {
 	}
 }
 
+// ModifyWithVaultAddress modifies on behalf of a vault (or subaccount).
+// See WithVaultAddress.
+func ModifyWithVaultAddress(vaultAddress string) ModifyOption {
+	return func(p *modifyParams) {
+		p.vaultAddress = vaultAddress
+	}
+}
+
+// ModifyWithExpiresAfter sets the action TTL (ms timestamp) for the modify.
+// See WithExpiresAfter.
+func ModifyWithExpiresAfter(expiresAfterMs int64) ModifyOption {
+	return func(p *modifyParams) {
+		p.expiresAfter = &expiresAfterMs
+	}
+}
+
 // CloseOption is an option for closing a position.
 type CloseOption func(*closeParams)
 
 type closeParams struct {
-	slippage *float64
+	slippage     *float64
+	vaultAddress string
+	expiresAfter *int64
 }
 
 // CloseWithSlippage overrides the default slippage for this close.
@@ -818,6 +953,22 @@ type closeParams struct {
 func CloseWithSlippage(slippage float64) CloseOption {
 	return func(p *closeParams) {
 		p.slippage = &slippage
+	}
+}
+
+// CloseWithVaultAddress closes a vault (or subaccount) position.
+// See WithVaultAddress.
+func CloseWithVaultAddress(vaultAddress string) CloseOption {
+	return func(p *closeParams) {
+		p.vaultAddress = vaultAddress
+	}
+}
+
+// CloseWithExpiresAfter sets the action TTL (ms timestamp) for the close.
+// See WithExpiresAfter.
+func CloseWithExpiresAfter(expiresAfterMs int64) CloseOption {
+	return func(p *closeParams) {
+		p.expiresAfter = &expiresAfterMs
 	}
 }
 
@@ -830,13 +981,24 @@ func (s *SDK) ClosePosition(asset string, opts ...CloseOption) (*PlacedOrder, er
 		opt(params)
 	}
 
+	// The backend queries action.user's position to size the close; when
+	// trading on behalf of a vault, the position belongs to the vault.
+	user := s.Address()
+	if params.vaultAddress != "" {
+		user = params.vaultAddress
+	}
+
 	action := map[string]any{
 		"type":  "closePosition",
 		"asset": asset,
-		"user":  s.Address(),
+		"user":  user,
 	}
 
-	result, err := s.buildSignSend(action, params.slippage)
+	result, err := s.buildSignSendParams(action, &exchangeParams{
+		slippage:     params.slippage,
+		vaultAddress: params.vaultAddress,
+		expiresAfter: params.expiresAfter,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1105,7 +1267,28 @@ func validateSignerSignature(sig *Signature) error {
 	return nil
 }
 
+// exchangeParams carries the optional top-level exchange-request fields
+// (slippage, priorityFee, vaultAddress, expiresAfter). vaultAddress and
+// expiresAfter participate in the action hash the build endpoint returns,
+// so they must be present in the build payload AND repeated verbatim in the
+// send payload for signature recovery to succeed. They are only emitted when
+// set, keeping the wire format unchanged for callers that don't use them.
+type exchangeParams struct {
+	slippage     *float64
+	priorityFee  *uint64
+	vaultAddress string
+	expiresAfter *int64
+}
+
 func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFee ...uint64) (map[string]any, error) {
+	params := &exchangeParams{slippage: slippage}
+	if len(priorityFee) > 0 {
+		params.priorityFee = &priorityFee[0]
+	}
+	return s.buildSignSendParams(action, params)
+}
+
+func (s *SDK) buildSignSendParams(action map[string]any, params *exchangeParams) (map[string]any, error) {
 	s.requireWallet()
 
 	// Each HTTP call below relies on the client's own per-request timeout
@@ -1117,14 +1300,20 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 	// Step 1: Build
 	buildPayload := map[string]any{"action": action}
 	effectiveSlippage := s.config.Slippage
-	if slippage != nil {
-		effectiveSlippage = *slippage
+	if params.slippage != nil {
+		effectiveSlippage = *params.slippage
 	}
 	if effectiveSlippage > 0 {
 		buildPayload["slippage"] = effectiveSlippage
 	}
-	if len(priorityFee) > 0 {
-		buildPayload["priorityFee"] = priorityFee[0]
+	if params.priorityFee != nil {
+		buildPayload["priorityFee"] = *params.priorityFee
+	}
+	if params.vaultAddress != "" {
+		buildPayload["vaultAddress"] = params.vaultAddress
+	}
+	if params.expiresAfter != nil {
+		buildPayload["expiresAfter"] = *params.expiresAfter
 	}
 	buildResult, err := s.http.Post(ctx, s.exchangeURL, buildPayload)
 	if err != nil {
@@ -1183,10 +1372,18 @@ func (s *SDK) buildSignSend(action map[string]any, slippage *float64, priorityFe
 	}
 
 	// Step 3: Send
+	// vaultAddress/expiresAfter were folded into the hash at build time, so
+	// they must be repeated here for the worker to recover the signer.
 	sendPayload := map[string]any{
 		"action":    finalAction,
 		"nonce":     int64(nonce),
 		"signature": sig,
+	}
+	if params.vaultAddress != "" {
+		sendPayload["vaultAddress"] = params.vaultAddress
+	}
+	if params.expiresAfter != nil {
+		sendPayload["expiresAfter"] = *params.expiresAfter
 	}
 
 	return s.http.Post(ctx, s.exchangeURL, sendPayload)

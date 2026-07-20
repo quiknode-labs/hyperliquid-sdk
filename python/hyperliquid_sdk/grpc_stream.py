@@ -40,7 +40,13 @@ try:
         PingRequest,
         Timestamp,
         L2BookRequest,
+        L2BookDiffRequest,
         L4BookRequest,
+        L4BookUpdatesRequest,
+        L4OrderDiffType,
+        BboBookRequest,
+        TpslUpdatesRequest,
+        TpslDiffType,
         StreamingStub,
         BlockStreamingStub,
         OrderBookStreamingStub,
@@ -63,6 +69,9 @@ class GRPCStreamType(str, Enum):
     EVENTS = "EVENTS"
     BLOCKS = "BLOCKS"
     WRITER_ACTIONS = "WRITER_ACTIONS"
+    MEMPOOL_TXS = "MEMPOOL_TXS"
+    ORDER_PRIORITY = "ORDER_PRIORITY"
+    GOSSIP_PRIORITY = "GOSSIP_PRIORITY"
 
 
 class ConnectionState(str, Enum):
@@ -82,6 +91,20 @@ _STREAM_TYPE_MAP = {
     "EVENTS": 5,  # ProtoStreamType.EVENTS
     "BLOCKS": 6,  # ProtoStreamType.BLOCKS
     "WRITER_ACTIONS": 7,  # ProtoStreamType.WRITER_ACTIONS
+    "MEMPOOL_TXS": 8,  # ProtoStreamType.MEMPOOL_TXS
+    "ORDER_PRIORITY": 9,  # ProtoStreamType.ORDER_PRIORITY
+    "GOSSIP_PRIORITY": 10,  # ProtoStreamType.GOSSIP_PRIORITY
+}
+
+# Orderbook stream types (internal) -> OrderBookStreaming RPC method names
+_ORDERBOOK_RPC_MAP = {
+    "BBO_BOOK": "StreamBboBook",
+    "L2_BOOK_DIFF": "StreamL2BookDiff",
+    "L4_BOOK_UPDATES": "StreamL4BookUpdates",
+    "TPSL_UPDATES": "StreamTpslUpdates",
+    "L2_BOOK_PACKED": "StreamL2BookPacked",
+    "BBO_BOOK_PACKED": "StreamBboBookPacked",
+    "L4_BOOK_BYTES": "StreamL4BookBytes",
 }
 
 
@@ -103,8 +126,18 @@ class GRPCStream:
     - twap: Time-weighted average price execution
     - events: System events (funding, liquidations)
     - blocks: Block data
+    - mempool_txs: Pre-consensus mempool transactions
+    - order_priority: Derived order/write priority actions
+    - gossip_priority: Derived gossip/read priority bid actions
     - l2_book: Level 2 order book (aggregated price levels)
     - l4_book: Level 4 order book (individual orders)
+    - bbo_book: Top-of-book (best bid/offer) changes
+    - l2_book_diff: Incremental L2 price-level changes
+    - l4_book_updates: Typed L4 order diffs (new/update/remove)
+    - tpsl_updates: Trigger/TP-SL order add/remove updates
+    - l2_book_packed / bbo_book_packed: Fast-path fixed-point (1e8) variants
+    - l4_book_bytes: Fast-path L4 with JSON-bytes diffs
+    - stream_bytes: Low-level bytes fast path for any stream type
 
     Examples:
         stream = GRPCStream("https://your-endpoint.hype-mainnet.quiknode.pro/TOKEN")
@@ -281,6 +314,10 @@ class GRPCStream:
         n_sig_figs: Optional[int] = None,
         n_levels: int = 20,
         raw: bool = False,
+        start_block: Optional[int] = None,
+        mantissa: Optional[int] = None,
+        skip_initial_snapshot: bool = False,
+        bytes_stream_type: Optional[str] = None,
     ) -> None:
         """Add a subscription to be started when run() is called."""
         with self._lock:
@@ -296,12 +333,25 @@ class GRPCStream:
                 sub["coin"] = coin
             if n_sig_figs is not None:
                 sub["n_sig_figs"] = n_sig_figs
+            if start_block is not None:
+                sub["start_block"] = start_block
+            if mantissa is not None:
+                sub["mantissa"] = mantissa
+            if bytes_stream_type is not None:
+                sub["bytes_stream_type"] = bytes_stream_type
+            sub["skip_initial_snapshot"] = skip_initial_snapshot
             sub["n_levels"] = n_levels
             sub["raw"] = raw
 
             self._subscriptions.append(sub)
 
-    def trades(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def trades(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to trade stream.
 
@@ -310,19 +360,29 @@ class GRPCStream:
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each trade
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins)
+        self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins, start_block=start_block)
         return self
 
-    def raw_trades(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_trades(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to raw trade blocks.
 
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each raw trade block
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.TRADES.value, callback, coins=coins, raw=True)
+        self._add_subscription(
+            GRPCStreamType.TRADES.value, callback, coins=coins, raw=True, start_block=start_block
+        )
         return self
 
     def orders(
@@ -331,6 +391,7 @@ class GRPCStream:
         callback: Callable[[Dict[str, Any]], None],
         *,
         users: Optional[List[str]] = None,
+        start_block: Optional[int] = None,
     ) -> "GRPCStream":
         """
         Subscribe to order stream.
@@ -341,8 +402,11 @@ class GRPCStream:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each order update
             users: Optional list of user addresses to filter
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users)
+        self._add_subscription(
+            GRPCStreamType.ORDERS.value, callback, coins=coins, users=users, start_block=start_block
+        )
         return self
 
     def raw_orders(
@@ -351,6 +415,7 @@ class GRPCStream:
         callback: Callable[[Dict[str, Any]], None],
         *,
         users: Optional[List[str]] = None,
+        start_block: Optional[int] = None,
     ) -> "GRPCStream":
         """
         Subscribe to raw order blocks.
@@ -359,72 +424,121 @@ class GRPCStream:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each raw order block
             users: Optional list of user addresses to filter
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.ORDERS.value, callback, coins=coins, users=users, raw=True)
+        self._add_subscription(
+            GRPCStreamType.ORDERS.value, callback, coins=coins, users=users, raw=True, start_block=start_block
+        )
         return self
 
-    def book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def book_updates(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to order book updates.
 
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each book update
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins)
+        self._add_subscription(
+            GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins, start_block=start_block
+        )
         return self
 
-    def raw_book_updates(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_book_updates(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to raw order book update blocks.
 
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each raw book update block
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins, raw=True)
+        self._add_subscription(
+            GRPCStreamType.BOOK_UPDATES.value, callback, coins=coins, raw=True, start_block=start_block
+        )
         return self
 
-    def twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def twap(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to TWAP execution stream.
 
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each TWAP update
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins)
+        self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins, start_block=start_block)
         return self
 
-    def raw_twap(self, coins: List[str], callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_twap(
+        self,
+        coins: List[str],
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to raw TWAP execution blocks.
 
         Args:
             coins: List of coin symbols ["BTC", "ETH"]
             callback: Function called for each raw TWAP block
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.TWAP.value, callback, coins=coins, raw=True)
+        self._add_subscription(
+            GRPCStreamType.TWAP.value, callback, coins=coins, raw=True, start_block=start_block
+        )
         return self
 
-    def events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def events(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to system events (funding, liquidations, governance).
 
         Args:
             callback: Function called for each event
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.EVENTS.value, callback)
+        self._add_subscription(GRPCStreamType.EVENTS.value, callback, start_block=start_block)
         return self
 
-    def raw_events(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_events(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to raw system event blocks.
 
         Args:
             callback: Function called for each raw event block
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.EVENTS.value, callback, raw=True)
+        self._add_subscription(GRPCStreamType.EVENTS.value, callback, raw=True, start_block=start_block)
         return self
 
     def blocks(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
@@ -437,24 +551,183 @@ class GRPCStream:
         self._add_subscription(GRPCStreamType.BLOCKS.value, callback)
         return self
 
-    def writer_actions(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def writer_actions(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to writer actions (HyperCore <-> HyperEVM asset transfers).
 
         Args:
             callback: Function called for each writer action
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback)
+        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback, start_block=start_block)
         return self
 
-    def raw_writer_actions(self, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+    def raw_writer_actions(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
         """
         Subscribe to raw writer action blocks.
 
         Args:
             callback: Function called for each raw writer action block
+            start_block: Optional block number to start streaming from
         """
-        self._add_subscription(GRPCStreamType.WRITER_ACTIONS.value, callback, raw=True)
+        self._add_subscription(
+            GRPCStreamType.WRITER_ACTIONS.value, callback, raw=True, start_block=start_block
+        )
+        return self
+
+    def mempool_txs(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to pre-consensus mempool transactions.
+
+        Args:
+            callback: Function called for each mempool transaction event
+            coins: Optional list of coin symbols to filter ["BTC", "ETH"] (None = all)
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(
+            GRPCStreamType.MEMPOOL_TXS.value, callback, coins=coins, start_block=start_block
+        )
+        return self
+
+    def raw_mempool_txs(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to raw pre-consensus mempool transaction blocks.
+
+        Args:
+            callback: Function called for each raw mempool block
+            coins: Optional list of coin symbols to filter ["BTC", "ETH"] (None = all)
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(
+            GRPCStreamType.MEMPOOL_TXS.value, callback, coins=coins, raw=True, start_block=start_block
+        )
+        return self
+
+    def order_priority(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to derived order/write priority actions (from mempool and confirmed replica data).
+
+        Events carry server-enriched fields: coin, market_type, sz_decimals.
+
+        Args:
+            callback: Function called for each order priority event
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(GRPCStreamType.ORDER_PRIORITY.value, callback, start_block=start_block)
+        return self
+
+    def raw_order_priority(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to raw order priority blocks.
+
+        Args:
+            callback: Function called for each raw order priority block
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(
+            GRPCStreamType.ORDER_PRIORITY.value, callback, raw=True, start_block=start_block
+        )
+        return self
+
+    def gossip_priority(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to derived gossip/read priority bid actions (does not measure delivery latency).
+
+        Events carry server-enriched fields: coin, market_type, sz_decimals.
+
+        Args:
+            callback: Function called for each gossip priority event
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(GRPCStreamType.GOSSIP_PRIORITY.value, callback, start_block=start_block)
+        return self
+
+    def raw_gossip_priority(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to raw gossip priority blocks.
+
+        Args:
+            callback: Function called for each raw gossip priority block
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(
+            GRPCStreamType.GOSSIP_PRIORITY.value, callback, raw=True, start_block=start_block
+        )
+        return self
+
+    def stream_bytes(
+        self,
+        stream_type: str,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+        users: Optional[List[str]] = None,
+        start_block: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to the low-level bytes fast path (StreamDataBytes RPC).
+
+        The payload is NOT parsed: the callback receives
+        {"block_number": int, "timestamp": int, "data": bytes} for each update.
+        Fast-path clients should prefer this over the JSON string streams.
+
+        Args:
+            stream_type: Stream type name (e.g. "TRADES", GRPCStreamType.ORDERS, ...)
+            callback: Function called for each raw bytes update
+            coins: Optional list of coin symbols to filter
+            users: Optional list of user addresses to filter
+            start_block: Optional block number to start streaming from
+        """
+        self._add_subscription(
+            "STREAM_BYTES",
+            callback,
+            coins=coins,
+            users=users,
+            start_block=start_block,
+            bytes_stream_type=str(GRPCStreamType(stream_type).value),
+        )
         return self
 
     def l2_book(
@@ -481,6 +754,10 @@ class GRPCStream:
         """
         Subscribe to Level 4 order book updates (individual orders).
 
+        Note: the server may send an unsolicited full snapshot at any time after
+        subscribe (e.g. after ALO queue-priority anchored insertions). Clients MUST
+        discard local book state and replace it with any snapshot received mid-stream.
+
         Args:
             coin: Coin symbol ("BTC")
             callback: Function called for each book update
@@ -488,12 +765,201 @@ class GRPCStream:
         self._add_subscription("L4_BOOK", callback, coin=coin)
         return self
 
+    def bbo_book(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to top-of-book (best bid/offer) changes.
+
+        Emits only when the best bid or ask changes for a coin.
+        Fields: coin, time, block_number, bid ([px, sz, n] or None), ask ([px, sz, n] or None)
+
+        Args:
+            callback: Function called for each BBO update
+            coins: Optional list of coin symbols (None = all coins)
+        """
+        self._add_subscription("BBO_BOOK", callback, coins=coins)
+        return self
+
+    def l2_book_diff(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+        n_levels: int = 20,
+        n_sig_figs: Optional[int] = None,
+        mantissa: Optional[int] = None,
+        skip_initial_snapshot: bool = False,
+    ) -> "GRPCStream":
+        """
+        Subscribe to incremental L2 price-level changes.
+
+        Each update carries only changed levels per coin; a level with sz == "0"
+        means the level was removed. Unless skip_initial_snapshot is True, the
+        first update per coin contains the current levels (snapshot=True).
+
+        Args:
+            callback: Function called for each diff batch
+            coins: Optional list of coin symbols (None = all coins)
+            n_levels: Max tracked levels per side (default: 20, max 100)
+            n_sig_figs: Optional significant figures for price bucketing (2-5)
+            mantissa: Optional mantissa for bucketing (1, 2, or 5)
+            skip_initial_snapshot: Skip the initial per-coin snapshot (default: False)
+        """
+        self._add_subscription(
+            "L2_BOOK_DIFF",
+            callback,
+            coins=coins,
+            n_levels=n_levels,
+            n_sig_figs=n_sig_figs,
+            mantissa=mantissa,
+            skip_initial_snapshot=skip_initial_snapshot,
+        )
+        return self
+
+    def l4_book_updates(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to typed L4 order book updates (new/update/remove diffs per block).
+
+        Note: the server may send an unsolicited full snapshot batch at any time
+        (snapshot=True); clients MUST discard local book state and rebuild from it.
+
+        Args:
+            callback: Function called for each update batch
+            coins: Optional list of coin symbols (None = all coins)
+        """
+        self._add_subscription("L4_BOOK_UPDATES", callback, coins=coins)
+        return self
+
+    def tpsl_updates(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to trigger/TP-SL order add/remove updates.
+
+        Args:
+            callback: Function called for each update batch
+            coins: Optional list of coin symbols (None = all perp coins)
+        """
+        self._add_subscription("TPSL_UPDATES", callback, coins=coins)
+        return self
+
+    def l2_book_packed(
+        self,
+        coin: str,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        n_sig_figs: Optional[int] = None,
+        n_levels: int = 20,
+        mantissa: Optional[int] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to fast-path L2 order book updates with fixed-point integers.
+
+        Prices/sizes are uint64 fixed-point integers scaled by 1e8.
+
+        Args:
+            coin: Coin symbol ("BTC")
+            callback: Function called for each book update
+            n_sig_figs: Optional number of significant figures for price aggregation
+            n_levels: Number of price levels to return (default: 20)
+            mantissa: Optional mantissa for bucketing (1, 2, or 5)
+        """
+        self._add_subscription(
+            "L2_BOOK_PACKED", callback, coin=coin, n_sig_figs=n_sig_figs, n_levels=n_levels, mantissa=mantissa
+        )
+        return self
+
+    def bbo_book_packed(
+        self,
+        callback: Callable[[Dict[str, Any]], None],
+        *,
+        coins: Optional[List[str]] = None,
+    ) -> "GRPCStream":
+        """
+        Subscribe to fast-path top-of-book changes with fixed-point integers.
+
+        Prices/sizes are uint64 fixed-point integers scaled by 1e8.
+
+        Args:
+            callback: Function called for each BBO update
+            coins: Optional list of coin symbols (None = all coins)
+        """
+        self._add_subscription("BBO_BOOK_PACKED", callback, coins=coins)
+        return self
+
+    def l4_book_bytes(self, coin: str, callback: Callable[[Dict[str, Any]], None]) -> "GRPCStream":
+        """
+        Subscribe to fast-path Level 4 order book updates (diff payload as JSON bytes).
+
+        Diff updates carry the raw JSON payload as bytes (not parsed). Snapshots are
+        delivered as structured dicts like l4_book. The server may send an unsolicited
+        full snapshot at any time; clients MUST discard local book state and replace
+        it with any snapshot received mid-stream.
+
+        Args:
+            coin: Coin symbol ("BTC")
+            callback: Function called for each book update
+        """
+        self._add_subscription("L4_BOOK_BYTES", callback, coin=coin)
+        return self
+
+    def _build_subscribe_request(
+        self,
+        sub: Dict[str, Any],
+        stream_type: Optional[str] = None,
+        *,
+        reconnect: bool = False,
+    ) -> SubscribeRequest:
+        """Build the SubscribeRequest for a StreamData/StreamDataBytes subscription.
+
+        On reconnect, a user-set start_block is advanced past the highest block
+        already delivered so already-processed blocks are not replayed. An unset
+        start_block stays unset (live-tip semantics are preserved).
+        """
+        request = SubscribeRequest()
+        request.subscribe.stream_type = _STREAM_TYPE_MAP.get(
+            stream_type or sub.get("stream_type"), 0
+        )
+
+        # Resume from a specific block (0 = live tip)
+        start_block = sub.get("start_block")
+        if start_block:
+            if reconnect:
+                # Don't replay blocks already delivered on a previous connection.
+                start_block = max(start_block, sub.get("_last_seen_block", 0) + 1)
+            request.subscribe.start_block = start_block
+
+        # Add filters
+        coins = sub.get("coins")
+        if coins:
+            filter_values = FilterValues()
+            filter_values.values.extend(coins)
+            request.subscribe.filters["coin"].CopyFrom(filter_values)
+
+        users = sub.get("users")
+        if users:
+            filter_values = FilterValues()
+            filter_values.values.extend(users)
+            request.subscribe.filters["user"].CopyFrom(filter_values)
+
+        return request
+
     def _stream_data(self, sub: Dict[str, Any]) -> None:
         """Stream data using bidirectional StreamData RPC."""
-        stream_type = sub.get("stream_type")
         callback = sub["callback"]
-        coins = sub.get("coins")
-        users = sub.get("users")
+        first_connect = True
 
         while self._running and not self._stop_event.is_set():
             try:
@@ -502,25 +968,13 @@ class GRPCStream:
                     continue
 
                 metadata = self._get_metadata()
+                initial_request = self._build_subscribe_request(sub, reconnect=not first_connect)
+                first_connect = False
 
                 # Build request generator
                 def request_generator() -> Iterator[SubscribeRequest]:
                     # Send initial subscription request
-                    request = SubscribeRequest()
-                    request.subscribe.stream_type = _STREAM_TYPE_MAP.get(stream_type, 0)
-
-                    # Add filters
-                    if coins:
-                        filter_values = FilterValues()
-                        filter_values.values.extend(coins)
-                        request.subscribe.filters["coin"].CopyFrom(filter_values)
-
-                    if users:
-                        filter_values = FilterValues()
-                        filter_values.values.extend(users)
-                        request.subscribe.filters["user"].CopyFrom(filter_values)
-
-                    yield request
+                    yield initial_request
 
                     # Keep sending pings to maintain connection
                     while self._running and not self._stop_event.is_set():
@@ -538,9 +992,14 @@ class GRPCStream:
                         break
 
                     if response.HasField('data'):
+                        block_number = response.data.block_number
                         try:
                             data = json.loads(response.data.data)
-                            block_number = response.data.block_number
+                            # Advance the resume cursor only after the payload
+                            # parsed, so a corrupt block is re-requested on
+                            # reconnect instead of skipped permanently.
+                            if block_number > sub.get("_last_seen_block", 0):
+                                sub["_last_seen_block"] = block_number
                             timestamp = response.data.timestamp
 
                             if sub.get("raw"):
@@ -859,6 +1318,313 @@ class GRPCStream:
             "cloid": order.cloid if order.HasField('cloid') else None,
         }
 
+    def _stream_data_bytes(self, sub: Dict[str, Any]) -> None:
+        """Stream raw payload bytes using bidirectional StreamDataBytes RPC."""
+        callback = sub["callback"]
+        first_connect = True
+
+        while self._running and not self._stop_event.is_set():
+            try:
+                if not self._streaming_stub:
+                    time.sleep(1)
+                    continue
+
+                metadata = self._get_metadata()
+                initial_request = self._build_subscribe_request(
+                    sub, sub.get("bytes_stream_type"), reconnect=not first_connect
+                )
+                first_connect = False
+
+                # Build request generator
+                def request_generator() -> Iterator[SubscribeRequest]:
+                    # Send initial subscription request
+                    yield initial_request
+
+                    # Keep sending pings to maintain connection
+                    while self._running and not self._stop_event.is_set():
+                        time.sleep(30)
+                        ping_request = SubscribeRequest()
+                        ping_request.ping.timestamp = int(time.time() * 1000)
+                        yield ping_request
+
+                # Create bidirectional stream
+                stream = self._streaming_stub.StreamDataBytes(request_generator(), metadata=metadata)
+
+                # Handle responses
+                for response in stream:
+                    if not self._running or self._stop_event.is_set():
+                        break
+
+                    if response.HasField('data'):
+                        block_number = response.data.block_number
+                        # Fast path: hand the payload bytes through unparsed
+                        self._safe_callback(callback, {
+                            "block_number": block_number,
+                            "timestamp": response.data.timestamp,
+                            "data": response.data.data,
+                        })
+                        # Cursor advances only after delivery so reconnects
+                        # never skip an undelivered block.
+                        if block_number > sub.get("_last_seen_block", 0):
+                            sub["_last_seen_block"] = block_number
+                    elif response.HasField('pong'):
+                        logger.debug(f"Pong received: {response.pong.timestamp}")
+
+            except grpc.RpcError as e:
+                if not self._running:
+                    break
+
+                error = HyperliquidError(
+                    f"gRPC error: {e.code()} - {e.details()}",
+                    code="GRPC_ERROR",
+                    raw={"code": str(e.code()), "details": e.details()},
+                )
+
+                if self._on_error:
+                    try:
+                        self._on_error(error)
+                    except Exception:
+                        pass
+
+                if self._reconnect_enabled and self._running:
+                    self._handle_reconnect()
+                else:
+                    break
+
+            except Exception as e:
+                if not self._running:
+                    break
+
+                if self._on_error:
+                    try:
+                        self._on_error(e)
+                    except Exception:
+                        pass
+
+                if self._reconnect_enabled and self._running:
+                    self._handle_reconnect()
+                else:
+                    break
+
+    def _build_orderbook_request(self, sub: Dict[str, Any], *, reconnect: bool = False) -> Any:
+        """Build the request message for an OrderBookStreaming subscription.
+
+        On reconnect, skip_initial_snapshot is forced to False so the server
+        resends the snapshot and the consumer can resync its local book.
+        """
+        stream_type = sub.get("stream_type")
+        coins = sub.get("coins") or []
+
+        if stream_type in ("BBO_BOOK", "BBO_BOOK_PACKED"):
+            return BboBookRequest(coins=coins)
+
+        if stream_type == "L2_BOOK_DIFF":
+            # skip_initial_snapshot only applies to the first connection.
+            skip_initial_snapshot = False if reconnect else sub.get("skip_initial_snapshot", False)
+            request = L2BookDiffRequest(
+                coins=coins,
+                n_levels=sub.get("n_levels", 20),
+                skip_initial_snapshot=skip_initial_snapshot,
+            )
+            if sub.get("n_sig_figs") is not None:
+                request.n_sig_figs = sub["n_sig_figs"]
+            if sub.get("mantissa") is not None:
+                request.mantissa = sub["mantissa"]
+            return request
+
+        if stream_type == "L4_BOOK_UPDATES":
+            return L4BookUpdatesRequest(coins=coins)
+
+        if stream_type == "TPSL_UPDATES":
+            return TpslUpdatesRequest(coins=coins)
+
+        if stream_type == "L2_BOOK_PACKED":
+            request = L2BookRequest(coin=sub.get("coin"), n_levels=sub.get("n_levels", 20))
+            if sub.get("n_sig_figs") is not None:
+                request.n_sig_figs = sub["n_sig_figs"]
+            if sub.get("mantissa") is not None:
+                request.mantissa = sub["mantissa"]
+            return request
+
+        if stream_type == "L4_BOOK_BYTES":
+            return L4BookRequest(coin=sub.get("coin"))
+
+        raise ValueError(f"Unknown orderbook stream type: {stream_type}")
+
+    def _bbo_update_to_dict(self, update) -> Dict[str, Any]:
+        """Convert BboBookUpdate/BboBookPackedUpdate protobuf to dict."""
+        return {
+            "coin": update.coin,
+            "time": update.time,
+            "block_number": update.block_number,
+            "bid": [update.bid.px, update.bid.sz, update.bid.n] if update.HasField('bid') else None,
+            "ask": [update.ask.px, update.ask.sz, update.ask.n] if update.HasField('ask') else None,
+        }
+
+    def _orderbook_update_to_dict(self, stream_type: str, update) -> Optional[Dict[str, Any]]:
+        """Convert an OrderBookStreaming update protobuf to dict."""
+        if stream_type in ("BBO_BOOK", "BBO_BOOK_PACKED"):
+            return self._bbo_update_to_dict(update)
+
+        if stream_type == "L2_BOOK_DIFF":
+            return {
+                "time": update.time,
+                "height": update.height,
+                "snapshot": update.snapshot,
+                "diffs": [
+                    {
+                        "coin": diff.coin,
+                        "seq": diff.seq,
+                        "prev_seq": diff.prev_seq,
+                        "snapshot": diff.snapshot,
+                        "bids": [[level.px, level.sz, level.n] for level in diff.bids],
+                        "asks": [[level.px, level.sz, level.n] for level in diff.asks],
+                    }
+                    for diff in update.diffs
+                ],
+            }
+
+        if stream_type == "L4_BOOK_UPDATES":
+            return {
+                "time": update.time,
+                "height": update.height,
+                "snapshot": update.snapshot,
+                "diffs": [
+                    {
+                        "diff_type": L4OrderDiffType.Name(diff.diff_type),
+                        "coin": diff.coin,
+                        "oid": diff.oid,
+                        "user": diff.user,
+                        "side": diff.side,
+                        "px": diff.px,
+                        "sz": diff.sz,
+                    }
+                    for diff in update.diffs
+                ],
+            }
+
+        if stream_type == "TPSL_UPDATES":
+            return {
+                "time": update.time,
+                "height": update.height,
+                "snapshot": update.snapshot,
+                "diffs": [
+                    {
+                        "diff_type": TpslDiffType.Name(diff.diff_type),
+                        "oid": diff.oid,
+                        "coin": diff.coin,
+                        "user": diff.user,
+                        "side": diff.side,
+                        "trigger_px": diff.trigger_px,
+                        "limit_px": diff.limit_px,
+                        "sz": diff.sz,
+                        "trigger_condition": diff.trigger_condition,
+                        "order_type": diff.order_type,
+                        "is_position_tpsl": diff.is_position_tpsl,
+                        "reduce_only": diff.reduce_only,
+                        "timestamp": diff.timestamp,
+                        "reason": diff.reason,
+                    }
+                    for diff in update.diffs
+                ],
+            }
+
+        if stream_type == "L2_BOOK_PACKED":
+            return {
+                "coin": update.coin,
+                "time": update.time,
+                "block_number": update.block_number,
+                "bids": [[level.px, level.sz, level.n] for level in update.bids],
+                "asks": [[level.px, level.sz, level.n] for level in update.asks],
+            }
+
+        if stream_type == "L4_BOOK_BYTES":
+            if update.HasField('snapshot'):
+                snapshot = update.snapshot
+                return {
+                    "type": "snapshot",
+                    "coin": snapshot.coin,
+                    "time": snapshot.time,
+                    "height": snapshot.height,
+                    "bids": [self._l4_order_to_dict(o) for o in snapshot.bids],
+                    "asks": [self._l4_order_to_dict(o) for o in snapshot.asks],
+                }
+            if update.HasField('diff'):
+                diff = update.diff
+                return {
+                    "type": "diff",
+                    "time": diff.time,
+                    "height": diff.height,
+                    "data": diff.data,  # Raw JSON bytes (not parsed)
+                }
+            return None
+
+        return None
+
+    def _stream_orderbook(self, sub: Dict[str, Any]) -> None:
+        """Stream order book data using the newer OrderBookStreaming RPCs."""
+        callback = sub["callback"]
+        stream_type = sub.get("stream_type")
+        first_connect = True
+
+        while self._running and not self._stop_event.is_set():
+            try:
+                if not self._orderbook_stub:
+                    time.sleep(1)
+                    continue
+
+                metadata = self._get_metadata()
+                request = self._build_orderbook_request(sub, reconnect=not first_connect)
+                first_connect = False
+                rpc = getattr(self._orderbook_stub, _ORDERBOOK_RPC_MAP[stream_type])
+
+                # Create stream
+                stream = rpc(request, metadata=metadata)
+
+                for update in stream:
+                    if not self._running or self._stop_event.is_set():
+                        break
+
+                    data = self._orderbook_update_to_dict(stream_type, update)
+                    if data is not None:
+                        self._safe_callback(callback, data)
+
+            except grpc.RpcError as e:
+                if not self._running:
+                    break
+
+                error = HyperliquidError(
+                    f"gRPC error: {e.code()} - {e.details()}",
+                    code="GRPC_ERROR",
+                    raw={"code": str(e.code()), "details": e.details()},
+                )
+
+                if self._on_error:
+                    try:
+                        self._on_error(error)
+                    except Exception:
+                        pass
+
+                if self._reconnect_enabled and self._running:
+                    self._handle_reconnect()
+                else:
+                    break
+
+            except Exception as e:
+                if not self._running:
+                    break
+
+                if self._on_error:
+                    try:
+                        self._on_error(e)
+                    except Exception:
+                        pass
+
+                if self._reconnect_enabled and self._running:
+                    self._handle_reconnect()
+                else:
+                    break
+
     def _handle_reconnect(self) -> None:
         """Handle reconnection with exponential backoff."""
         if not self._running:
@@ -926,6 +1692,18 @@ class GRPCStream:
                 elif stream_type == "L4_BOOK":
                     thread = threading.Thread(
                         target=self._stream_l4_book,
+                        args=(sub,),
+                        daemon=True,
+                    )
+                elif stream_type in _ORDERBOOK_RPC_MAP:
+                    thread = threading.Thread(
+                        target=self._stream_orderbook,
+                        args=(sub,),
+                        daemon=True,
+                    )
+                elif stream_type == "STREAM_BYTES":
+                    thread = threading.Thread(
+                        target=self._stream_data_bytes,
                         args=(sub,),
                         daemon=True,
                     )

@@ -66,14 +66,42 @@ type GRPCStream struct {
 }
 
 type grpcSubscription struct {
-	streamType string
-	callback   func(map[string]any)
-	coins      []string
-	users      []string
-	coin       string
-	nSigFigs   *int
-	nLevels    int
-	raw        bool
+	streamType          string
+	callback            func(map[string]any)
+	bytesCallback       func(blockNumber uint64, timestamp uint64, data []byte)
+	coins               []string
+	users               []string
+	coin                string
+	nSigFigs            *int
+	nLevels             int
+	mantissa            *uint64
+	skipInitialSnapshot bool
+	startBlock          uint64
+	raw                 bool
+}
+
+// StreamOption configures a generic gRPC data stream subscription.
+type StreamOption func(*grpcSubscription)
+
+// StreamWithStartBlock requests the stream to start from a specific block number.
+func StreamWithStartBlock(block uint64) StreamOption {
+	return func(s *grpcSubscription) {
+		s.startBlock = block
+	}
+}
+
+// StreamWithCoins filters the stream by coins (used with StreamBytes).
+func StreamWithCoins(coins ...string) StreamOption {
+	return func(s *grpcSubscription) {
+		s.coins = coins
+	}
+}
+
+// StreamWithUsers filters the stream by users (used with StreamBytes).
+func StreamWithUsers(users ...string) StreamOption {
+	return func(s *grpcSubscription) {
+		s.users = users
+	}
 }
 
 const (
@@ -242,163 +270,233 @@ func (s *GRPCStream) connect() error {
 	return nil
 }
 
-// Trades subscribes to trade stream.
-func (s *GRPCStream) Trades(coins []string, callback func(map[string]any)) *GRPCStream {
+// addSubscription applies options to a subscription and registers it.
+func (s *GRPCStream) addSubscription(sub grpcSubscription, opts []StreamOption) *GRPCStream {
+	for _, opt := range opts {
+		opt(&sub)
+	}
 	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+	s.subscriptions = append(s.subscriptions, sub)
+	s.subMu.Unlock()
+	return s
+}
+
+// Trades subscribes to trade stream.
+func (s *GRPCStream) Trades(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "TRADES",
 		callback:   callback,
 		coins:      coins,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawTrades subscribes to raw trade blocks.
-func (s *GRPCStream) RawTrades(coins []string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) RawTrades(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "TRADES",
 		callback:   callback,
 		coins:      coins,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // Orders subscribes to order stream.
+// The trailing users variadic predates StreamOption; use OrdersWithOptions to
+// combine user filters with options such as StreamWithStartBlock.
 func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+	return s.OrdersWithOptions(coins, users, callback)
+}
+
+// OrdersWithOptions subscribes to the order stream with user filters and
+// StreamOptions (e.g. StreamWithStartBlock).
+func (s *GRPCStream) OrdersWithOptions(coins []string, users []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "ORDERS",
 		callback:   callback,
 		coins:      coins,
 		users:      users,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawOrders subscribes to raw order blocks.
+// The trailing users variadic predates StreamOption; use RawOrdersWithOptions to
+// combine user filters with options such as StreamWithStartBlock.
 func (s *GRPCStream) RawOrders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+	return s.RawOrdersWithOptions(coins, users, callback)
+}
+
+// RawOrdersWithOptions subscribes to raw order blocks with user filters and
+// StreamOptions (e.g. StreamWithStartBlock).
+func (s *GRPCStream) RawOrdersWithOptions(coins []string, users []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "ORDERS",
 		callback:   callback,
 		coins:      coins,
 		users:      users,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // BookUpdates subscribes to order book updates.
-func (s *GRPCStream) BookUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) BookUpdates(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "BOOK_UPDATES",
 		callback:   callback,
 		coins:      coins,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawBookUpdates subscribes to raw order book update blocks.
-func (s *GRPCStream) RawBookUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) RawBookUpdates(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "BOOK_UPDATES",
 		callback:   callback,
 		coins:      coins,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // TWAP subscribes to TWAP execution stream.
-func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) TWAP(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "TWAP",
 		callback:   callback,
 		coins:      coins,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawTWAP subscribes to raw TWAP execution blocks.
-func (s *GRPCStream) RawTWAP(coins []string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) RawTWAP(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "TWAP",
 		callback:   callback,
 		coins:      coins,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // Events subscribes to system events.
-func (s *GRPCStream) Events(callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) Events(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "EVENTS",
 		callback:   callback,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawEvents subscribes to raw system event blocks.
-func (s *GRPCStream) RawEvents(callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) RawEvents(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "EVENTS",
 		callback:   callback,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // Blocks subscribes to block data.
 func (s *GRPCStream) Blocks(callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+	return s.addSubscription(grpcSubscription{
 		streamType: "BLOCKS",
 		callback:   callback,
-	})
-	s.subMu.Unlock()
-	return s
+	}, nil)
 }
 
 // WriterActions subscribes to writer actions.
-func (s *GRPCStream) WriterActions(callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) WriterActions(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "WRITER_ACTIONS",
 		callback:   callback,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
 }
 
 // RawWriterActions subscribes to raw writer action blocks.
-func (s *GRPCStream) RawWriterActions(callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+func (s *GRPCStream) RawWriterActions(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
 		streamType: "WRITER_ACTIONS",
 		callback:   callback,
 		raw:        true,
-	})
-	s.subMu.Unlock()
-	return s
+	}, opts)
+}
+
+// MempoolTxs subscribes to pre-consensus mempool transactions.
+// Pass nil/empty coins for all coins; the server applies the coin filter
+// with OR logic across values for this stream type.
+func (s *GRPCStream) MempoolTxs(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "MEMPOOL_TXS",
+		callback:   callback,
+		coins:      coins,
+	}, opts)
+}
+
+// RawMempoolTxs subscribes to raw pre-consensus mempool transaction blocks.
+// Pass nil/empty coins for all coins.
+func (s *GRPCStream) RawMempoolTxs(coins []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "MEMPOOL_TXS",
+		callback:   callback,
+		coins:      coins,
+		raw:        true,
+	}, opts)
+}
+
+// OrderPriority subscribes to derived order/write priority actions
+// (from mempool and confirmed replica data). Events carry server-enriched
+// fields: coin, market_type, sz_decimals.
+func (s *GRPCStream) OrderPriority(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "ORDER_PRIORITY",
+		callback:   callback,
+	}, opts)
+}
+
+// RawOrderPriority subscribes to raw order/write priority action blocks.
+func (s *GRPCStream) RawOrderPriority(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "ORDER_PRIORITY",
+		callback:   callback,
+		raw:        true,
+	}, opts)
+}
+
+// GossipPriority subscribes to derived gossip/read priority bid actions
+// (does not measure delivery latency). Events carry server-enriched
+// fields: coin, market_type, sz_decimals.
+func (s *GRPCStream) GossipPriority(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "GOSSIP_PRIORITY",
+		callback:   callback,
+	}, opts)
+}
+
+// RawGossipPriority subscribes to raw gossip/read priority bid action blocks.
+func (s *GRPCStream) RawGossipPriority(callback func(map[string]any), opts ...StreamOption) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "GOSSIP_PRIORITY",
+		callback:   callback,
+		raw:        true,
+	}, opts)
+}
+
+// StreamBytes subscribes to the raw-bytes fast path (StreamDataBytes RPC) for
+// any generic stream type ("TRADES", "ORDERS", "BOOK_UPDATES", "TWAP",
+// "EVENTS", "BLOCKS", "WRITER_ACTIONS", "MEMPOOL_TXS", "ORDER_PRIORITY",
+// "GOSSIP_PRIORITY"). The callback receives the undecoded payload bytes — no
+// JSON parsing is performed. Use StreamWithCoins/StreamWithUsers/
+// StreamWithStartBlock to filter.
+func (s *GRPCStream) StreamBytes(streamType string, callback func(blockNumber uint64, timestamp uint64, data []byte), opts ...StreamOption) *GRPCStream {
+	// Fail fast on unknown stream types: without this check a typo would map
+	// to proto enum 0 (UNKNOWN) and be sent to the server silently.
+	if _, ok := grpcStreamTypeMap[streamType]; !ok {
+		err := fmt.Errorf("unknown stream type %q for StreamBytes; valid types: TRADES, ORDERS, BOOK_UPDATES, TWAP, EVENTS, BLOCKS, WRITER_ACTIONS, MEMPOOL_TXS, ORDER_PRIORITY, GOSSIP_PRIORITY", streamType)
+		if s.config.OnError != nil {
+			s.config.OnError(err)
+		}
+		return s
+	}
+	return s.addSubscription(grpcSubscription{
+		streamType:    streamType,
+		bytesCallback: callback,
+	}, opts)
 }
 
 // L2Book subscribes to Level 2 order book updates.
@@ -435,32 +533,176 @@ func L2BookNSigFigs(n int) L2BookOption {
 	}
 }
 
+// L2BookMantissa sets the mantissa for price bucketing (1, 2, or 5).
+func L2BookMantissa(m uint64) L2BookOption {
+	return func(s *grpcSubscription) {
+		s.mantissa = &m
+	}
+}
+
+// L2BookSkipInitialSnapshot skips the initial per-coin snapshot (L2BookDiff
+// only). It applies to the first connect only: after a reconnect the snapshot
+// is always requested so the local book can resync.
+func L2BookSkipInitialSnapshot() L2BookOption {
+	return func(s *grpcSubscription) {
+		s.skipInitialSnapshot = true
+	}
+}
+
 // L4Book subscribes to Level 4 order book updates (individual orders).
+//
+// Note: the server may send an unsolicited full snapshot at any time after
+// subscribe; discard local book state and replace it with any snapshot
+// received mid-stream.
 func (s *GRPCStream) L4Book(coin string, callback func(map[string]any)) *GRPCStream {
-	s.subMu.Lock()
-	s.subscriptions = append(s.subscriptions, grpcSubscription{
+	return s.addSubscription(grpcSubscription{
 		streamType: "L4_BOOK",
 		callback:   callback,
 		coin:       coin,
-	})
-	s.subMu.Unlock()
-	return s
+	}, nil)
+}
+
+// BboBook subscribes to best bid/offer updates. Empty/nil coins = all coins.
+// Emits only when the best bid or ask changes for a coin.
+func (s *GRPCStream) BboBook(coins []string, callback func(map[string]any)) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "BBO_BOOK",
+		callback:   callback,
+		coins:      coins,
+	}, nil)
+}
+
+// L2BookDiff subscribes to incremental L2 price-level changes.
+// Empty/nil coins = all coins. Changed levels with sz=0 mean the level was removed.
+func (s *GRPCStream) L2BookDiff(coins []string, callback func(map[string]any), opts ...L2BookOption) *GRPCStream {
+	sub := grpcSubscription{
+		streamType: "L2_BOOK_DIFF",
+		callback:   callback,
+		coins:      coins,
+		nLevels:    20,
+	}
+	for _, opt := range opts {
+		opt(&sub)
+	}
+	return s.addSubscription(sub, nil)
+}
+
+// L4BookUpdates subscribes to typed L4 order book updates.
+// Empty/nil coins = all coins.
+//
+// Note: updates with snapshot=true carry a full reset snapshot; discard local
+// book state and replace it whenever one arrives mid-stream.
+func (s *GRPCStream) L4BookUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "L4_BOOK_UPDATES",
+		callback:   callback,
+		coins:      coins,
+	}, nil)
+}
+
+// TpslUpdates subscribes to trigger/TP-SL order updates.
+// Empty/nil coins = all perp coins.
+func (s *GRPCStream) TpslUpdates(coins []string, callback func(map[string]any)) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "TPSL_UPDATES",
+		callback:   callback,
+		coins:      coins,
+	}, nil)
+}
+
+// L2BookPacked subscribes to the fixed-point L2 book fast path.
+// Prices/sizes are uint64 fixed-point integers scaled by 1e8.
+func (s *GRPCStream) L2BookPacked(coin string, callback func(map[string]any), opts ...L2BookOption) *GRPCStream {
+	sub := grpcSubscription{
+		streamType: "L2_BOOK_PACKED",
+		callback:   callback,
+		coin:       coin,
+		nLevels:    20,
+	}
+	for _, opt := range opts {
+		opt(&sub)
+	}
+	return s.addSubscription(sub, nil)
+}
+
+// BboBookPacked subscribes to the fixed-point BBO fast path.
+// Empty/nil coins = all coins. Prices/sizes are uint64 fixed-point integers
+// scaled by 1e8.
+func (s *GRPCStream) BboBookPacked(coins []string, callback func(map[string]any)) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "BBO_BOOK_PACKED",
+		callback:   callback,
+		coins:      coins,
+	}, nil)
+}
+
+// L4BookBytes subscribes to the L4 book fast path: diffs are delivered as
+// undecoded JSON bytes ({order_statuses, book_diffs}) in the "data" field
+// instead of being parsed.
+//
+// Note: the server may send an unsolicited full snapshot at any time after
+// subscribe; discard local book state and replace it with any snapshot
+// received mid-stream.
+func (s *GRPCStream) L4BookBytes(coin string, callback func(map[string]any)) *GRPCStream {
+	return s.addSubscription(grpcSubscription{
+		streamType: "L4_BOOK_BYTES",
+		callback:   callback,
+		coin:       coin,
+	}, nil)
+}
+
+// grpcStreamTypeMap maps generic stream type names to proto enum values.
+var grpcStreamTypeMap = map[string]pb.StreamType{
+	"TRADES":          pb.StreamType_TRADES,
+	"ORDERS":          pb.StreamType_ORDERS,
+	"BOOK_UPDATES":    pb.StreamType_BOOK_UPDATES,
+	"TWAP":            pb.StreamType_TWAP,
+	"EVENTS":          pb.StreamType_EVENTS,
+	"BLOCKS":          pb.StreamType_BLOCKS,
+	"WRITER_ACTIONS":  pb.StreamType_WRITER_ACTIONS,
+	"MEMPOOL_TXS":     pb.StreamType_MEMPOOL_TXS,
+	"ORDER_PRIORITY":  pb.StreamType_ORDER_PRIORITY,
+	"GOSSIP_PRIORITY": pb.StreamType_GOSSIP_PRIORITY,
+}
+
+// buildSubscribeRequest builds the StreamSubscribe request for a generic data
+// subscription (StreamData / StreamDataBytes). On the first connect the
+// user's original startBlock is sent (0 = unset, tip-following). On
+// reconnects, if the user set a startBlock, the cursor advances past the
+// highest block already delivered so processed blocks are not replayed; an
+// unset startBlock stays unset so tip-following semantics are unchanged.
+func buildSubscribeRequest(sub grpcSubscription, isReconnect bool, lastSeenBlock uint64) *pb.SubscribeRequest {
+	startBlock := sub.startBlock
+	if isReconnect && startBlock != 0 {
+		startBlock = max(startBlock, lastSeenBlock+1)
+	}
+
+	req := &pb.SubscribeRequest{
+		Request: &pb.SubscribeRequest_Subscribe{
+			Subscribe: &pb.StreamSubscribe{
+				StreamType: grpcStreamTypeMap[sub.streamType],
+				StartBlock: startBlock,
+				Filters:    make(map[string]*pb.FilterValues),
+			},
+		},
+	}
+
+	if len(sub.coins) > 0 {
+		req.GetSubscribe().Filters["coin"] = &pb.FilterValues{Values: sub.coins}
+	}
+	if len(sub.users) > 0 {
+		req.GetSubscribe().Filters["user"] = &pb.FilterValues{Values: sub.users}
+	}
+
+	return req
 }
 
 func (s *GRPCStream) streamData(sub grpcSubscription) {
 	defer s.wg.Done()
 
-	streamTypeMap := map[string]pb.StreamType{
-		"TRADES":         pb.StreamType_TRADES,
-		"ORDERS":         pb.StreamType_ORDERS,
-		"BOOK_UPDATES":   pb.StreamType_BOOK_UPDATES,
-		"TWAP":           pb.StreamType_TWAP,
-		"EVENTS":         pb.StreamType_EVENTS,
-		"BLOCKS":         pb.StreamType_BLOCKS,
-		"WRITER_ACTIONS": pb.StreamType_WRITER_ACTIONS,
-	}
-
 	retryDelay := time.Second
+	firstConnect := true
+	var lastSeenBlock uint64
 
 	for s.running.Load() {
 		s.connMu.RLock()
@@ -494,21 +736,7 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 		}
 
 		// Send initial subscription request
-		req := &pb.SubscribeRequest{
-			Request: &pb.SubscribeRequest_Subscribe{
-				Subscribe: &pb.StreamSubscribe{
-					StreamType: streamTypeMap[sub.streamType],
-					Filters:    make(map[string]*pb.FilterValues),
-				},
-			},
-		}
-
-		if len(sub.coins) > 0 {
-			req.GetSubscribe().Filters["coin"] = &pb.FilterValues{Values: sub.coins}
-		}
-		if len(sub.users) > 0 {
-			req.GetSubscribe().Filters["user"] = &pb.FilterValues{Values: sub.users}
-		}
+		req := buildSubscribeRequest(sub, !firstConnect, lastSeenBlock)
 
 		if err := stream.Send(req); err != nil {
 			if s.running.Load() && s.config.OnError != nil {
@@ -523,8 +751,10 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			}
 		}
 
-		// Reset retry delay on successful connection
+		// Reset retry delay on successful subscription; subsequent attempts
+		// are reconnects
 		retryDelay = time.Second
+		firstConnect = false
 
 		// Start ping goroutine
 		pingDone := make(chan struct{})
@@ -564,6 +794,12 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 				var parsed map[string]any
 				if err := json.Unmarshal([]byte(data.Data), &parsed); err != nil {
 					continue
+				}
+				// Advance the resume cursor only after the payload decoded, so a
+				// block that failed to parse is re-requested on reconnect
+				// instead of being skipped permanently.
+				if data.BlockNumber > lastSeenBlock {
+					lastSeenBlock = data.BlockNumber
 				}
 
 				if sub.raw {
@@ -608,6 +844,113 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 					parsed["_block_number"] = data.BlockNumber
 					parsed["_timestamp"] = data.Timestamp
 					sub.callback(parsed)
+				}
+			}
+		}
+	}
+}
+
+// streamDataBytes handles the StreamDataBytes fast path: payload bytes are
+// passed through to the callback without JSON decoding.
+func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
+	defer s.wg.Done()
+
+	retryDelay := time.Second
+	firstConnect := true
+	var lastSeenBlock uint64
+
+	for s.running.Load() {
+		s.connMu.RLock()
+		stub := s.streamingStub
+		s.connMu.RUnlock()
+
+		if stub == nil {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(time.Second):
+				continue
+			}
+		}
+
+		ctx := metadata.NewOutgoingContext(s.ctx, s.getMetadata())
+
+		stream, err := stub.StreamDataBytes(ctx)
+		if err != nil {
+			if s.running.Load() && s.config.OnError != nil {
+				s.config.OnError(err)
+			}
+			// Just retry with backoff, don't reconnect the whole connection
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
+			}
+		}
+
+		// Send initial subscription request
+		req := buildSubscribeRequest(sub, !firstConnect, lastSeenBlock)
+
+		if err := stream.Send(req); err != nil {
+			if s.running.Load() && s.config.OnError != nil {
+				s.config.OnError(err)
+			}
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
+			}
+		}
+
+		// Reset retry delay on successful subscription; subsequent attempts
+		// are reconnects
+		retryDelay = time.Second
+		firstConnect = false
+
+		// Start ping goroutine
+		pingDone := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-pingDone:
+					return
+				case <-s.ctx.Done():
+					return
+				case <-ticker.C:
+					pingReq := &pb.SubscribeRequest{
+						Request: &pb.SubscribeRequest_Ping{
+							Ping: &pb.Ping{Timestamp: time.Now().UnixMilli()},
+						},
+					}
+					stream.Send(pingReq)
+				}
+			}
+		}()
+
+		// Handle responses
+		for s.running.Load() {
+			resp, err := stream.Recv()
+			if err != nil {
+				close(pingDone)
+				if s.running.Load() && s.config.OnError != nil {
+					s.config.OnError(err)
+				}
+				// Just break and retry, don't reconnect
+				break
+			}
+
+			if data := resp.GetData(); data != nil {
+				sub.bytesCallback(data.BlockNumber, data.Timestamp, data.Data)
+				// Cursor advances only after delivery so reconnects never skip
+				// an undelivered block.
+				if data.BlockNumber > lastSeenBlock {
+					lastSeenBlock = data.BlockNumber
 				}
 			}
 		}
@@ -698,6 +1041,10 @@ func (s *GRPCStream) streamL2Book(sub grpcSubscription) {
 		if sub.nSigFigs != nil {
 			nSigFigs := uint32(*sub.nSigFigs)
 			req.NSigFigs = &nSigFigs
+		}
+		if sub.mantissa != nil {
+			mantissa := *sub.mantissa
+			req.Mantissa = &mantissa
 		}
 
 		stream, err := stub.StreamL2Book(ctx, req)
@@ -798,23 +1145,7 @@ func (s *GRPCStream) streamL4Book(sub grpcSubscription) {
 			var data map[string]any
 
 			if snapshot := update.GetSnapshot(); snapshot != nil {
-				bids := make([]map[string]any, len(snapshot.Bids))
-				for i, order := range snapshot.Bids {
-					bids[i] = l4OrderToMap(order)
-				}
-				asks := make([]map[string]any, len(snapshot.Asks))
-				for i, order := range snapshot.Asks {
-					asks[i] = l4OrderToMap(order)
-				}
-
-				data = map[string]any{
-					"type":   "snapshot",
-					"coin":   snapshot.Coin,
-					"time":   snapshot.Time,
-					"height": snapshot.Height,
-					"bids":   bids,
-					"asks":   asks,
-				}
+				data = l4SnapshotToMap(snapshot)
 			} else if diff := update.GetDiff(); diff != nil {
 				var diffData map[string]any
 				json.Unmarshal([]byte(diff.Data), &diffData)
@@ -857,6 +1188,335 @@ func l4OrderToMap(order *pb.L4Order) map[string]any {
 		m["cloid"] = *order.Cloid
 	}
 	return m
+}
+
+func l4SnapshotToMap(snapshot *pb.L4BookSnapshot) map[string]any {
+	bids := make([]map[string]any, len(snapshot.Bids))
+	for i, order := range snapshot.Bids {
+		bids[i] = l4OrderToMap(order)
+	}
+	asks := make([]map[string]any, len(snapshot.Asks))
+	for i, order := range snapshot.Asks {
+		asks[i] = l4OrderToMap(order)
+	}
+
+	return map[string]any{
+		"type":   "snapshot",
+		"coin":   snapshot.Coin,
+		"time":   snapshot.Time,
+		"height": snapshot.Height,
+		"bids":   bids,
+		"asks":   asks,
+	}
+}
+
+func l2LevelToArr(level *pb.L2Level) []any {
+	return []any{level.Px, level.Sz, level.N}
+}
+
+func l2LevelsToArrs(levels []*pb.L2Level) [][]any {
+	arrs := make([][]any, len(levels))
+	for i, level := range levels {
+		arrs[i] = l2LevelToArr(level)
+	}
+	return arrs
+}
+
+func l2LevelPackedToArr(level *pb.L2LevelPacked) []any {
+	return []any{level.Px, level.Sz, level.N}
+}
+
+func l2LevelsPackedToArrs(levels []*pb.L2LevelPacked) [][]any {
+	arrs := make([][]any, len(levels))
+	for i, level := range levels {
+		arrs[i] = l2LevelPackedToArr(level)
+	}
+	return arrs
+}
+
+func bboBookUpdateToMap(update *pb.BboBookUpdate) map[string]any {
+	m := map[string]any{
+		"coin":         update.Coin,
+		"time":         update.Time,
+		"block_number": update.BlockNumber,
+		"bid":          nil,
+		"ask":          nil,
+	}
+	if update.Bid != nil {
+		m["bid"] = l2LevelToArr(update.Bid)
+	}
+	if update.Ask != nil {
+		m["ask"] = l2LevelToArr(update.Ask)
+	}
+	return m
+}
+
+func bboBookPackedUpdateToMap(update *pb.BboBookPackedUpdate) map[string]any {
+	m := map[string]any{
+		"coin":         update.Coin,
+		"time":         update.Time,
+		"block_number": update.BlockNumber,
+		"bid":          nil,
+		"ask":          nil,
+	}
+	if update.Bid != nil {
+		m["bid"] = l2LevelPackedToArr(update.Bid)
+	}
+	if update.Ask != nil {
+		m["ask"] = l2LevelPackedToArr(update.Ask)
+	}
+	return m
+}
+
+func l2BookDiffUpdateToMap(update *pb.L2BookDiffUpdate) map[string]any {
+	diffs := make([]map[string]any, len(update.Diffs))
+	for i, diff := range update.Diffs {
+		diffs[i] = map[string]any{
+			"coin":     diff.Coin,
+			"seq":      diff.Seq,
+			"prev_seq": diff.PrevSeq,
+			"bids":     l2LevelsToArrs(diff.Bids),
+			"asks":     l2LevelsToArrs(diff.Asks),
+			"snapshot": diff.Snapshot,
+		}
+	}
+
+	return map[string]any{
+		"time":     update.Time,
+		"height":   update.Height,
+		"snapshot": update.Snapshot,
+		"diffs":    diffs,
+	}
+}
+
+func l2BookPackedUpdateToMap(update *pb.L2BookPackedUpdate) map[string]any {
+	return map[string]any{
+		"coin":         update.Coin,
+		"time":         update.Time,
+		"block_number": update.BlockNumber,
+		"bids":         l2LevelsPackedToArrs(update.Bids),
+		"asks":         l2LevelsPackedToArrs(update.Asks),
+	}
+}
+
+func l4BookUpdatesUpdateToMap(update *pb.L4BookUpdatesUpdate) map[string]any {
+	diffs := make([]map[string]any, len(update.Diffs))
+	for i, diff := range update.Diffs {
+		diffs[i] = map[string]any{
+			"diff_type": diff.DiffType.String(),
+			"coin":      diff.Coin,
+			"oid":       diff.Oid,
+			"user":      diff.User,
+			"side":      diff.Side,
+			"px":        diff.Px,
+			"sz":        diff.Sz,
+		}
+	}
+
+	return map[string]any{
+		"time":     update.Time,
+		"height":   update.Height,
+		"snapshot": update.Snapshot,
+		"diffs":    diffs,
+	}
+}
+
+func tpslUpdatesUpdateToMap(update *pb.TpslUpdatesUpdate) map[string]any {
+	diffs := make([]map[string]any, len(update.Diffs))
+	for i, diff := range update.Diffs {
+		diffs[i] = map[string]any{
+			"diff_type":         diff.DiffType.String(),
+			"oid":               diff.Oid,
+			"coin":              diff.Coin,
+			"user":              diff.User,
+			"side":              diff.Side,
+			"trigger_px":        diff.TriggerPx,
+			"limit_px":          diff.LimitPx,
+			"sz":                diff.Sz,
+			"trigger_condition": diff.TriggerCondition,
+			"order_type":        diff.OrderType,
+			"is_position_tpsl":  diff.IsPositionTpsl,
+			"reduce_only":       diff.ReduceOnly,
+			"timestamp":         diff.Timestamp,
+			"reason":            diff.Reason,
+		}
+	}
+
+	return map[string]any{
+		"time":     update.Time,
+		"height":   update.Height,
+		"snapshot": update.Snapshot,
+		"diffs":    diffs,
+	}
+}
+
+// l4BookBytesUpdateToMap maps an L4BookBytesUpdate oneof to the snapshot/diff
+// shape used by L4Book, keeping the diff payload as undecoded JSON bytes.
+func l4BookBytesUpdateToMap(update *pb.L4BookBytesUpdate) map[string]any {
+	if snapshot := update.GetSnapshot(); snapshot != nil {
+		return l4SnapshotToMap(snapshot)
+	}
+	if diff := update.GetDiff(); diff != nil {
+		return map[string]any{
+			"type":   "diff",
+			"time":   diff.Time,
+			"height": diff.Height,
+			"data":   diff.Data, // JSON bytes, not decoded
+		}
+	}
+	return nil
+}
+
+// runOrderbookStream runs a server-streaming order book RPC with the same
+// retry/backoff behavior as the other stream handlers. Updates are converted
+// by handle and skipped when it returns nil.
+func runOrderbookStream[T any](
+	s *GRPCStream,
+	callback func(map[string]any),
+	open func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[T], error),
+	handle func(*T) map[string]any,
+) {
+	defer s.wg.Done()
+
+	retryDelay := time.Second
+
+	for s.running.Load() {
+		s.connMu.RLock()
+		stub := s.orderbookStub
+		s.connMu.RUnlock()
+
+		if stub == nil {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(time.Second):
+				continue
+			}
+		}
+
+		ctx := metadata.NewOutgoingContext(s.ctx, s.getMetadata())
+
+		stream, err := open(ctx, stub)
+		if err != nil {
+			if s.running.Load() && s.config.OnError != nil {
+				s.config.OnError(err)
+			}
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(retryDelay):
+				retryDelay = min(retryDelay*2, 30*time.Second)
+				continue
+			}
+		}
+
+		// Reset retry delay on successful connection
+		retryDelay = time.Second
+
+		for s.running.Load() {
+			update, err := stream.Recv()
+			if err != nil {
+				if s.running.Load() && s.config.OnError != nil {
+					s.config.OnError(err)
+				}
+				break
+			}
+
+			if data := handle(update); data != nil {
+				callback(data)
+			}
+		}
+	}
+}
+
+func (s *GRPCStream) streamBboBook(sub grpcSubscription) {
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.BboBookUpdate], error) {
+			return stub.StreamBboBook(ctx, &pb.BboBookRequest{Coins: sub.coins})
+		}, bboBookUpdateToMap)
+}
+
+func (s *GRPCStream) streamBboBookPacked(sub grpcSubscription) {
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.BboBookPackedUpdate], error) {
+			return stub.StreamBboBookPacked(ctx, &pb.BboBookRequest{Coins: sub.coins})
+		}, bboBookPackedUpdateToMap)
+}
+
+// buildL2BookDiffRequest builds the StreamL2BookDiff request. The user's
+// skipInitialSnapshot preference only applies to the first connect; on
+// reconnects the snapshot is always requested so the consumer can resync the
+// local book after the gap.
+func buildL2BookDiffRequest(sub grpcSubscription, isReconnect bool) *pb.L2BookDiffRequest {
+	req := &pb.L2BookDiffRequest{
+		Coins:               sub.coins,
+		NLevels:             uint32(sub.nLevels),
+		SkipInitialSnapshot: sub.skipInitialSnapshot && !isReconnect,
+	}
+	if sub.nSigFigs != nil {
+		nSigFigs := uint32(*sub.nSigFigs)
+		req.NSigFigs = &nSigFigs
+	}
+	if sub.mantissa != nil {
+		mantissa := *sub.mantissa
+		req.Mantissa = &mantissa
+	}
+	return req
+}
+
+func (s *GRPCStream) streamL2BookDiff(sub grpcSubscription) {
+	firstConnect := true
+
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.L2BookDiffUpdate], error) {
+			req := buildL2BookDiffRequest(sub, !firstConnect)
+			stream, err := stub.StreamL2BookDiff(ctx, req)
+			if err == nil {
+				firstConnect = false
+			}
+			return stream, err
+		}, l2BookDiffUpdateToMap)
+}
+
+func (s *GRPCStream) streamL2BookPacked(sub grpcSubscription) {
+	req := &pb.L2BookRequest{
+		Coin:    sub.coin,
+		NLevels: uint32(sub.nLevels),
+	}
+	if sub.nSigFigs != nil {
+		nSigFigs := uint32(*sub.nSigFigs)
+		req.NSigFigs = &nSigFigs
+	}
+	if sub.mantissa != nil {
+		mantissa := *sub.mantissa
+		req.Mantissa = &mantissa
+	}
+
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.L2BookPackedUpdate], error) {
+			return stub.StreamL2BookPacked(ctx, req)
+		}, l2BookPackedUpdateToMap)
+}
+
+func (s *GRPCStream) streamL4BookUpdates(sub grpcSubscription) {
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.L4BookUpdatesUpdate], error) {
+			return stub.StreamL4BookUpdates(ctx, &pb.L4BookUpdatesRequest{Coins: sub.coins})
+		}, l4BookUpdatesUpdateToMap)
+}
+
+func (s *GRPCStream) streamTpslUpdates(sub grpcSubscription) {
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.TpslUpdatesUpdate], error) {
+			return stub.StreamTpslUpdates(ctx, &pb.TpslUpdatesRequest{Coins: sub.coins})
+		}, tpslUpdatesUpdateToMap)
+}
+
+func (s *GRPCStream) streamL4BookBytes(sub grpcSubscription) {
+	runOrderbookStream(s, sub.callback,
+		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.L4BookBytesUpdate], error) {
+			return stub.StreamL4BookBytes(ctx, &pb.L4BookRequest{Coin: sub.coin})
+		}, l4BookBytesUpdateToMap)
 }
 
 func (s *GRPCStream) handleReconnect() {
@@ -914,6 +1574,10 @@ func (s *GRPCStream) startStreams() {
 
 	for _, sub := range subs {
 		s.wg.Add(1)
+		if sub.bytesCallback != nil {
+			go s.streamDataBytes(sub)
+			continue
+		}
 		switch sub.streamType {
 		case "L2_BOOK":
 			go s.streamL2Book(sub)
@@ -921,6 +1585,20 @@ func (s *GRPCStream) startStreams() {
 			go s.streamL4Book(sub)
 		case "BLOCKS":
 			go s.streamBlocks(sub)
+		case "BBO_BOOK":
+			go s.streamBboBook(sub)
+		case "BBO_BOOK_PACKED":
+			go s.streamBboBookPacked(sub)
+		case "L2_BOOK_DIFF":
+			go s.streamL2BookDiff(sub)
+		case "L2_BOOK_PACKED":
+			go s.streamL2BookPacked(sub)
+		case "L4_BOOK_UPDATES":
+			go s.streamL4BookUpdates(sub)
+		case "TPSL_UPDATES":
+			go s.streamTpslUpdates(sub)
+		case "L4_BOOK_BYTES":
+			go s.streamL4BookBytes(sub)
 		default:
 			go s.streamData(sub)
 		}
