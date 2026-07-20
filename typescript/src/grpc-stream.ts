@@ -430,6 +430,13 @@ export class GRPCStream {
     callback: BytesCallback,
     options: { coins?: string[]; users?: string[]; startBlock?: number } = {}
   ): GRPCStream {
+    // Fail fast for plain-JS callers: an unknown type would otherwise map to
+    // proto enum 0 (UNKNOWN) and be sent to the server silently.
+    if (!(streamType in STREAM_TYPE_MAP)) {
+      throw new Error(
+        `Unknown stream type "${streamType}" for streamDataBytes; valid types: ${Object.keys(STREAM_TYPE_MAP).join(', ')}`
+      );
+    }
     this._addSubscription(streamType, callback as unknown as Callback, {
       coins: options.coins,
       users: options.users,

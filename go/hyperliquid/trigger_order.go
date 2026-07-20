@@ -28,6 +28,7 @@ type TriggerOrderBuilder struct {
 	cloid        string
 	vaultAddress string
 	expiresAfter *int64
+	grouping     OrderGrouping
 }
 
 // TriggerOrder creates a new trigger order builder.
@@ -170,6 +171,21 @@ func (t *TriggerOrderBuilder) GetVaultAddress() string {
 // GetExpiresAfter returns the action TTL (ms timestamp) if set, else nil.
 func (t *TriggerOrderBuilder) GetExpiresAfter() *int64 {
 	return t.expiresAfter
+}
+
+// Grouping sets the order grouping (e.g. normalTpsl/positionTpsl) used when
+// the order is placed.
+func (t *TriggerOrderBuilder) Grouping(grouping OrderGrouping) *TriggerOrderBuilder {
+	t.grouping = grouping
+	return t
+}
+
+// GetGrouping returns the grouping if set, else OrderGroupingNA.
+func (t *TriggerOrderBuilder) GetGrouping() OrderGrouping {
+	if t.grouping == "" {
+		return OrderGroupingNA
+	}
+	return t.grouping
 }
 
 // Validate validates the trigger order before sending.

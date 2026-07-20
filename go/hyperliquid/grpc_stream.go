@@ -484,6 +484,15 @@ func (s *GRPCStream) RawGossipPriority(callback func(map[string]any), opts ...St
 // JSON parsing is performed. Use StreamWithCoins/StreamWithUsers/
 // StreamWithStartBlock to filter.
 func (s *GRPCStream) StreamBytes(streamType string, callback func(blockNumber uint64, timestamp uint64, data []byte), opts ...StreamOption) *GRPCStream {
+	// Fail fast on unknown stream types: without this check a typo would map
+	// to proto enum 0 (UNKNOWN) and be sent to the server silently.
+	if _, ok := grpcStreamTypeMap[streamType]; !ok {
+		err := fmt.Errorf("unknown stream type %q for StreamBytes; valid types: TRADES, ORDERS, BOOK_UPDATES, TWAP, EVENTS, BLOCKS, WRITER_ACTIONS, MEMPOOL_TXS, ORDER_PRIORITY, GOSSIP_PRIORITY", streamType)
+		if s.config.OnError != nil {
+			s.config.OnError(err)
+		}
+		return s
+	}
 	return s.addSubscription(grpcSubscription{
 		streamType:    streamType,
 		bytesCallback: callback,

@@ -710,6 +710,8 @@ export class HyperliquidSDK {
       side?: Side;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      vaultAddress?: string;
+      expiresAfter?: number;
     }
   ): Promise<PlacedOrder> {
     const trigger = TriggerOrder.stopLoss(asset, { side: options.side ?? Side.SELL });
@@ -722,7 +724,10 @@ export class HyperliquidSDK {
     }
     trigger.reduceOnly(options.reduceOnly ?? true);
 
-    return this._executeTriggerOrder(trigger, options.grouping ?? OrderGrouping.NA);
+    return this._executeTriggerOrder(trigger, options.grouping ?? OrderGrouping.NA, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
   }
 
   /**
@@ -737,6 +742,8 @@ export class HyperliquidSDK {
       side?: Side;
       reduceOnly?: boolean;
       grouping?: OrderGrouping;
+      vaultAddress?: string;
+      expiresAfter?: number;
     }
   ): Promise<PlacedOrder> {
     const trigger = TriggerOrder.takeProfit(asset, { side: options.side ?? Side.SELL });
@@ -749,7 +756,10 @@ export class HyperliquidSDK {
     }
     trigger.reduceOnly(options.reduceOnly ?? true);
 
-    return this._executeTriggerOrder(trigger, options.grouping ?? OrderGrouping.NA);
+    return this._executeTriggerOrder(trigger, options.grouping ?? OrderGrouping.NA, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
   }
 
   // Aliases
@@ -761,18 +771,23 @@ export class HyperliquidSDK {
    */
   async triggerOrder(
     trigger: TriggerOrder,
-    grouping: OrderGrouping = OrderGrouping.NA
+    grouping: OrderGrouping = OrderGrouping.NA,
+    options: { vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<PlacedOrder> {
-    return this._executeTriggerOrder(trigger, grouping);
+    return this._executeTriggerOrder(trigger, grouping, options);
   }
 
   private async _executeTriggerOrder(
     trigger: TriggerOrder,
-    grouping: OrderGrouping = OrderGrouping.NA
+    grouping: OrderGrouping = OrderGrouping.NA,
+    options: { vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<PlacedOrder> {
     trigger.validate();
     const action = trigger.toAction(grouping);
-    const result = await this._buildSignSend(action);
+    const result = await this._buildSignSend(action, undefined, undefined, {
+      vaultAddress: options.vaultAddress,
+      expiresAfter: options.expiresAfter,
+    });
 
     const order = new Order(trigger.asset, trigger.side);
     order['_size'] = trigger['_size'];

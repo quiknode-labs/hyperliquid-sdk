@@ -377,3 +377,30 @@ func TestSignerErrorUnwrap(t *testing.T) {
 		t.Fatalf("Unwrap() on a causeless Error = %v, want nil", plain.Unwrap())
 	}
 }
+
+func TestStopLoss_TriggerWithGroupingIsApplied(t *testing.T) {
+	var requests []map[string]any
+	srv := newRecordingExchange(t, &requests)
+	defer srv.Close()
+
+	s := newTestSDK(srv.URL, okSigner)
+
+	// Without the option: grouping stays "na".
+	if _, err := s.StopLoss("BTC", 0.001, 50000); err != nil {
+		t.Fatalf("StopLoss returned error: %v", err)
+	}
+	action, _ := requests[0]["action"].(map[string]any)
+	if got, _ := action["grouping"].(string); got != string(OrderGroupingNA) {
+		t.Fatalf("default grouping = %v, want %q", action["grouping"], OrderGroupingNA)
+	}
+
+	// With TriggerWithGrouping: the chosen grouping reaches the action.
+	requests = nil
+	if _, err := s.StopLoss("BTC", 0.001, 50000, TriggerWithGrouping(OrderGroupingPositionTPSL)); err != nil {
+		t.Fatalf("StopLoss with grouping returned error: %v", err)
+	}
+	action, _ = requests[0]["action"].(map[string]any)
+	if got, _ := action["grouping"].(string); got != string(OrderGroupingPositionTPSL) {
+		t.Fatalf("grouping = %v, want %q (TriggerWithGrouping must not be discarded)", action["grouping"], OrderGroupingPositionTPSL)
+	}
+}

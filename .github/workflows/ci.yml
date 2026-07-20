@@ -105,3 +105,24 @@ jobs:
           cache-dependency-path: go/go.sum
       - run: go build ./...
       - run: go test ./...
+
+  # Single required status check: always runs, passes when every language job
+  # either succeeded or was skipped (not touched by the PR). Make THIS job the
+  # required check in branch protection — the per-language jobs are skipped on
+  # PRs that don't touch them and would otherwise hang as "pending" forever.
+  ci-ok:
+    needs: [changes, typescript, python, rust, go]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        run: |
+          results="${{ needs.typescript.result }} ${{ needs.python.result }} ${{ needs.rust.result }} ${{ needs.go.result }} ${{ needs.changes.result }}"
+          echo "Job results: $results"
+          for r in $results; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::A CI job failed or was cancelled."
+              exit 1
+            fi
+          done
+          echo "All CI jobs passed or were skipped."

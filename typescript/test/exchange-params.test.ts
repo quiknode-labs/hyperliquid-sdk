@@ -182,6 +182,26 @@ describe('vaultAddress / expiresAfter threading', () => {
     expect(calls[0].vaultAddress).toBe(VAULT);
   });
 
+  it('stopLoss() threads vaultAddress and expiresAfter into both payloads', async () => {
+    const sdk = makeSdk();
+    const { calls, restore } = mockExchangeFetch();
+    try {
+      await sdk.stopLoss('BTC', {
+        size: 0.001,
+        triggerPrice: 50000,
+        vaultAddress: VAULT,
+        expiresAfter: EXPIRES,
+      });
+    } finally {
+      restore();
+    }
+
+    expect(calls[0].vaultAddress).toBe(VAULT);
+    expect(calls[0].expiresAfter).toBe(EXPIRES);
+    expect(calls[1].vaultAddress).toBe(VAULT);
+    expect(calls[1].expiresAfter).toBe(EXPIRES);
+  });
+
   it('rejects a non-integer expiresAfter before any network call', async () => {
     const sdk = makeSdk();
     const { calls, restore } = mockExchangeFetch();

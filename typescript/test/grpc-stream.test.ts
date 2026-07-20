@@ -144,6 +144,12 @@ describe('generic data streams', () => {
     expect('start_block' in req.subscribe).toBe(false);
   });
 
+  it('streamDataBytes throws on an unknown stream type instead of sending enum 0', () => {
+    expect(() =>
+      makeStream().streamDataBytes('TRADEZ' as never, () => {})
+    ).toThrow(/Unknown stream type "TRADEZ"/);
+  });
+
   it('streamDataBytes uses the StreamDataBytes RPC and passes bytes through undecoded', () => {
     const received: any[] = [];
     const s = makeStream().streamDataBytes(GRPCStreamType.MEMPOOL_TXS, (d) => received.push(d), {

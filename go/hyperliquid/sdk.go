@@ -595,7 +595,7 @@ func (s *SDK) StopLoss(asset string, size any, triggerPrice any, opts ...Trigger
 	for _, opt := range opts {
 		opt(order)
 	}
-	return s.executeTriggerOrder(order, OrderGroupingNA)
+	return s.executeTriggerOrder(order, order.GetGrouping())
 }
 
 // TakeProfit places a take-profit trigger order.
@@ -604,7 +604,7 @@ func (s *SDK) TakeProfit(asset string, size any, triggerPrice any, opts ...Trigg
 	for _, opt := range opts {
 		opt(order)
 	}
-	return s.executeTriggerOrder(order, OrderGroupingNA)
+	return s.executeTriggerOrder(order, order.GetGrouping())
 }
 
 // SL is an alias for StopLoss.
@@ -637,7 +637,7 @@ func TriggerWithSide(side Side) TriggerOrderOption {
 // TriggerWithGrouping sets the grouping for trigger order.
 func TriggerWithGrouping(grouping OrderGrouping) TriggerOrderOption {
 	return func(t *TriggerOrderBuilder) {
-		// Grouping is passed to executeTriggerOrder
+		t.Grouping(grouping)
 	}
 }
 
