@@ -97,7 +97,7 @@ func TestGRPCStartBlockOption(t *testing.T) {
 		t.Errorf("MempoolTxs startBlock = %d, want 999", s.subscriptions[1].startBlock)
 	}
 
-	req := buildSubscribeRequest(s.subscriptions[0])
+	req := buildSubscribeRequest(s.subscriptions[0], false, 0)
 	sub := req.GetSubscribe()
 	if sub == nil {
 		t.Fatal("expected subscribe request")
@@ -113,13 +113,89 @@ func TestGRPCStartBlockOption(t *testing.T) {
 	}
 }
 
+// Test reconnect start_block semantics: the first connect sends the user's
+// original startBlock, reconnects resume past the highest block already
+// delivered, and an unset startBlock stays unset (tip-following).
+func TestGRPCSubscribeRequestReconnectStartBlock(t *testing.T) {
+	s := NewGRPCStream("https://x.quiknode.pro/token", nil)
+	s.Trades([]string{"BTC"}, noopCallback, StreamWithStartBlock(1000))
+	s.Trades([]string{"ETH"}, noopCallback) // no startBlock
+
+	withStart := s.subscriptions[0]
+	unset := s.subscriptions[1]
+
+	// First connect uses the original startBlock.
+	if got := buildSubscribeRequest(withStart, false, 0).GetSubscribe().StartBlock; got != 1000 {
+		t.Errorf("first connect StartBlock = %d, want 1000", got)
+	}
+
+	// Reconnect after delivering blocks resumes past the last seen block.
+	if got := buildSubscribeRequest(withStart, true, 5000).GetSubscribe().StartBlock; got != 5001 {
+		t.Errorf("reconnect StartBlock = %d, want 5001", got)
+	}
+
+	// Reconnect before any block was delivered keeps the original.
+	if got := buildSubscribeRequest(withStart, true, 0).GetSubscribe().StartBlock; got != 1000 {
+		t.Errorf("reconnect (no data seen) StartBlock = %d, want 1000", got)
+	}
+
+	// Reconnect where last seen is still below the original keeps the original.
+	if got := buildSubscribeRequest(withStart, true, 500).GetSubscribe().StartBlock; got != 1000 {
+		t.Errorf("reconnect (behind original) StartBlock = %d, want 1000", got)
+	}
+
+	// Unset startBlock stays unset on reconnect — no cursor is introduced.
+	if got := buildSubscribeRequest(unset, true, 5000).GetSubscribe().StartBlock; got != 0 {
+		t.Errorf("reconnect (unset) StartBlock = %d, want 0", got)
+	}
+}
+
+// Test that skip_initial_snapshot only applies to the first L2BookDiff
+// connect: reconnect requests always ask for the snapshot to resync.
+func TestGRPCL2BookDiffRequestReconnectSnapshot(t *testing.T) {
+	s := NewGRPCStream("https://x.quiknode.pro/token", nil)
+	s.L2BookDiff([]string{"BTC"}, noopCallback, L2BookNSigFigs(5), L2BookMantissa(2), L2BookSkipInitialSnapshot())
+	s.L2BookDiff([]string{"ETH"}, noopCallback)
+
+	skip := s.subscriptions[0]
+	noSkip := s.subscriptions[1]
+
+	// First connect honors the user's skipInitialSnapshot.
+	if !buildL2BookDiffRequest(skip, false).SkipInitialSnapshot {
+		t.Error("first connect SkipInitialSnapshot = false, want true")
+	}
+	if buildL2BookDiffRequest(noSkip, false).SkipInitialSnapshot {
+		t.Error("first connect (no option) SkipInitialSnapshot = true, want false")
+	}
+
+	// Reconnects always request the snapshot.
+	if buildL2BookDiffRequest(skip, true).SkipInitialSnapshot {
+		t.Error("reconnect SkipInitialSnapshot = true, want false")
+	}
+	if buildL2BookDiffRequest(noSkip, true).SkipInitialSnapshot {
+		t.Error("reconnect (no option) SkipInitialSnapshot = true, want false")
+	}
+
+	// Other request fields are still plumbed on reconnect.
+	req := buildL2BookDiffRequest(skip, true)
+	if len(req.Coins) != 1 || req.Coins[0] != "BTC" || req.NLevels != 20 {
+		t.Errorf("reconnect request coins=%v nLevels=%d, want [BTC] 20", req.Coins, req.NLevels)
+	}
+	if req.NSigFigs == nil || *req.NSigFigs != 5 {
+		t.Errorf("reconnect request NSigFigs = %v, want 5", req.NSigFigs)
+	}
+	if req.Mantissa == nil || *req.Mantissa != 2 {
+		t.Errorf("reconnect request Mantissa = %v, want 2", req.Mantissa)
+	}
+}
+
 // Test that the mempool coin filter uses the generic filters map.
 func TestGRPCMempoolCoinFilter(t *testing.T) {
 	s := NewGRPCStream("https://x.quiknode.pro/token", nil)
 	s.MempoolTxs([]string{"BTC", "ETH"}, noopCallback)
 	s.MempoolTxs(nil, noopCallback)
 
-	req := buildSubscribeRequest(s.subscriptions[0])
+	req := buildSubscribeRequest(s.subscriptions[0], false, 0)
 	sub := req.GetSubscribe()
 	if sub.StreamType != pb.StreamType_MEMPOOL_TXS {
 		t.Errorf("StreamType = %v, want MEMPOOL_TXS", sub.StreamType)
@@ -130,7 +206,7 @@ func TestGRPCMempoolCoinFilter(t *testing.T) {
 	}
 
 	// No coins = unfiltered
-	req = buildSubscribeRequest(s.subscriptions[1])
+	req = buildSubscribeRequest(s.subscriptions[1], false, 0)
 	if _, ok := req.GetSubscribe().Filters["coin"]; ok {
 		t.Error("expected no coin filter for unfiltered mempool subscription")
 	}
@@ -208,7 +284,7 @@ func TestGRPCStreamBytesSubscription(t *testing.T) {
 		t.Errorf("streamType = %q, want MEMPOOL_TXS", sub.streamType)
 	}
 
-	req := buildSubscribeRequest(sub)
+	req := buildSubscribeRequest(sub, false, 0)
 	pbSub := req.GetSubscribe()
 	if pbSub.StreamType != pb.StreamType_MEMPOOL_TXS {
 		t.Errorf("StreamType = %v, want MEMPOOL_TXS", pbSub.StreamType)

@@ -439,8 +439,10 @@ stream.Run()
 | `StreamBytes(streamType, callback, opts...)` | streamType: `string`, opts: `StreamOption` | Low-level raw-bytes fast path for any generic stream |
 
 Generic streams accept `StreamOption`s: `StreamWithStartBlock(block)` starts the
-stream from a specific block number; `StreamWithCoins(...)`/`StreamWithUsers(...)`
-set filters for `StreamBytes`. `L2BookOption`s: `L2BookNLevels(n)`,
+stream from a specific block number (**note:** not yet supported server-side —
+streams currently always begin at the live tip; the option is wired through so
+resume works automatically once server support ships);
+`StreamWithCoins(...)`/`StreamWithUsers(...)` set filters for `StreamBytes`. `L2BookOption`s: `L2BookNLevels(n)`,
 `L2BookNSigFigs(n)`, `L2BookMantissa(m)`, and `L2BookSkipInitialSnapshot()`
 (L2BookDiff only).
 

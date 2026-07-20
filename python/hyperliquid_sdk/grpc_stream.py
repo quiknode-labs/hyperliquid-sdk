@@ -915,8 +915,19 @@ class GRPCStream:
         self._add_subscription("L4_BOOK_BYTES", callback, coin=coin)
         return self
 
-    def _build_subscribe_request(self, sub: Dict[str, Any], stream_type: Optional[str] = None) -> SubscribeRequest:
-        """Build the initial SubscribeRequest for a StreamData/StreamDataBytes subscription."""
+    def _build_subscribe_request(
+        self,
+        sub: Dict[str, Any],
+        stream_type: Optional[str] = None,
+        *,
+        reconnect: bool = False,
+    ) -> SubscribeRequest:
+        """Build the SubscribeRequest for a StreamData/StreamDataBytes subscription.
+
+        On reconnect, a user-set start_block is advanced past the highest block
+        already delivered so already-processed blocks are not replayed. An unset
+        start_block stays unset (live-tip semantics are preserved).
+        """
         request = SubscribeRequest()
         request.subscribe.stream_type = _STREAM_TYPE_MAP.get(
             stream_type or sub.get("stream_type"), 0
@@ -925,6 +936,9 @@ class GRPCStream:
         # Resume from a specific block (0 = live tip)
         start_block = sub.get("start_block")
         if start_block:
+            if reconnect:
+                # Don't replay blocks already delivered on a previous connection.
+                start_block = max(start_block, sub.get("_last_seen_block", 0) + 1)
             request.subscribe.start_block = start_block
 
         # Add filters
@@ -945,6 +959,7 @@ class GRPCStream:
     def _stream_data(self, sub: Dict[str, Any]) -> None:
         """Stream data using bidirectional StreamData RPC."""
         callback = sub["callback"]
+        first_connect = True
 
         while self._running and not self._stop_event.is_set():
             try:
@@ -953,11 +968,13 @@ class GRPCStream:
                     continue
 
                 metadata = self._get_metadata()
+                initial_request = self._build_subscribe_request(sub, reconnect=not first_connect)
+                first_connect = False
 
                 # Build request generator
                 def request_generator() -> Iterator[SubscribeRequest]:
                     # Send initial subscription request
-                    yield self._build_subscribe_request(sub)
+                    yield initial_request
 
                     # Keep sending pings to maintain connection
                     while self._running and not self._stop_event.is_set():
@@ -975,9 +992,11 @@ class GRPCStream:
                         break
 
                     if response.HasField('data'):
+                        block_number = response.data.block_number
+                        if block_number > sub.get("_last_seen_block", 0):
+                            sub["_last_seen_block"] = block_number
                         try:
                             data = json.loads(response.data.data)
-                            block_number = response.data.block_number
                             timestamp = response.data.timestamp
 
                             if sub.get("raw"):
@@ -1299,6 +1318,7 @@ class GRPCStream:
     def _stream_data_bytes(self, sub: Dict[str, Any]) -> None:
         """Stream raw payload bytes using bidirectional StreamDataBytes RPC."""
         callback = sub["callback"]
+        first_connect = True
 
         while self._running and not self._stop_event.is_set():
             try:
@@ -1307,11 +1327,15 @@ class GRPCStream:
                     continue
 
                 metadata = self._get_metadata()
+                initial_request = self._build_subscribe_request(
+                    sub, sub.get("bytes_stream_type"), reconnect=not first_connect
+                )
+                first_connect = False
 
                 # Build request generator
                 def request_generator() -> Iterator[SubscribeRequest]:
                     # Send initial subscription request
-                    yield self._build_subscribe_request(sub, sub.get("bytes_stream_type"))
+                    yield initial_request
 
                     # Keep sending pings to maintain connection
                     while self._running and not self._stop_event.is_set():
@@ -1329,9 +1353,12 @@ class GRPCStream:
                         break
 
                     if response.HasField('data'):
+                        block_number = response.data.block_number
+                        if block_number > sub.get("_last_seen_block", 0):
+                            sub["_last_seen_block"] = block_number
                         # Fast path: hand the payload bytes through unparsed
                         self._safe_callback(callback, {
-                            "block_number": response.data.block_number,
+                            "block_number": block_number,
                             "timestamp": response.data.timestamp,
                             "data": response.data.data,
                         })
@@ -1374,8 +1401,12 @@ class GRPCStream:
                 else:
                     break
 
-    def _build_orderbook_request(self, sub: Dict[str, Any]) -> Any:
-        """Build the request message for an OrderBookStreaming subscription."""
+    def _build_orderbook_request(self, sub: Dict[str, Any], *, reconnect: bool = False) -> Any:
+        """Build the request message for an OrderBookStreaming subscription.
+
+        On reconnect, skip_initial_snapshot is forced to False so the server
+        resends the snapshot and the consumer can resync its local book.
+        """
         stream_type = sub.get("stream_type")
         coins = sub.get("coins") or []
 
@@ -1383,10 +1414,12 @@ class GRPCStream:
             return BboBookRequest(coins=coins)
 
         if stream_type == "L2_BOOK_DIFF":
+            # skip_initial_snapshot only applies to the first connection.
+            skip_initial_snapshot = False if reconnect else sub.get("skip_initial_snapshot", False)
             request = L2BookDiffRequest(
                 coins=coins,
                 n_levels=sub.get("n_levels", 20),
-                skip_initial_snapshot=sub.get("skip_initial_snapshot", False),
+                skip_initial_snapshot=skip_initial_snapshot,
             )
             if sub.get("n_sig_figs") is not None:
                 request.n_sig_figs = sub["n_sig_figs"]
@@ -1527,6 +1560,7 @@ class GRPCStream:
         """Stream order book data using the newer OrderBookStreaming RPCs."""
         callback = sub["callback"]
         stream_type = sub.get("stream_type")
+        first_connect = True
 
         while self._running and not self._stop_event.is_set():
             try:
@@ -1535,7 +1569,8 @@ class GRPCStream:
                     continue
 
                 metadata = self._get_metadata()
-                request = self._build_orderbook_request(sub)
+                request = self._build_orderbook_request(sub, reconnect=not first_connect)
+                first_connect = False
                 rpc = getattr(self._orderbook_stub, _ORDERBOOK_RPC_MAP[stream_type])
 
                 # Create stream

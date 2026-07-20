@@ -170,6 +170,76 @@ describe('generic data streams', () => {
   });
 });
 
+describe('reconnect start_block resume', () => {
+  it('sends the original start_block on first connect and last_seen + 1 on reconnect', () => {
+    const s = makeStream().trades(['BTC'], () => {}, { startBlock: 100 });
+    const { streaming } = startWithFakes(s);
+
+    expect(streaming.calls[0].stream.writes[0].subscribe.start_block).toBe(100);
+
+    streaming.calls[0].stream.emit('data', { data: { block_number: 150, timestamp: 1, data: '{}' } });
+    streaming.calls[0].stream.emit('data', { data: { block_number: 149, timestamp: 2, data: '{}' } });
+
+    // What the reconnect loop runs after _cleanup() + _connect().
+    (s as any)._startStreams();
+    expect(streaming.calls).toHaveLength(2);
+    expect(streaming.calls[1].stream.writes[0].subscribe.start_block).toBe(151);
+  });
+
+  it('never rewinds below the original start_block on reconnect', () => {
+    const s = makeStream().trades(['BTC'], () => {}, { startBlock: 100 });
+    const { streaming } = startWithFakes(s);
+
+    streaming.calls[0].stream.emit('data', { data: { block_number: 50, timestamp: 1, data: '{}' } });
+
+    (s as any)._startStreams();
+    expect(streaming.calls[1].stream.writes[0].subscribe.start_block).toBe(100);
+  });
+
+  it('keeps the original start_block when no data arrived before the reconnect', () => {
+    const s = makeStream().trades(['BTC'], () => {}, { startBlock: 100 });
+    const { streaming } = startWithFakes(s);
+
+    (s as any)._startStreams();
+    expect(streaming.calls[1].stream.writes[0].subscribe.start_block).toBe(100);
+  });
+
+  it('does not add start_block on reconnect when the user never set one', () => {
+    const s = makeStream().trades(['BTC'], () => {});
+    const { streaming } = startWithFakes(s);
+
+    streaming.calls[0].stream.emit('data', { data: { block_number: 150, timestamp: 1, data: '{}' } });
+
+    (s as any)._startStreams();
+    expect('start_block' in streaming.calls[1].stream.writes[0].subscribe).toBe(false);
+  });
+
+  it('applies the same resume rule on the StreamDataBytes path', () => {
+    const s = makeStream().streamDataBytes(GRPCStreamType.MEMPOOL_TXS, () => {}, { startBlock: 42 });
+    const { streaming } = startWithFakes(s);
+
+    expect(streaming.calls[0].rpc).toBe('StreamDataBytes');
+    expect(streaming.calls[0].stream.writes[0].subscribe.start_block).toBe(42);
+
+    streaming.calls[0].stream.emit('data', {
+      data: { block_number: 60, timestamp: 1, data: Buffer.from('{}') },
+    });
+
+    (s as any)._startStreams();
+    expect(streaming.calls[1].stream.writes[0].subscribe.start_block).toBe(61);
+  });
+
+  it('resumes from string block_number fields (int64 decoded with longs: String)', () => {
+    const s = makeStream().trades(['BTC'], () => {}, { startBlock: 100 });
+    const { streaming } = startWithFakes(s);
+
+    streaming.calls[0].stream.emit('data', { data: { block_number: '200', timestamp: 1, data: '{}' } });
+
+    (s as any)._startStreams();
+    expect(streaming.calls[1].stream.writes[0].subscribe.start_block).toBe(201);
+  });
+});
+
 describe('order book streams', () => {
   it('bboBook defaults to all coins and forwards updates as-is', () => {
     const received: any[] = [];
@@ -295,6 +365,32 @@ describe('order book streams', () => {
     expect(received[0].coin).toBe('BTC');
     expect(received[0].bids[0].oid).toBe(5);
     expect(received[1]).toEqual({ type: 'diff', time: 3, height: 4, data: bytes });
+  });
+
+  it('honors skipInitialSnapshot on the first connect but forces false on reconnect', () => {
+    const s = makeStream().l2BookDiff(() => {}, { coins: ['BTC'], skipInitialSnapshot: true });
+    const { orderbook } = startWithFakes(s);
+
+    expect(orderbook.calls[0].request.skip_initial_snapshot).toBe(true);
+
+    // What the reconnect loop runs after _cleanup() + _connect().
+    (s as any)._startStreams();
+    expect(orderbook.calls).toHaveLength(2);
+    expect(orderbook.calls[1].request).toEqual({
+      coins: ['BTC'],
+      n_levels: 20,
+      skip_initial_snapshot: false,
+    });
+  });
+
+  it('keeps skip_initial_snapshot false on reconnect when the user did not skip', () => {
+    const s = makeStream().l2BookDiff(() => {});
+    const { orderbook } = startWithFakes(s);
+
+    expect(orderbook.calls[0].request.skip_initial_snapshot).toBe(false);
+
+    (s as any)._startStreams();
+    expect(orderbook.calls[1].request.skip_initial_snapshot).toBe(false);
   });
 
   it('l2Book still maps levels to [px, sz, n] tuples (regression)', () => {

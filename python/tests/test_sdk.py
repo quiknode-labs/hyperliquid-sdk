@@ -1118,6 +1118,147 @@ class TestGRPCNewStreams:
         }
 
 
+class TestGRPCReconnectSemantics:
+    """Test reconnect request semantics (start_block resume, snapshot resync)."""
+
+    def _stream(self):
+        from hyperliquid_sdk import GRPCStream
+
+        return GRPCStream("https://test.quiknode.pro/TOKEN", reconnect=False)
+
+    def test_reconnect_resumes_after_last_seen_block(self):
+        """Reconnect requests advance a user-set start_block past delivered blocks."""
+        stream = self._stream()
+        stream.trades(["BTC"], lambda x: None, start_block=100)
+        sub = stream._subscriptions[0]
+
+        # First connect: the original start_block is sent verbatim.
+        req = stream._build_subscribe_request(sub)
+        assert req.subscribe.start_block == 100
+
+        # After blocks were delivered, a reconnect resumes past the last one.
+        sub["_last_seen_block"] = 250
+        req = stream._build_subscribe_request(sub, reconnect=True)
+        assert req.subscribe.start_block == 251
+
+        # First-connect requests still use the original start_block.
+        req = stream._build_subscribe_request(sub)
+        assert req.subscribe.start_block == 100
+
+    def test_reconnect_never_rewinds_before_original_start_block(self):
+        """Reconnect uses max(original, last_seen + 1)."""
+        stream = self._stream()
+        stream.trades(["BTC"], lambda x: None, start_block=100)
+        sub = stream._subscriptions[0]
+
+        sub["_last_seen_block"] = 50
+        req = stream._build_subscribe_request(sub, reconnect=True)
+        assert req.subscribe.start_block == 100
+
+        # Reconnect before any block was delivered also keeps the original.
+        del sub["_last_seen_block"]
+        req = stream._build_subscribe_request(sub, reconnect=True)
+        assert req.subscribe.start_block == 100
+
+    def test_unset_start_block_stays_unset_on_reconnect(self):
+        """Tip-following subscriptions never start sending a cursor."""
+        stream = self._stream()
+        stream.trades(["BTC"], lambda x: None)
+        sub = stream._subscriptions[0]
+
+        sub["_last_seen_block"] = 250
+        req = stream._build_subscribe_request(sub, reconnect=True)
+        assert req.subscribe.start_block == 0
+
+    def test_bytes_path_reconnect_resumes_after_last_seen_block(self):
+        """The StreamDataBytes path applies the same reconnect resume rule."""
+        stream = self._stream()
+        stream.stream_bytes("ORDERS", lambda x: None, start_block=99)
+        sub = stream._subscriptions[0]
+
+        req = stream._build_subscribe_request(sub, sub["bytes_stream_type"])
+        assert req.subscribe.stream_type == 2
+        assert req.subscribe.start_block == 99
+
+        sub["_last_seen_block"] = 200
+        req = stream._build_subscribe_request(sub, sub["bytes_stream_type"], reconnect=True)
+        assert req.subscribe.stream_type == 2
+        assert req.subscribe.start_block == 201
+
+    def test_stream_data_tracks_last_seen_block_and_resumes(self):
+        """_stream_data records delivered blocks and resumes past them on reconnect."""
+        stream = self._stream()
+        stream.trades(["BTC"], lambda x: None, start_block=100)
+        sub = stream._subscriptions[0]
+
+        requests = []
+
+        class _FakeData:
+            def __init__(self, block_number):
+                self.block_number = block_number
+                self.timestamp = 1
+                self.data = '{"events": []}'
+
+        class _FakeResponse:
+            def __init__(self, block_number):
+                self.data = _FakeData(block_number)
+
+            def HasField(self, name):
+                return name == "data"
+
+        class _FakeStub:
+            def __init__(self):
+                self.calls = 0
+
+            def StreamData(self, request_iterator, metadata=None):
+                self.calls += 1
+                requests.append(next(request_iterator))
+                if self.calls == 1:
+                    # Deliver out-of-order blocks, then end the stream (disconnect).
+                    return iter([_FakeResponse(200), _FakeResponse(180)])
+                stream._running = False
+                return iter([])
+
+        stream._streaming_stub = _FakeStub()
+        stream._running = True
+        stream._stream_data(sub)
+
+        assert len(requests) == 2
+        # First connect uses the original start_block.
+        assert requests[0].subscribe.start_block == 100
+        # Reconnect resumes past the HIGHEST delivered block (200), not the last (180).
+        assert requests[1].subscribe.start_block == 201
+
+    def test_l2_book_diff_skip_snapshot_only_on_first_connect(self):
+        """skip_initial_snapshot applies to the first connect; reconnects resync."""
+        stream = self._stream()
+        stream.l2_book_diff(lambda x: None, coins=["BTC"], skip_initial_snapshot=True)
+        sub = stream._subscriptions[0]
+
+        # First connect honors the user's setting.
+        req = stream._build_orderbook_request(sub)
+        assert req.skip_initial_snapshot is True
+
+        # Reconnect forces a snapshot so the local book can resync.
+        req = stream._build_orderbook_request(sub, reconnect=True)
+        assert req.skip_initial_snapshot is False
+
+        # The user's setting is not clobbered for later inspection.
+        assert sub["skip_initial_snapshot"] is True
+
+    def test_l2_book_diff_default_snapshot_unchanged_on_reconnect(self):
+        """Default (snapshot-on) subscriptions still get a snapshot on reconnect."""
+        stream = self._stream()
+        stream.l2_book_diff(lambda x: None, coins=["BTC"])
+        sub = stream._subscriptions[0]
+
+        req = stream._build_orderbook_request(sub)
+        assert req.skip_initial_snapshot is False
+
+        req = stream._build_orderbook_request(sub, reconnect=True)
+        assert req.skip_initial_snapshot is False
+
+
 # Test 6: Error handling
 class TestErrorHandling:
     """Test error classes work correctly."""

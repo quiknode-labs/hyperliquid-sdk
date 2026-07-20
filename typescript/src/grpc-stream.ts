@@ -65,6 +65,10 @@ interface Subscription {
   startBlock?: number;
   raw?: boolean;
   bytes?: boolean;
+  /** Internal: highest block_number seen on this subscription (reconnect resume cursor). */
+  lastSeenBlock?: number;
+  /** Internal: whether this subscription's stream has been started at least once. */
+  connectedOnce?: boolean;
 }
 
 // Stream type enum values matching proto
@@ -655,7 +659,12 @@ export class GRPCStream {
     };
 
     if (sub.startBlock !== undefined) {
-      subscribe.start_block = sub.startBlock;
+      // On reconnect, resume after the last delivered block instead of
+      // replaying the original startBlock. First connect sends it verbatim.
+      subscribe.start_block =
+        sub.connectedOnce && sub.lastSeenBlock !== undefined
+          ? Math.max(sub.startBlock, sub.lastSeenBlock + 1)
+          : sub.startBlock;
     }
     if (sub.coins && sub.coins.length > 0) {
       subscribe.filters['coin'] = { values: sub.coins };
@@ -665,6 +674,18 @@ export class GRPCStream {
     }
 
     return { subscribe };
+  }
+
+  /**
+   * Track the highest block_number seen on a subscription so reconnects can
+   * resume after it. Handles int64 fields decoded as strings (longs: String).
+   */
+  private _trackLastSeenBlock(sub: Subscription, blockNumber: unknown): void {
+    const block = typeof blockNumber === 'number' ? blockNumber : Number(blockNumber);
+    if (!Number.isFinite(block)) return;
+    if (sub.lastSeenBlock === undefined || block > sub.lastSeenBlock) {
+      sub.lastSeenBlock = block;
+    }
   }
 
   /**
@@ -681,6 +702,7 @@ export class GRPCStream {
 
     // Send initial subscription request
     stream.write(this._buildSubscribeRequest(sub));
+    sub.connectedOnce = true;
 
     // Set up ping interval
     const pingInterval = setInterval(() => {
@@ -697,6 +719,9 @@ export class GRPCStream {
     // Handle incoming data
     stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: string }; pong?: { timestamp: number } }) => {
       if (response.data) {
+        if (sub.startBlock !== undefined) {
+          this._trackLastSeenBlock(sub, response.data.block_number);
+        }
         try {
           const parsed = JSON.parse(response.data.data);
           const blockNumber = response.data.block_number;
@@ -810,6 +835,7 @@ export class GRPCStream {
 
     // Send initial subscription request
     stream.write(this._buildSubscribeRequest(sub));
+    sub.connectedOnce = true;
 
     // Set up ping interval
     const pingInterval = setInterval(() => {
@@ -826,6 +852,9 @@ export class GRPCStream {
     // Handle incoming data
     stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: Uint8Array }; pong?: { timestamp: number } }) => {
       if (response.data) {
+        if (sub.startBlock !== undefined) {
+          this._trackLastSeenBlock(sub, response.data.block_number);
+        }
         try {
           sub.callback(response.data as unknown as Record<string, unknown>);
         } catch {
@@ -1041,6 +1070,7 @@ export class GRPCStream {
     const metadata = this._getMetadata();
     const stream = this._orderbookClient[rpcName](request, metadata);
     this._activeStreams.push(stream);
+    sub.connectedOnce = true;
 
     stream.on('data', (update: Record<string, unknown>) => {
       const data = transform ? transform(update) : update;
@@ -1198,7 +1228,9 @@ export class GRPCStream {
           const request: Record<string, unknown> = {
             coins: sub.coins ?? [],
             n_levels: sub.nLevels || 20,
-            skip_initial_snapshot: sub.skipInitialSnapshot ?? false,
+            // Honor the user's skipInitialSnapshot only on the first connect;
+            // on reconnect always request the snapshot so the book can resync.
+            skip_initial_snapshot: sub.connectedOnce ? false : sub.skipInitialSnapshot ?? false,
           };
           if (sub.nSigFigs !== undefined) {
             request.n_sig_figs = sub.nSigFigs;

@@ -22,7 +22,7 @@
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -71,6 +71,8 @@ const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 type ValueCallbackMap = HashMap<u32, Box<dyn Fn(Value) + Send + Sync>>;
 type BytesCallbackMap = HashMap<u32, Box<dyn Fn(StreamBytesResponse) + Send + Sync>>;
+/// Per-subscription high-water mark of delivered `block_number`s (0 = none seen).
+type LastSeenBlockMap = HashMap<u32, Arc<AtomicU64>>;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // gRPC Stream Types
@@ -255,6 +257,7 @@ pub struct GRPCStream {
     subscriptions: Arc<RwLock<HashMap<u32, GRPCSubscriptionInfo>>>,
     callbacks: Arc<RwLock<ValueCallbackMap>>,
     bytes_callbacks: Arc<RwLock<BytesCallbackMap>>,
+    last_seen_blocks: Arc<RwLock<LastSeenBlockMap>>,
     on_error: Option<Arc<dyn Fn(String) + Send + Sync>>,
     on_close: Option<Arc<dyn Fn() + Send + Sync>>,
     on_connect: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -285,6 +288,7 @@ impl GRPCStream {
             subscriptions: Arc::new(RwLock::new(HashMap::new())),
             callbacks: Arc::new(RwLock::new(HashMap::new())),
             bytes_callbacks: Arc::new(RwLock::new(HashMap::new())),
+            last_seen_blocks: Arc::new(RwLock::new(HashMap::new())),
             on_error: None,
             on_close: None,
             on_connect: None,
@@ -1420,6 +1424,7 @@ impl GRPCStream {
         self.subscriptions.write().remove(&subscription.id);
         self.callbacks.write().remove(&subscription.id);
         self.bytes_callbacks.write().remove(&subscription.id);
+        self.last_seen_blocks.write().remove(&subscription.id);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1445,6 +1450,7 @@ impl GRPCStream {
         let subscriptions = self.subscriptions.clone();
         let callbacks = self.callbacks.clone();
         let bytes_callbacks = self.bytes_callbacks.clone();
+        let last_seen_blocks = self.last_seen_blocks.clone();
         let config = self.config.clone();
         let on_error = self.on_error.clone();
         let on_close = self.on_close.clone();
@@ -1462,6 +1468,7 @@ impl GRPCStream {
                 subscriptions,
                 callbacks,
                 bytes_callbacks,
+                last_seen_blocks,
                 config,
                 on_error,
                 on_close,
@@ -1541,6 +1548,7 @@ impl GRPCStream {
         subscriptions: Arc<RwLock<HashMap<u32, GRPCSubscriptionInfo>>>,
         callbacks: Arc<RwLock<ValueCallbackMap>>,
         bytes_callbacks: Arc<RwLock<BytesCallbackMap>>,
+        last_seen_blocks: Arc<RwLock<LastSeenBlockMap>>,
         config: GRPCStreamConfig,
         on_error: Option<Arc<dyn Fn(String) + Send + Sync>>,
         on_close: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -1550,6 +1558,10 @@ impl GRPCStream {
         mut stop_rx: mpsc::Receiver<()>,
     ) {
         let mut backoff = INITIAL_RECONNECT_DELAY;
+        // False only for the very first connection attempt of this run;
+        // reconnects adjust start_block / snapshot semantics (see
+        // build_subscribe_request and build_l2_book_diff_request).
+        let mut is_reconnect = false;
 
         while running.load(Ordering::SeqCst) {
             // Check for stop signal
@@ -1578,10 +1590,13 @@ impl GRPCStream {
                 &subscriptions,
                 &callbacks,
                 &bytes_callbacks,
+                &last_seen_blocks,
                 &running,
+                is_reconnect,
                 &mut stop_rx,
             )
             .await;
+            is_reconnect = true;
 
             if let Err(e) = result {
                 if let Some(ref cb) = on_error {

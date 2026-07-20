@@ -382,6 +382,10 @@ sdk.grpc.run()
 All `StreamData`-based helpers (trades, orders, events, mempool_txs, ...) also accept an
 optional `start_block` keyword to resume streaming from a specific block number.
 
+> **Note:** `start_block` is not yet supported server-side — streams currently always
+> begin at the live tip. The parameter is wired through the SDK so existing code picks
+> up resume behavior automatically once server support ships.
+
 **L4 contract note** (applies to `l4_book`, `l4_book_bytes`, `l4_book_updates`): the server
 may send an unsolicited full snapshot at any time after subscribe (e.g. after ALO
 queue-priority anchored insertions). Clients MUST discard local book state and replace it

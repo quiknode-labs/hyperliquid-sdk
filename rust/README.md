@@ -435,7 +435,7 @@ Notes:
 - `order_priority` and `gossip_priority` events carry server-enriched fields `coin`, `market_type`, and `sz_decimals`.
 - Packed streams (`l2_book_packed`, `bbo_book_packed`) deliver prices and sizes as u64 fixed-point integers scaled by 1e8.
 - L4 contract (`l4_book`, `l4_book_bytes`, `l4_book_updates`): the server may send an unsolicited full snapshot at any time after subscribe (e.g. after ALO queue-priority anchored insertions). Clients MUST discard local book state and replace it with any snapshot received mid-stream. `insertBefore` is never sent to clients.
-- Data streams accept `*_with_options` variants with `GRPCSubscriptionOptions { start_block }` to resume from a specific Hyperliquid block.
+- Data streams accept `*_with_options` variants with `GRPCSubscriptionOptions { start_block }` to resume from a specific Hyperliquid block. **Note:** `start_block` is not yet supported server-side — streams currently always begin at the live tip; the option is wired through so resume works automatically once server support ships.
 
 ### L4 Order Book (Critical for Trading)
 

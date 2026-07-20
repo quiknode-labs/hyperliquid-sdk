@@ -515,7 +515,9 @@ func L2BookMantissa(m uint64) L2BookOption {
 	}
 }
 
-// L2BookSkipInitialSnapshot skips the initial per-coin snapshot (L2BookDiff only).
+// L2BookSkipInitialSnapshot skips the initial per-coin snapshot (L2BookDiff
+// only). It applies to the first connect only: after a reconnect the snapshot
+// is always requested so the local book can resync.
 func L2BookSkipInitialSnapshot() L2BookOption {
 	return func(s *grpcSubscription) {
 		s.skipInitialSnapshot = true
@@ -638,14 +640,23 @@ var grpcStreamTypeMap = map[string]pb.StreamType{
 	"GOSSIP_PRIORITY": pb.StreamType_GOSSIP_PRIORITY,
 }
 
-// buildSubscribeRequest builds the initial StreamSubscribe request for a
-// generic data subscription (StreamData / StreamDataBytes).
-func buildSubscribeRequest(sub grpcSubscription) *pb.SubscribeRequest {
+// buildSubscribeRequest builds the StreamSubscribe request for a generic data
+// subscription (StreamData / StreamDataBytes). On the first connect the
+// user's original startBlock is sent (0 = unset, tip-following). On
+// reconnects, if the user set a startBlock, the cursor advances past the
+// highest block already delivered so processed blocks are not replayed; an
+// unset startBlock stays unset so tip-following semantics are unchanged.
+func buildSubscribeRequest(sub grpcSubscription, isReconnect bool, lastSeenBlock uint64) *pb.SubscribeRequest {
+	startBlock := sub.startBlock
+	if isReconnect && startBlock != 0 {
+		startBlock = max(startBlock, lastSeenBlock+1)
+	}
+
 	req := &pb.SubscribeRequest{
 		Request: &pb.SubscribeRequest_Subscribe{
 			Subscribe: &pb.StreamSubscribe{
 				StreamType: grpcStreamTypeMap[sub.streamType],
-				StartBlock: sub.startBlock,
+				StartBlock: startBlock,
 				Filters:    make(map[string]*pb.FilterValues),
 			},
 		},
@@ -665,6 +676,8 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 	defer s.wg.Done()
 
 	retryDelay := time.Second
+	firstConnect := true
+	var lastSeenBlock uint64
 
 	for s.running.Load() {
 		s.connMu.RLock()
@@ -698,7 +711,7 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 		}
 
 		// Send initial subscription request
-		req := buildSubscribeRequest(sub)
+		req := buildSubscribeRequest(sub, !firstConnect, lastSeenBlock)
 
 		if err := stream.Send(req); err != nil {
 			if s.running.Load() && s.config.OnError != nil {
@@ -713,8 +726,10 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			}
 		}
 
-		// Reset retry delay on successful connection
+		// Reset retry delay on successful subscription; subsequent attempts
+		// are reconnects
 		retryDelay = time.Second
+		firstConnect = false
 
 		// Start ping goroutine
 		pingDone := make(chan struct{})
@@ -751,6 +766,10 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			}
 
 			if data := resp.GetData(); data != nil {
+				if data.BlockNumber > lastSeenBlock {
+					lastSeenBlock = data.BlockNumber
+				}
+
 				var parsed map[string]any
 				if err := json.Unmarshal([]byte(data.Data), &parsed); err != nil {
 					continue
@@ -810,6 +829,8 @@ func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
 	defer s.wg.Done()
 
 	retryDelay := time.Second
+	firstConnect := true
+	var lastSeenBlock uint64
 
 	for s.running.Load() {
 		s.connMu.RLock()
@@ -843,7 +864,7 @@ func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
 		}
 
 		// Send initial subscription request
-		req := buildSubscribeRequest(sub)
+		req := buildSubscribeRequest(sub, !firstConnect, lastSeenBlock)
 
 		if err := stream.Send(req); err != nil {
 			if s.running.Load() && s.config.OnError != nil {
@@ -858,8 +879,10 @@ func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
 			}
 		}
 
-		// Reset retry delay on successful connection
+		// Reset retry delay on successful subscription; subsequent attempts
+		// are reconnects
 		retryDelay = time.Second
+		firstConnect = false
 
 		// Start ping goroutine
 		pingDone := make(chan struct{})
@@ -896,6 +919,9 @@ func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
 			}
 
 			if data := resp.GetData(); data != nil {
+				if data.BlockNumber > lastSeenBlock {
+					lastSeenBlock = data.BlockNumber
+				}
 				sub.bytesCallback(data.BlockNumber, data.Timestamp, data.Data)
 			}
 		}
@@ -1388,11 +1414,15 @@ func (s *GRPCStream) streamBboBookPacked(sub grpcSubscription) {
 		}, bboBookPackedUpdateToMap)
 }
 
-func (s *GRPCStream) streamL2BookDiff(sub grpcSubscription) {
+// buildL2BookDiffRequest builds the StreamL2BookDiff request. The user's
+// skipInitialSnapshot preference only applies to the first connect; on
+// reconnects the snapshot is always requested so the consumer can resync the
+// local book after the gap.
+func buildL2BookDiffRequest(sub grpcSubscription, isReconnect bool) *pb.L2BookDiffRequest {
 	req := &pb.L2BookDiffRequest{
 		Coins:               sub.coins,
 		NLevels:             uint32(sub.nLevels),
-		SkipInitialSnapshot: sub.skipInitialSnapshot,
+		SkipInitialSnapshot: sub.skipInitialSnapshot && !isReconnect,
 	}
 	if sub.nSigFigs != nil {
 		nSigFigs := uint32(*sub.nSigFigs)
@@ -1402,10 +1432,20 @@ func (s *GRPCStream) streamL2BookDiff(sub grpcSubscription) {
 		mantissa := *sub.mantissa
 		req.Mantissa = &mantissa
 	}
+	return req
+}
+
+func (s *GRPCStream) streamL2BookDiff(sub grpcSubscription) {
+	firstConnect := true
 
 	runOrderbookStream(s, sub.callback,
 		func(ctx context.Context, stub pb.OrderBookStreamingClient) (grpc.ServerStreamingClient[pb.L2BookDiffUpdate], error) {
-			return stub.StreamL2BookDiff(ctx, req)
+			req := buildL2BookDiffRequest(sub, !firstConnect)
+			stream, err := stub.StreamL2BookDiff(ctx, req)
+			if err == nil {
+				firstConnect = false
+			}
+			return stream, err
 		}, l2BookDiffUpdateToMap)
 }
 

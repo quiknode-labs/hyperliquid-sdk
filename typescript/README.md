@@ -364,7 +364,7 @@ sdk.grpc.stop();
 
 **Priority streams:** `orderPriority` / `gossipPriority` events carry server-enriched fields `coin`, `market_type`, and `sz_decimals`.
 
-**Replay from a block:** the generic data streams accept `{ startBlock }` in their trailing options object, e.g. `sdk.grpc.trades(["BTC"], cb, { startBlock: 750000000 })`.
+**Replay from a block:** the generic data streams accept `{ startBlock }` in their trailing options object, e.g. `sdk.grpc.trades(["BTC"], cb, { startBlock: 750000000 })`. **Note:** `startBlock` is not yet supported server-side — streams currently always begin at the live tip; the option is wired through so resume works automatically once server support ships.
 
 **Packed streams:** in `l2BookPacked` / `bboBookPacked`, `px` and `sz` are u64 fixed-point integers scaled by 1e8.
 
