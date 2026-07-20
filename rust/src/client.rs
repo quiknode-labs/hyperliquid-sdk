@@ -2175,8 +2175,19 @@ impl HyperliquidSDK {
             return Err(Error::ConfigError("No address configured".to_string()));
         }
 
-        // Get open orders
-        let open_orders = self.open_orders().await?;
+        // Get open orders. When cancelling on behalf of a vault, enumerate the
+        // vault's open orders, not the wallet's.
+        let open_orders = match opts.vault_address.as_deref() {
+            Some(vault) => {
+                self.inner
+                    .query_info(&json!({
+                        "type": "openOrders",
+                        "user": vault,
+                    }))
+                    .await?
+            }
+            None => self.open_orders().await?,
+        };
 
         let cancels: Vec<Value> = open_orders
             .as_array()
@@ -2230,10 +2241,16 @@ impl HyperliquidSDK {
             .address
             .ok_or_else(|| Error::ConfigError("No address configured".to_string()))?;
 
+        // The worker sizes the close from action.user, so a vault close must
+        // target the vault's position, not the wallet's.
+        let user = match opts.vault_address.as_deref() {
+            Some(vault) => vault.to_string(),
+            None => format!("{:?}", address),
+        };
         let action = json!({
             "type": "closePosition",
             "asset": asset,
-            "user": format!("{:?}", address),
+            "user": user,
         });
 
         let response = self

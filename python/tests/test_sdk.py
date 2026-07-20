@@ -474,16 +474,54 @@ class TestVaultFastCancelExpiresAfter:
     def test_cancel_all_fast_sets_flag(self):
         sdk, calls = self._sdk_with_fake_exchange()
         all_action = {"type": "cancel", "cancels": [{"a": 0, "o": 1}, {"a": 1, "o": 2}]}
-        sdk.open_orders = lambda: {
-            "orders": [{"oid": 1}, {"oid": 2}],
-            "cancelActions": {"all": all_action},
-        }
+        open_orders_users = []
+
+        def fake_open_orders(user=None, **kwargs):
+            open_orders_users.append(user)
+            return {
+                "orders": [{"oid": 1}, {"oid": 2}],
+                "cancelActions": {"all": all_action},
+            }
+
+        sdk.open_orders = fake_open_orders
 
         sdk.cancel_all(fast=True)
 
         assert calls[0]["action"]["f"] is True
         # The worker-provided action dict must not be mutated in place.
         assert "f" not in all_action
+        # Without a vault, the wallet's own orders are enumerated.
+        assert open_orders_users == [None]
+
+    def test_cancel_all_enumerates_vault_orders(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "ab" * 20
+        open_orders_users = []
+
+        def fake_open_orders(user=None, **kwargs):
+            open_orders_users.append(user)
+            return {
+                "orders": [{"oid": 1}],
+                "cancelActions": {"all": {"type": "cancel", "cancels": [{"a": 0, "o": 1}]}},
+            }
+
+        sdk.open_orders = fake_open_orders
+
+        sdk.cancel_all(vault_address=vault)
+
+        # The vault's open orders must be enumerated, not the wallet's.
+        assert open_orders_users == [vault]
+        assert calls[0]["vaultAddress"] == vault
+
+    def test_close_position_uses_vault_user(self):
+        sdk, calls = self._sdk_with_fake_exchange()
+        vault = "0x" + "cd" * 20
+
+        sdk.close_position("BTC", vault_address=vault)
+
+        # The worker sizes the close from action.user — must be the vault.
+        assert calls[0]["action"]["user"] == vault
+        assert calls[0]["vaultAddress"] == vault
 
     def test_modify_threads_vault_and_expires(self):
         sdk, calls = self._sdk_with_fake_exchange()

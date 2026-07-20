@@ -761,7 +761,9 @@ func (s *SDK) Cancel(oid int64, asset string, opts ...CancelOption) (map[string]
 func (s *SDK) CancelAll(asset string, opts ...CancelOption) (map[string]any, error) {
 	params := applyCancelOptions(opts)
 
-	orders, err := s.OpenOrders("")
+	// When cancelling on behalf of a vault, enumerate the vault's open orders,
+	// not the wallet's.
+	orders, err := s.OpenOrders(params.vaultAddress)
 	if err != nil {
 		return nil, err
 	}

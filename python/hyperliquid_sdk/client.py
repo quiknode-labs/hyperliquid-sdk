@@ -1713,10 +1713,12 @@ class HyperliquidSDK:
             sdk.close_position("BTC")
             sdk.close_position("BTC", slippage=0.05)  # 5% slippage
         """
+        # The worker sizes the close from action.user, so a vault close must
+        # target the vault's position, not the wallet's.
         action = {
             "type": "closePosition",
             "asset": asset,
-            "user": self.address,
+            "user": vault_address or self.address,
         }
 
         result = self._build_sign_send(
@@ -1806,7 +1808,9 @@ class HyperliquidSDK:
         Returns:
             Exchange response
         """
-        orders = self.open_orders()
+        # When cancelling on behalf of a vault, enumerate the vault's open
+        # orders, not the wallet's.
+        orders = self.open_orders(vault_address)
 
         if not orders["orders"]:
             return {"message": "No orders to cancel"}

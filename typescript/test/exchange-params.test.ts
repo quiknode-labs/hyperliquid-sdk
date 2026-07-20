@@ -161,6 +161,27 @@ describe('vaultAddress / expiresAfter threading', () => {
     expect(calls[1].expiresAfter).toBe(EXPIRES);
   });
 
+  it('cancelAll() enumerates the vault orders, not the wallet', async () => {
+    const sdk = makeSdk();
+    const openOrdersUsers: Array<string | undefined> = [];
+    sdk.openOrders = async (user?: string) => {
+      openOrdersUsers.push(user);
+      return {
+        orders: [{ oid: 1 }],
+        cancelActions: { all: { type: 'cancel', cancels: [{ a: 0, o: 1 }] } },
+      };
+    };
+    const { calls, restore } = mockExchangeFetch();
+    try {
+      await sdk.cancelAll(undefined, { vaultAddress: VAULT });
+    } finally {
+      restore();
+    }
+
+    expect(openOrdersUsers).toEqual([VAULT]);
+    expect(calls[0].vaultAddress).toBe(VAULT);
+  });
+
   it('rejects a non-integer expiresAfter before any network call', async () => {
     const sdk = makeSdk();
     const { calls, restore } = mockExchangeFetch();

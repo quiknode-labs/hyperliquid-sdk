@@ -1472,7 +1472,9 @@ export class HyperliquidSDK {
     asset?: string,
     options: { fast?: boolean; vaultAddress?: string; expiresAfter?: number } = {}
   ): Promise<Record<string, unknown>> {
-    const orders = await this.openOrders();
+    // When cancelling on behalf of a vault, enumerate the vault's open orders,
+    // not the wallet's.
+    const orders = await this.openOrders(options.vaultAddress);
 
     if (!orders.orders || (orders.orders as unknown[]).length === 0) {
       return { message: 'No orders to cancel' };
