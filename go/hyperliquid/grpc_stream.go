@@ -301,24 +301,40 @@ func (s *GRPCStream) RawTrades(coins []string, callback func(map[string]any), op
 }
 
 // Orders subscribes to order stream.
+// The trailing users variadic predates StreamOption; use OrdersWithOptions to
+// combine user filters with options such as StreamWithStartBlock.
 func (s *GRPCStream) Orders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
+	return s.OrdersWithOptions(coins, users, callback)
+}
+
+// OrdersWithOptions subscribes to the order stream with user filters and
+// StreamOptions (e.g. StreamWithStartBlock).
+func (s *GRPCStream) OrdersWithOptions(coins []string, users []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
 	return s.addSubscription(grpcSubscription{
 		streamType: "ORDERS",
 		callback:   callback,
 		coins:      coins,
 		users:      users,
-	}, nil)
+	}, opts)
 }
 
 // RawOrders subscribes to raw order blocks.
+// The trailing users variadic predates StreamOption; use RawOrdersWithOptions to
+// combine user filters with options such as StreamWithStartBlock.
 func (s *GRPCStream) RawOrders(coins []string, callback func(map[string]any), users ...string) *GRPCStream {
+	return s.RawOrdersWithOptions(coins, users, callback)
+}
+
+// RawOrdersWithOptions subscribes to raw order blocks with user filters and
+// StreamOptions (e.g. StreamWithStartBlock).
+func (s *GRPCStream) RawOrdersWithOptions(coins []string, users []string, callback func(map[string]any), opts ...StreamOption) *GRPCStream {
 	return s.addSubscription(grpcSubscription{
 		streamType: "ORDERS",
 		callback:   callback,
 		coins:      coins,
 		users:      users,
 		raw:        true,
-	}, nil)
+	}, opts)
 }
 
 // BookUpdates subscribes to order book updates.

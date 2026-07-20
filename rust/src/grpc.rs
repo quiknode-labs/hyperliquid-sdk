@@ -1649,13 +1649,16 @@ impl GRPCStream {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn connect_and_stream(
         host: &str,
         token: &str,
         subscriptions: &Arc<RwLock<HashMap<u32, GRPCSubscriptionInfo>>>,
         callbacks: &Arc<RwLock<ValueCallbackMap>>,
         bytes_callbacks: &Arc<RwLock<BytesCallbackMap>>,
+        last_seen_blocks: &Arc<RwLock<LastSeenBlockMap>>,
         running: &Arc<AtomicBool>,
+        is_reconnect: bool,
         stop_rx: &mut mpsc::Receiver<()>,
     ) -> Result<()> {
         if host.is_empty() {
@@ -1690,6 +1693,14 @@ impl GRPCStream {
             let callbacks = callbacks.clone();
             let bytes_callbacks = bytes_callbacks.clone();
             let running = running.clone();
+            // Per-subscription highest-block cursor, shared across reconnects so
+            // resumable streams don't replay already-delivered blocks.
+            let last_seen = {
+                let mut map = last_seen_blocks.write();
+                map.entry(sub_id)
+                    .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+                    .clone()
+            };
 
             let handle = tokio::spawn(async move {
                 match sub_info.stream_type {
@@ -1719,7 +1730,13 @@ impl GRPCStream {
                     }
                     GRPCStreamType::L2BookDiff => {
                         Self::stream_l2_book_diff(
-                            channel, &token, sub_id, &sub_info, &callbacks, &running,
+                            channel,
+                            &token,
+                            sub_id,
+                            &sub_info,
+                            &callbacks,
+                            &running,
+                            is_reconnect,
                         )
                         .await
                     }
@@ -1758,12 +1775,23 @@ impl GRPCStream {
                             &sub_info,
                             &bytes_callbacks,
                             &running,
+                            &last_seen,
+                            is_reconnect,
                         )
                         .await
                     }
                     _ => {
-                        Self::stream_data(channel, &token, sub_id, &sub_info, &callbacks, &running)
-                            .await
+                        Self::stream_data(
+                            channel,
+                            &token,
+                            sub_id,
+                            &sub_info,
+                            &callbacks,
+                            &running,
+                            &last_seen,
+                            is_reconnect,
+                        )
+                        .await
                     }
                 }
             });
@@ -1814,7 +1842,16 @@ impl GRPCStream {
         }
     }
 
-    fn build_subscribe_request(sub_info: &GRPCSubscriptionInfo) -> SubscribeRequest {
+    /// Build the StreamSubscribe request. On the first connect the user's
+    /// original `start_block` (or unset) is sent verbatim. On reconnects, if a
+    /// start_block was set, the cursor advances past the highest block already
+    /// delivered so transient disconnects don't replay processed blocks. An
+    /// unset start_block always stays unset (tip-following semantics).
+    fn build_subscribe_request(
+        sub_info: &GRPCSubscriptionInfo,
+        is_reconnect: bool,
+        last_seen_block: u64,
+    ) -> SubscribeRequest {
         let mut filters = HashMap::new();
         if !sub_info.coins.is_empty() {
             filters.insert(
@@ -1833,11 +1870,19 @@ impl GRPCStream {
             );
         }
 
+        let start_block = match sub_info.start_block {
+            Some(orig) if is_reconnect && last_seen_block > 0 => {
+                orig.max(last_seen_block.saturating_add(1))
+            }
+            Some(orig) => orig,
+            None => 0,
+        };
+
         SubscribeRequest {
             request: Some(proto::subscribe_request::Request::Subscribe(
                 StreamSubscribe {
                     stream_type: sub_info.stream_type.to_proto(),
-                    start_block: sub_info.start_block.unwrap_or_default(),
+                    start_block,
                     filters,
                     filter_name: String::new(),
                 },
@@ -1845,6 +1890,7 @@ impl GRPCStream {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn stream_data(
         channel: Channel,
         token: &str,
@@ -1852,6 +1898,8 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         callbacks: &Arc<RwLock<ValueCallbackMap>>,
         running: &Arc<AtomicBool>,
+        last_seen: &Arc<AtomicU64>,
+        is_reconnect: bool,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = StreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
@@ -1860,7 +1908,8 @@ impl GRPCStream {
         });
 
         // Build subscribe request
-        let subscribe_req = Self::build_subscribe_request(sub_info);
+        let subscribe_req =
+            Self::build_subscribe_request(sub_info, is_reconnect, last_seen.load(Ordering::Relaxed));
 
         // Create bidirectional stream
         let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -1911,6 +1960,7 @@ impl GRPCStream {
             match inbound.message().await {
                 Ok(Some(update)) => {
                     if let Some(proto::subscribe_update::Update::Data(data)) = update.update {
+                        last_seen.fetch_max(data.block_number, Ordering::Relaxed);
                         // Parse the JSON data
                         if let Ok(parsed) = serde_json::from_str::<Value>(&data.data) {
                             if sub_info.raw {
@@ -2026,6 +2076,7 @@ impl GRPCStream {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn stream_data_bytes(
         channel: Channel,
         token: &str,
@@ -2033,6 +2084,8 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         bytes_callbacks: &Arc<RwLock<BytesCallbackMap>>,
         running: &Arc<AtomicBool>,
+        last_seen: &Arc<AtomicU64>,
+        is_reconnect: bool,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client = StreamingClient::with_interceptor(channel, move |mut req: Request<()>| {
@@ -2041,7 +2094,8 @@ impl GRPCStream {
         });
 
         // Build subscribe request
-        let subscribe_req = Self::build_subscribe_request(sub_info);
+        let subscribe_req =
+            Self::build_subscribe_request(sub_info, is_reconnect, last_seen.load(Ordering::Relaxed));
 
         // Create bidirectional stream
         let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -2093,6 +2147,7 @@ impl GRPCStream {
                 Ok(Some(update)) => {
                     if let Some(proto::subscribe_bytes_update::Update::Data(data)) = update.update
                     {
+                        last_seen.fetch_max(data.block_number, Ordering::Relaxed);
                         if let Some(cb) = bytes_callbacks.read().get(&sub_id) {
                             cb(data);
                         }
@@ -2469,6 +2524,7 @@ impl GRPCStream {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn stream_l2_book_diff(
         channel: Channel,
         token: &str,
@@ -2476,6 +2532,7 @@ impl GRPCStream {
         sub_info: &GRPCSubscriptionInfo,
         callbacks: &Arc<RwLock<ValueCallbackMap>>,
         running: &Arc<AtomicBool>,
+        is_reconnect: bool,
     ) -> Result<()> {
         let token_value: MetadataValue<_> = token.parse().unwrap();
         let mut client =
@@ -2489,7 +2546,13 @@ impl GRPCStream {
             n_levels: sub_info.n_levels.unwrap_or(20),
             n_sig_figs: sub_info.n_sig_figs,
             mantissa: sub_info.mantissa,
-            skip_initial_snapshot: sub_info.skip_initial_snapshot,
+            // skip_initial_snapshot only applies to the first connect: after a
+            // reconnect the snapshot is required so the local book can resync.
+            skip_initial_snapshot: if is_reconnect {
+                false
+            } else {
+                sub_info.skip_initial_snapshot
+            },
         };
 
         let response = match client.stream_l2_book_diff(request).await {
@@ -3025,7 +3088,7 @@ mod tests {
         assert!(!info.bytes);
 
         // Coin filter is carried via the generic filters map.
-        let req = GRPCStream::build_subscribe_request(info);
+        let req = GRPCStream::build_subscribe_request(info, false, 0);
         let Some(proto::subscribe_request::Request::Subscribe(sub_msg)) = req.request else {
             panic!("expected subscribe request");
         };
@@ -3051,11 +3114,59 @@ mod tests {
         let info = subs.get(&sub.id).unwrap();
         assert_eq!(info.start_block, Some(123_456));
 
-        let req = GRPCStream::build_subscribe_request(info);
+        let req = GRPCStream::build_subscribe_request(info, false, 0);
         let Some(proto::subscribe_request::Request::Subscribe(sub_msg)) = req.request else {
             panic!("expected subscribe request");
         };
         assert_eq!(sub_msg.start_block, 123_456);
+    }
+
+    #[test]
+    fn reconnect_advances_start_block_cursor() {
+        let mut stream = GRPCStream::new(None);
+        let sub = stream.trades_with_options(
+            &["BTC"],
+            GRPCSubscriptionOptions {
+                start_block: Some(100),
+            },
+            |_| {},
+        );
+
+        let subs = stream.subscriptions.read();
+        let info = subs.get(&sub.id).unwrap();
+
+        let extract = |req: SubscribeRequest| -> u64 {
+            let Some(proto::subscribe_request::Request::Subscribe(sub_msg)) = req.request else {
+                panic!("expected subscribe request");
+            };
+            sub_msg.start_block
+        };
+
+        // First connect: the user's original start_block, even if data flowed before.
+        assert_eq!(extract(GRPCStream::build_subscribe_request(info, false, 500)), 100);
+        // Reconnect after seeing block 500: resume past it.
+        assert_eq!(extract(GRPCStream::build_subscribe_request(info, true, 500)), 501);
+        // Reconnect before any data: keep the original.
+        assert_eq!(extract(GRPCStream::build_subscribe_request(info, true, 0)), 100);
+        // Reconnect where the original is still ahead of last-seen: keep the original.
+        assert_eq!(extract(GRPCStream::build_subscribe_request(info, true, 50)), 100);
+    }
+
+    #[test]
+    fn reconnect_keeps_unset_start_block_unset() {
+        let mut stream = GRPCStream::new(None);
+        let sub = stream.trades(&["BTC"], |_| {});
+
+        let subs = stream.subscriptions.read();
+        let info = subs.get(&sub.id).unwrap();
+        assert_eq!(info.start_block, None);
+
+        // Tip-following subscriptions never grow a cursor on reconnect.
+        let req = GRPCStream::build_subscribe_request(info, true, 12_345);
+        let Some(proto::subscribe_request::Request::Subscribe(sub_msg)) = req.request else {
+            panic!("expected subscribe request");
+        };
+        assert_eq!(sub_msg.start_block, 0);
     }
 
     #[test]

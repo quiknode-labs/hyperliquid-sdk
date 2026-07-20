@@ -442,7 +442,10 @@ Generic streams accept `StreamOption`s: `StreamWithStartBlock(block)` starts the
 stream from a specific block number (**note:** not yet supported server-side —
 streams currently always begin at the live tip; the option is wired through so
 resume works automatically once server support ships);
-`StreamWithCoins(...)`/`StreamWithUsers(...)` set filters for `StreamBytes`. `L2BookOption`s: `L2BookNLevels(n)`,
+`StreamWithCoins(...)`/`StreamWithUsers(...)` set filters for `StreamBytes`.
+`Orders`/`RawOrders` keep their legacy `users ...string` signature; use
+`OrdersWithOptions(coins, users, callback, opts...)` /
+`RawOrdersWithOptions(...)` to combine user filters with `StreamOption`s. `L2BookOption`s: `L2BookNLevels(n)`,
 `L2BookNSigFigs(n)`, `L2BookMantissa(m)`, and `L2BookSkipInitialSnapshot()`
 (L2BookDiff only).
 

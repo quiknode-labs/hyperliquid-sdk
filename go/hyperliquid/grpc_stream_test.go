@@ -113,6 +113,41 @@ func TestGRPCStartBlockOption(t *testing.T) {
 	}
 }
 
+// Test that OrdersWithOptions/RawOrdersWithOptions accept StreamOptions and
+// plumb both user filters and startBlock into the subscribe request.
+func TestGRPCOrdersWithOptionsStartBlock(t *testing.T) {
+	s := NewGRPCStream("https://x.quiknode.pro/token", nil)
+	s.OrdersWithOptions([]string{"BTC"}, []string{"0xabc"}, noopCallback, StreamWithStartBlock(4242))
+	s.RawOrdersWithOptions(nil, nil, noopCallback, StreamWithStartBlock(777))
+
+	req := buildSubscribeRequest(s.subscriptions[0], false, 0)
+	sub := req.GetSubscribe()
+	if sub == nil {
+		t.Fatal("expected subscribe request")
+	}
+	if sub.StreamType != pb.StreamType_ORDERS {
+		t.Errorf("StreamType = %v, want ORDERS", sub.StreamType)
+	}
+	if sub.StartBlock != 4242 {
+		t.Errorf("StartBlock = %d, want 4242", sub.StartBlock)
+	}
+	if users := sub.Filters["user"]; users == nil || len(users.Values) != 1 || users.Values[0] != "0xabc" {
+		t.Errorf("Filters[user] = %v, want [0xabc]", users)
+	}
+	if !s.subscriptions[1].raw {
+		t.Error("RawOrdersWithOptions subscription not marked raw")
+	}
+	if s.subscriptions[1].startBlock != 777 {
+		t.Errorf("RawOrders startBlock = %d, want 777", s.subscriptions[1].startBlock)
+	}
+
+	// The legacy variadic signatures still work and stay option-free.
+	s.Orders([]string{"ETH"}, noopCallback, "0xdef")
+	if s.subscriptions[2].startBlock != 0 {
+		t.Errorf("legacy Orders startBlock = %d, want 0", s.subscriptions[2].startBlock)
+	}
+}
+
 // Test reconnect start_block semantics: the first connect sends the user's
 // original startBlock, reconnects resume past the highest block already
 // delivered, and an unset startBlock stays unset (tip-following).
