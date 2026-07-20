@@ -782,13 +782,15 @@ func (s *GRPCStream) streamData(sub grpcSubscription) {
 			}
 
 			if data := resp.GetData(); data != nil {
-				if data.BlockNumber > lastSeenBlock {
-					lastSeenBlock = data.BlockNumber
-				}
-
 				var parsed map[string]any
 				if err := json.Unmarshal([]byte(data.Data), &parsed); err != nil {
 					continue
+				}
+				// Advance the resume cursor only after the payload decoded, so a
+				// block that failed to parse is re-requested on reconnect
+				// instead of being skipped permanently.
+				if data.BlockNumber > lastSeenBlock {
+					lastSeenBlock = data.BlockNumber
 				}
 
 				if sub.raw {
@@ -935,10 +937,12 @@ func (s *GRPCStream) streamDataBytes(sub grpcSubscription) {
 			}
 
 			if data := resp.GetData(); data != nil {
+				sub.bytesCallback(data.BlockNumber, data.Timestamp, data.Data)
+				// Cursor advances only after delivery so reconnects never skip
+				// an undelivered block.
 				if data.BlockNumber > lastSeenBlock {
 					lastSeenBlock = data.BlockNumber
 				}
-				sub.bytesCallback(data.BlockNumber, data.Timestamp, data.Data)
 			}
 		}
 	}

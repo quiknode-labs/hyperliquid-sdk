@@ -993,10 +993,13 @@ class GRPCStream:
 
                     if response.HasField('data'):
                         block_number = response.data.block_number
-                        if block_number > sub.get("_last_seen_block", 0):
-                            sub["_last_seen_block"] = block_number
                         try:
                             data = json.loads(response.data.data)
+                            # Advance the resume cursor only after the payload
+                            # parsed, so a corrupt block is re-requested on
+                            # reconnect instead of skipped permanently.
+                            if block_number > sub.get("_last_seen_block", 0):
+                                sub["_last_seen_block"] = block_number
                             timestamp = response.data.timestamp
 
                             if sub.get("raw"):
@@ -1354,14 +1357,16 @@ class GRPCStream:
 
                     if response.HasField('data'):
                         block_number = response.data.block_number
-                        if block_number > sub.get("_last_seen_block", 0):
-                            sub["_last_seen_block"] = block_number
                         # Fast path: hand the payload bytes through unparsed
                         self._safe_callback(callback, {
                             "block_number": block_number,
                             "timestamp": response.data.timestamp,
                             "data": response.data.data,
                         })
+                        # Cursor advances only after delivery so reconnects
+                        # never skip an undelivered block.
+                        if block_number > sub.get("_last_seen_block", 0):
+                            sub["_last_seen_block"] = block_number
                     elif response.HasField('pong'):
                         logger.debug(f"Pong received: {response.pong.timestamp}")
 

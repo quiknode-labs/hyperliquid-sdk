@@ -1960,9 +1960,11 @@ impl GRPCStream {
             match inbound.message().await {
                 Ok(Some(update)) => {
                     if let Some(proto::subscribe_update::Update::Data(data)) = update.update {
-                        last_seen.fetch_max(data.block_number, Ordering::Relaxed);
-                        // Parse the JSON data
+                        // Parse the JSON data. The resume cursor advances only
+                        // after a successful parse, so a corrupt block is
+                        // re-requested on reconnect instead of skipped.
                         if let Ok(parsed) = serde_json::from_str::<Value>(&data.data) {
+                            last_seen.fetch_max(data.block_number, Ordering::Relaxed);
                             if sub_info.raw {
                                 let mut data_with_meta =
                                     parsed.as_object().cloned().unwrap_or_default();
@@ -2147,10 +2149,13 @@ impl GRPCStream {
                 Ok(Some(update)) => {
                     if let Some(proto::subscribe_bytes_update::Update::Data(data)) = update.update
                     {
-                        last_seen.fetch_max(data.block_number, Ordering::Relaxed);
+                        let block_number = data.block_number;
                         if let Some(cb) = bytes_callbacks.read().get(&sub_id) {
                             cb(data);
                         }
+                        // Cursor advances only after delivery so reconnects
+                        // never skip an undelivered block.
+                        last_seen.fetch_max(block_number, Ordering::Relaxed);
                     }
                 }
                 Ok(None) => break,

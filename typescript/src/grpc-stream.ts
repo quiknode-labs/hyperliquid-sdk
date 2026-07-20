@@ -719,11 +719,13 @@ export class GRPCStream {
     // Handle incoming data
     stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: string }; pong?: { timestamp: number } }) => {
       if (response.data) {
-        if (sub.startBlock !== undefined) {
-          this._trackLastSeenBlock(sub, response.data.block_number);
-        }
         try {
           const parsed = JSON.parse(response.data.data);
+          // Advance the resume cursor only after the payload parsed, so a
+          // corrupt block is re-requested on reconnect instead of skipped.
+          if (sub.startBlock !== undefined) {
+            this._trackLastSeenBlock(sub, response.data.block_number);
+          }
           const blockNumber = response.data.block_number;
           const timestamp = response.data.timestamp;
 
@@ -852,13 +854,15 @@ export class GRPCStream {
     // Handle incoming data
     stream.on('data', (response: { data?: { block_number: number; timestamp: number; data: Uint8Array }; pong?: { timestamp: number } }) => {
       if (response.data) {
-        if (sub.startBlock !== undefined) {
-          this._trackLastSeenBlock(sub, response.data.block_number);
-        }
         try {
           sub.callback(response.data as unknown as Record<string, unknown>);
         } catch {
           // Ignore callback errors
+        }
+        // Cursor advances only after delivery so reconnects never skip an
+        // undelivered block.
+        if (sub.startBlock !== undefined) {
+          this._trackLastSeenBlock(sub, response.data.block_number);
         }
       }
     });
