@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+          registry-url: https://registry.npmjs.org
+
       - name: Assert tag matches package.json version
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#typescript/v}"
@@ -27,13 +34,6 @@ jobs:
             exit 1
           fi
           echo "Version check OK: $PKG_VERSION"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: typescript/package-lock.json
-          registry-url: https://registry.npmjs.org
 
       - run: npm ci
       - run: npm run typecheck
