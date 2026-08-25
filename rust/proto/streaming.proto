@@ -45,11 +45,24 @@ message StreamSubscribe {
   // Allows multiple independent filters per stream (OR logic)
   string filter_name = 4;
 
-  // Field 5 is held for per-subscription enrichment options.
+  // Opt-in payload enrichment for this stream type (TRADES/ORDERS only).
+  // One setting per (connection, stream type); the latest accepted subscribe
+  // wins. Requires signer enrichment to be enabled on the server.
+  EnrichmentOptions enrichment = 5;
 
   // Optional client-chosen tag echoed on every update for this stream type.
   // One tag per (connection, stream type); the latest subscribe wins.
   string subscription_id = 6;
+}
+
+// Server-side enrichment of event payloads.
+message EnrichmentOptions {
+  // Add "signer": the wallet that actually SUBMITTED the order (the master
+  // itself, or the approved API/agent wallet that signed on its behalf),
+  // recovered from the action's signature. Events with no originating signed
+  // transaction (trigger fires, liquidations, TWAP children) carry
+  // "signer": null. Payloads are re-serialized when enrichment is on.
+  bool include_signer = 1;
 }
 
 // Container for filter values
