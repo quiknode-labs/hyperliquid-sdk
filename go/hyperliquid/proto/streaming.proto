@@ -34,11 +34,22 @@ message StreamSubscribe {
   // Generic filters - field name to allowed values
   // Recursively searches each event for matching field/value pairs
   // Example: {"coin": ["ETH", "BTC"], "user": ["0x123..."], "type": ["deposit"]}
+  //
+  // Reserved server-resolved keys (not matched against event JSON):
+  //   "venue"/"deployer": select all markets of a HIP-4 outcome venue or
+  //   HIP-3 dex by its name, or by its deployer address. Expanded to the
+  //   venue's coin set server-side; unknown venues match nothing.
   map<string, FilterValues> filters = 3;
 
   // Optional name for this filter
   // Allows multiple independent filters per stream (OR logic)
   string filter_name = 4;
+
+  // Field 5 is held for per-subscription enrichment options.
+
+  // Optional client-chosen tag echoed on every update for this stream type.
+  // One tag per (connection, stream type); the latest subscribe wins.
+  string subscription_id = 6;
 }
 
 // Container for filter values
@@ -67,9 +78,17 @@ message SubscribeBytesUpdate {
 message StreamResponse {
   uint64 block_number = 1;
   uint64 timestamp = 2; // Server ingress timestamp
-  
+
   // Raw JSON data from the file (Exact replica of source)
   string data = 3;
+
+  // Which subscription this update belongs to. Always populated by servers
+  // that support it; UNKNOWN when the server predates this field.
+  StreamType stream_type = 4;
+
+  // Echo of StreamSubscribe.subscription_id for this stream type. Empty when
+  // the client did not set one or the server predates this field.
+  string subscription_id = 5;
 }
 
 message StreamBytesResponse {
@@ -78,6 +97,12 @@ message StreamBytesResponse {
 
   // Raw payload bytes. Fast-path clients should prefer this over StreamResponse.data.
   bytes data = 3;
+
+  // Which subscription this update belongs to (see StreamResponse.stream_type).
+  StreamType stream_type = 4;
+
+  // Echo of StreamSubscribe.subscription_id (see StreamResponse.subscription_id).
+  string subscription_id = 5;
 }
 
 // --- Data Types ---
